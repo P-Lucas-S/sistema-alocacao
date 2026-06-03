@@ -14,103 +14,14 @@ model User {
   passwordHash String   @map("password_hash") @db.VarChar(255)
   role         String   @db.VarChar(50)
   position     String   @db.VarChar(255)
-  brands       String   @default("[]") @db.VarChar(2000)
   avatarUrl    String?  @map("avatar_url") @db.LongText
   createdAt    DateTime @default(now()) @map("created_at")
 
-  assignedTasks  Task[]          @relation("TaskAssignee")
-  createdTasks   Task[]          @relation("TaskCreator")
-  steps          TaskStep[]
-  timeEntries    TimeEntry[]
-  comments       Comment[]
-  notifications  Notification[]
+  notifications     Notification[]
   pushSubscriptions PushSubscription[]
-  taskHistory    TaskHistory[]
-  passwordResets PasswordReset[]
+  passwordResets    PasswordReset[]
 
   @@map("users")
-}
-
-model Task {
-  id               String    @id @db.VarChar(191)
-  title            String    @db.VarChar(255)
-  description      String?   @db.Text
-  deadline         DateTime?
-  type             String    @db.VarChar(100)
-  status           String    @db.VarChar(50)
-  assigneeId       String?   @map("assignee_id") @db.VarChar(191)
-  creatorId        String    @map("creator_id") @db.VarChar(191)
-  createdAt        DateTime  @default(now()) @map("created_at")
-  network          String?   @db.VarChar(255)
-  placement        String?   @db.VarChar(255)
-  format           String?   @db.VarChar(255)
-  sector           String?   @db.VarChar(255)
-  direction        String?   @db.VarChar(255)
-  reference        String?   @db.Text
-  referenceFiles   String?   @map("reference_files") @db.LongText
-  materialType     String?   @map("material_type") @db.VarChar(100)
-  rejectionReason  String?   @map("rejection_reason") @db.Text
-  currentStepIndex Int       @default(0) @map("current_step_index")
-  priority         String    @default("normal") @db.VarChar(50)
-  brand            String?   @db.VarChar(255)
-
-  assignee    User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  creator     User          @relation("TaskCreator", fields: [creatorId], references: [id])
-  steps       TaskStep[]
-  timeEntries TimeEntry[]
-  comments    Comment[]
-  history     TaskHistory[]
-  tags        TaskTag[]
-
-  @@map("tasks")
-}
-
-model TaskStep {
-  id           String    @id @db.VarChar(191)
-  taskId       String    @map("task_id") @db.VarChar(191)
-  userId       String    @map("user_id") @db.VarChar(191)
-  stepOrder    Int       @map("step_order")
-  status       String    @default("pending") @db.VarChar(50)
-  completedAt  DateTime? @map("completed_at")
-  instruction  String?   @db.Text
-  materialLink String?   @map("material_link") @db.VarChar(500)
-  comments     String?   @db.Text
-  pieces       Int       @default(0)
-
-  task Task @relation(fields: [taskId], references: [id])
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("task_steps")
-}
-
-model TimeEntry {
-  id          String    @id @db.VarChar(191)
-  taskId      String    @map("task_id") @db.VarChar(191)
-  userId      String    @map("user_id") @db.VarChar(191)
-  startTime   DateTime  @map("start_time")
-  endTime     DateTime? @map("end_time")
-  duration    Int       @default(0)
-  pauseReason String?   @map("pause_reason") @db.Text
-  status      String    @db.VarChar(50)
-  createdAt   DateTime  @default(now()) @map("created_at")
-
-  task Task @relation(fields: [taskId], references: [id])
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("time_entries")
-}
-
-model Comment {
-  id        String   @id @db.VarChar(191)
-  taskId    String   @map("task_id") @db.VarChar(191)
-  userId    String   @map("user_id") @db.VarChar(191)
-  content   String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-
-  task Task @relation(fields: [taskId], references: [id])
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("comments")
 }
 
 model Notification {
@@ -143,42 +54,6 @@ model PushSubscription {
   @@map("push_subscriptions")
 }
 
-model TaskHistory {
-  id        String   @id @db.VarChar(191)
-  taskId    String   @map("task_id") @db.VarChar(191)
-  userId    String   @map("user_id") @db.VarChar(191)
-  action    String   @db.VarChar(255)
-  details   String?  @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-
-  task Task @relation(fields: [taskId], references: [id])
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("task_history")
-}
-
-model Tag {
-  id        String   @id @db.VarChar(191)
-  name      String   @db.VarChar(255)
-  color     String   @default("#6366f1") @db.VarChar(50)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  tasks TaskTag[]
-
-  @@map("tags")
-}
-
-model TaskTag {
-  taskId String @map("task_id") @db.VarChar(191)
-  tagId  String @map("tag_id") @db.VarChar(191)
-
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([taskId, tagId])
-  @@map("task_tags")
-}
-
 model PasswordReset {
   id        String   @id @db.VarChar(191)
   userId    String   @map("user_id") @db.VarChar(191)
@@ -190,25 +65,4 @@ model PasswordReset {
   user User @relation(fields: [userId], references: [id])
 
   @@map("password_resets")
-}
-
-model Platform {
-  id        String   @id @db.VarChar(191)
-  name      String   @db.VarChar(255)
-  color     String   @default("#000000") @db.VarChar(50)
-  icon      String?  @db.LongText
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("platforms")
-}
-
-model Brand {
-  id        String   @id @db.VarChar(191)
-  name      String   @db.VarChar(255)
-  color     String   @default("#6366f1") @db.VarChar(50)
-  logoUrl   String?  @map("logo_url") @db.LongText
-  iconUrl   String?  @map("icon_url") @db.LongText
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("brands")
 }

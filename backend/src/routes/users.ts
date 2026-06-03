@@ -1,29 +1,26 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
-import { authenticate, AuthRequest, requireAdmin } from '../middleware/auth.js';
+import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
 
 const router = express.Router();
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
-      select: { id: true, name: true, email: true, role: true, position: true, brands: true, avatarUrl: true },
+      select: { id: true, name: true, email: true, role: true, position: true, avatarUrl: true },
     });
-    res.json(users.map(u => ({
-      ...u,
-      brands: (() => { try { return JSON.parse(u.brands || '[]'); } catch { return []; } })(),
-    })));
-  } catch (error) {
+    res.json(users);
+  } catch {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+router.post('/', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
   try {
-    const { name, email, password, role, position, brands } = req.body;
+    const { name, email, password, role, position } = req.body;
 
     if (!name || !email || !password || !role) {
       return res.status(400).json({ error: 'name, email, password and role are required' });
@@ -36,19 +33,16 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const id = generateId();
-    const brandsJson = JSON.stringify(Array.isArray(brands) ? brands : []);
 
     await prisma.user.create({
-      data: { id, name, email, passwordHash, role, position: position || '', brands: brandsJson },
+      data: { id, name, email, passwordHash, role, position: position || '' },
     });
 
-    // Send welcome email with credentials (non-blocking)
     const emailResult = await sendWelcomeEmail({ name, email, password, role, position });
 
     res.status(201).json({
       id, name, email, role,
       position: position || '',
-      brands: JSON.parse(brandsJson),
       emailSent: emailResult.success,
       emailError: emailResult.error,
     });
@@ -58,39 +52,32 @@ router.post('/', authenticate, requireAdmin, async (req: AuthRequest, res) => {
   }
 });
 
-router.put('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+router.put('/:id', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { role, position, brands } = req.body;
+    const { role, position } = req.body;
 
     const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
 
     const updateData: Record<string, unknown> = {};
     if (role) updateData.role = role;
     if (position !== undefined) updateData.position = position;
-    if (brands !== undefined) updateData.brands = JSON.stringify(Array.isArray(brands) ? brands : []);
 
     await prisma.user.update({ where: { id }, data: updateData });
 
     const updated = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true, email: true, role: true, position: true, brands: true, avatarUrl: true },
+      select: { id: true, name: true, email: true, role: true, position: true, avatarUrl: true },
     });
-
-    res.json({
-      ...updated,
-      brands: (() => { try { return JSON.parse(updated!.brands || '[]'); } catch { return []; } })(),
-    });
+    res.json(updated);
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+router.delete('/:id', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -99,12 +86,9 @@ router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) 
     }
 
     const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
 
     await prisma.user.delete({ where: { id } });
-
     res.json({ message: 'Usuário excluído com sucesso' });
   } catch (error) {
     console.error('Delete user error:', error);
@@ -112,7 +96,7 @@ router.delete('/:id', authenticate, requireAdmin, async (req: AuthRequest, res) 
   }
 });
 
-router.post('/:id/reset-password', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+router.post('/:id/reset-password', authenticate, requireRole('admin'), async (req: AuthRequest, res) => {
   try {
     const { newPassword } = req.body;
     const { id } = req.params;
@@ -122,13 +106,10 @@ router.post('/:id/reset-password', authenticate, requireAdmin, async (req: AuthR
     }
 
     const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
-    }
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({ where: { id }, data: { passwordHash } });
-
     res.json({ message: 'Senha redefinida com sucesso' });
   } catch (error) {
     console.error('Reset password error:', error);

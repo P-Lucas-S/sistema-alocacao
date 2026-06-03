@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useBrand } from '../context/BrandContext';
-import { UserPlus, Users, Shield, Briefcase, Mail, X, Tag, KeyRound, UserCheck, Eye, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { UserPlus, Users, Shield, Briefcase, Mail, X, KeyRound, UserCheck, Eye, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+
 
 const COLORS = ['#818cf8','#34d399','#fb923c','#f472b6','#60a5fa','#a78bfa','#2dd4bf'];
 const avatarColor = (name: string) => COLORS[name.charCodeAt(0) % COLORS.length];
@@ -10,9 +10,9 @@ const initials = (name: string) => name.split(' ').slice(0, 2).map(n => n[0]).jo
 const PREDEFINED_POSITIONS = ['Designer', 'Redator', 'Editor de Vídeo', 'Motion Designer'];
 
 const ROLE_CONFIG: Record<string, { label: string; icon: React.ReactNode; bg: string; color: string }> = {
-  admin:        { label: 'Admin',        icon: <Shield size={10} className="inline mr-0.5" />,    bg: 'hsl(265 90% 60% / 0.15)', color: '#a78bfa' },
-  colaborador:  { label: 'Colaborador',  icon: <UserCheck size={10} className="inline mr-0.5" />, bg: 'hsl(142 71% 45% / 0.15)', color: '#4ade80' },
-  solicitante:  { label: 'Solicitante',  icon: <Eye size={10} className="inline mr-0.5" />,       bg: 'hsl(210 90% 56% / 0.15)', color: '#60a5fa' },
+  admin:       { label: 'Admin',       icon: <Shield size={10} className="inline mr-0.5" />,    bg: 'hsl(265 90% 60% / 0.15)', color: '#a78bfa' },
+  gestor:      { label: 'Gestor',      icon: <UserCheck size={10} className="inline mr-0.5" />, bg: 'hsl(38 92% 50% / 0.15)',  color: '#fbbf24' },
+  coordenacao: { label: 'Coordenação', icon: <Eye size={10} className="inline mr-0.5" />,       bg: 'hsl(210 90% 56% / 0.15)', color: '#60a5fa' },
 };
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -57,28 +57,23 @@ export default function Team() {
   const [users, setUsers]         = useState<any[]>([]);
   const [loading, setLoading]     = useState(true);
   const [isModalOpen, setIsOpen]  = useState(false);
-  const { brands }                = useBrand();
   const [name, setName]           = useState('');
   const [email, setEmail]         = useState('');
   const [password, setPassword]   = useState('');
-  const [role, setRole]           = useState('colaborador');
+  const [role, setRole]           = useState('gestor');
   const [position, setPosition]   = useState('');
   const [customPosition, setCustomPosition] = useState('');
-  const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
   const [error, setError]         = useState('');
   const [resetTarget, setResetTarget]       = useState<any>(null);
   const [newPassword, setNewPassword]       = useState('');
   const [resetSuccess, setResetSuccess]     = useState('');
   const [emailFeedback, setEmailFeedback]   = useState<{ type: 'success' | 'warning'; message: string } | null>(null);
 
-  // Edit modal state
   const [editTarget, setEditTarget]         = useState<any>(null);
   const [editRole, setEditRole]             = useState('');
   const [editPosition, setEditPosition]     = useState('');
   const [editCustomPosition, setEditCustomPosition] = useState('');
-  const [editBrands, setEditBrands]         = useState<string[]>([]);
 
-  // Delete confirm state
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   useEffect(() => { fetchUsers(); }, [token]);
@@ -90,10 +85,7 @@ export default function Team() {
     } finally { setLoading(false); }
   };
 
-  const getEffectivePosition = () => {
-    if (position === '__custom__') return customPosition;
-    return position;
-  };
+  const getEffectivePosition = () => position === '__custom__' ? customPosition : position;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,14 +94,13 @@ export default function Team() {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name, email, password, role, position: getEffectivePosition(), brands: selectedBrands }),
+        body: JSON.stringify({ name, email, password, role, position: getEffectivePosition() }),
       });
       if (res.ok) {
         const data = await res.json();
         setIsOpen(false);
-        setName(''); setEmail(''); setPassword(''); setRole('colaborador'); setPosition(''); setCustomPosition(''); setSelectedBrands([]);
+        setName(''); setEmail(''); setPassword(''); setRole('gestor'); setPosition(''); setCustomPosition('');
         fetchUsers();
-
         if (data.emailSent) {
           setEmailFeedback({ type: 'success', message: `Email de boas-vindas enviado para ${data.email}` });
         } else {
@@ -150,14 +141,10 @@ export default function Team() {
     const isPredefined = PREDEFINED_POSITIONS.includes(u.position);
     setEditPosition(isPredefined ? u.position : (u.position ? '__custom__' : ''));
     setEditCustomPosition(isPredefined ? '' : (u.position || ''));
-    setEditBrands(u.brands || []);
     setError('');
   };
 
-  const getEditEffectivePosition = () => {
-    if (editPosition === '__custom__') return editCustomPosition;
-    return editPosition;
-  };
+  const getEditEffectivePosition = () => editPosition === '__custom__' ? editCustomPosition : editPosition;
 
   const handleEditUser = async () => {
     if (!editTarget) return;
@@ -166,7 +153,7 @@ export default function Team() {
       const res = await fetch(`/api/users/${editTarget.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ role: editRole, position: getEditEffectivePosition(), brands: editBrands }),
+        body: JSON.stringify({ role: editRole, position: getEditEffectivePosition() }),
       });
       if (res.ok) {
         setResetSuccess(`${editTarget.name} atualizado com sucesso`);
@@ -213,7 +200,7 @@ export default function Team() {
             Equipe
           </h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-3)' }}>
-            {loading ? '…' : `${users.length} colaborador${users.length !== 1 ? 'es' : ''}`}
+            {loading ? '…' : `${users.length} usuário${users.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         {resetSuccess && (
@@ -222,14 +209,11 @@ export default function Team() {
           </div>
         )}
         {emailFeedback && (
-          <div
-            className="text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5"
-            style={{
-              background: emailFeedback.type === 'success' ? 'hsl(142 71% 45% / 0.12)' : 'hsl(38 92% 50% / 0.12)',
-              color: emailFeedback.type === 'success' ? '#4ade80' : '#fbbf24',
-              border: `1px solid ${emailFeedback.type === 'success' ? 'hsl(142 71% 45% / 0.25)' : 'hsl(38 92% 50% / 0.25)'}`,
-            }}
-          >
+          <div className="text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5" style={{
+            background: emailFeedback.type === 'success' ? 'hsl(142 71% 45% / 0.12)' : 'hsl(38 92% 50% / 0.12)',
+            color: emailFeedback.type === 'success' ? '#4ade80' : '#fbbf24',
+            border: `1px solid ${emailFeedback.type === 'success' ? 'hsl(142 71% 45% / 0.25)' : 'hsl(38 92% 50% / 0.25)'}`,
+          }}>
             <Mail size={12} />
             {emailFeedback.message}
           </div>
@@ -242,7 +226,7 @@ export default function Team() {
         )}
       </div>
 
-      {/* Member cards */}
+      {/* User cards */}
       {loading ? (
         <div className="flex items-center gap-2 py-8" style={{ color: 'var(--text-3)' }}>
           <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
@@ -261,97 +245,39 @@ export default function Team() {
               <div
                 key={u.id}
                 className="rounded-2xl p-4 flex items-start gap-4 transition-all"
-                style={{
-                  background: 'var(--surface-1)',
-                  border: '1px solid var(--border)',
-                  boxShadow: 'var(--shadow-sm)',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)';
-                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-strong)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)';
-                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
-                }}
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-strong)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
               >
-                {/* Avatar */}
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center text-sm font-bold shrink-0"
-                  style={{ background: ac + '22', color: ac }}
-                >
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center text-sm font-bold shrink-0" style={{ background: ac + '22', color: ac }}>
                   {initials(u.name)}
                 </div>
-
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-sm truncate" style={{ color: 'var(--text-1)' }}>
-                      {u.name}
-                    </span>
-                    <span className="badge shrink-0" style={{ background: rc.bg, color: rc.color }}>
-                      {rc.icon}{rc.label}
-                    </span>
+                    <span className="font-semibold text-sm truncate" style={{ color: 'var(--text-1)' }}>{u.name}</span>
+                    <span className="badge shrink-0" style={{ background: rc.bg, color: rc.color }}>{rc.icon}{rc.label}</span>
                   </div>
-
                   <div className="flex items-center gap-1 mt-1 text-xs truncate" style={{ color: 'var(--text-3)' }}>
                     <Mail size={11} />
                     <span className="truncate">{u.email}</span>
                   </div>
-
                   {u.position && (
                     <div className="flex items-center gap-1 mt-0.5 text-xs" style={{ color: 'var(--text-3)' }}>
                       <Briefcase size={11} />
                       <span>{u.position}</span>
                     </div>
                   )}
-                  {u.brands && u.brands.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {u.brands.map((b: string) => (
-                        <span key={b} style={{
-                          fontSize: '0.65rem', fontWeight: 600, padding: '2px 6px',
-                          borderRadius: 8, background: 'var(--brand-500)20',
-                          color: 'var(--brand-500)', border: '1px solid var(--brand-500)40'
-                        }}>
-                          {b}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
                   {isAdmin && (
                     <div className="flex items-center gap-1.5 mt-2">
-                      <button
-                        onClick={() => openEditModal(u)}
-                        className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-all"
-                        style={{ color: 'var(--text-3)', background: 'transparent', border: '1px solid var(--border)' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
-                      >
-                        <Pencil size={12} />
-                        Editar
+                      <button onClick={() => openEditModal(u)} className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-all" style={{ color: 'var(--text-3)', background: 'transparent', border: '1px solid var(--border)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}>
+                        <Pencil size={12} /> Editar
                       </button>
-                      <button
-                        onClick={() => { setResetTarget(u); setNewPassword(''); setError(''); }}
-                        className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-all"
-                        style={{ color: 'var(--text-3)', background: 'transparent', border: '1px solid var(--border)' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
-                      >
-                        <KeyRound size={12} />
-                        Senha
+                      <button onClick={() => { setResetTarget(u); setNewPassword(''); setError(''); }} className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-all" style={{ color: 'var(--text-3)', background: 'transparent', border: '1px solid var(--border)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}>
+                        <KeyRound size={12} /> Senha
                       </button>
                       {!isSelf && (
-                        <button
-                          onClick={() => setDeleteTarget(u)}
-                          className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-all"
-                          style={{ color: 'var(--text-3)', background: 'transparent', border: '1px solid var(--border)' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 60% / 0.1)'; (e.currentTarget as HTMLElement).style.color = 'hsl(0 85% 65%)'; (e.currentTarget as HTMLElement).style.borderColor = 'hsl(0 85% 60% / 0.3)'; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
-                        >
-                          <Trash2 size={12} />
-                          Excluir
+                        <button onClick={() => setDeleteTarget(u)} className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg transition-all" style={{ color: 'var(--text-3)', background: 'transparent', border: '1px solid var(--border)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 60% / 0.1)'; (e.currentTarget as HTMLElement).style.color = 'hsl(0 85% 65%)'; (e.currentTarget as HTMLElement).style.borderColor = 'hsl(0 85% 60% / 0.3)'; }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}>
+                          <Trash2 size={12} /> Excluir
                         </button>
                       )}
                     </div>
@@ -365,133 +291,42 @@ export default function Team() {
 
       {/* Create User Modal */}
       {isModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }}
-          onClick={e => { if (e.target === e.currentTarget) setIsOpen(false); }}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl p-6 flex flex-col gap-5"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid var(--border)',
-              boxShadow: 'var(--shadow-lg)',
-            }}
-          >
-            {/* Modal header */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setIsOpen(false); }}>
+          <div className="w-full max-w-md rounded-2xl p-6 flex flex-col gap-5" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-base" style={{ color: 'var(--text-1)' }}>Adicionar Usuário</h2>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Preencha os dados do novo colaborador.</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Preencha os dados do novo usuário.</p>
               </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                style={{ color: 'var(--text-3)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-              >
+              <button onClick={() => setIsOpen(false)} className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ color: 'var(--text-3)' }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
                 <X size={16} />
               </button>
             </div>
-
-            {error && (
-              <div
-                className="text-xs p-3 rounded-lg"
-                style={{ background: 'hsl(0 85% 60% / 0.1)', color: 'hsl(0 85% 65%)', border: '1px solid hsl(0 85% 60% / 0.2)' }}
-              >
-                {error}
-              </div>
-            )}
-
+            {error && <div className="text-xs p-3 rounded-lg" style={{ background: 'hsl(0 85% 60% / 0.1)', color: 'hsl(0 85% 65%)', border: '1px solid hsl(0 85% 60% / 0.2)' }}>{error}</div>}
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              <Field label="Nome">
-                <Input type="text" required placeholder="João Silva" value={name} onChange={e => setName(e.target.value)} />
-              </Field>
-              <Field label="Email">
-                <Input type="email" required placeholder="joao@empresa.com" value={email} onChange={e => setEmail(e.target.value)} />
-              </Field>
-              <Field label="Senha">
-                <Input type="password" required placeholder="Mínimo 6 caracteres" value={password} onChange={e => setPassword(e.target.value)} />
-              </Field>
-
+              <Field label="Nome"><Input type="text" required placeholder="João Silva" value={name} onChange={e => setName(e.target.value)} /></Field>
+              <Field label="Email"><Input type="email" required placeholder="joao@empresa.com" value={email} onChange={e => setEmail(e.target.value)} /></Field>
+              <Field label="Senha"><Input type="password" required placeholder="Mínimo 6 caracteres" value={password} onChange={e => setPassword(e.target.value)} /></Field>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Função">
-                  <select
-                    value={position}
-                    onChange={e => { setPosition(e.target.value); if (e.target.value !== '__custom__') setCustomPosition(''); }}
-                    style={selectStyle}
-                  >
+                  <select value={position} onChange={e => { setPosition(e.target.value); if (e.target.value !== '__custom__') setCustomPosition(''); }} style={selectStyle}>
                     <option value="">Selecione...</option>
-                    {PREDEFINED_POSITIONS.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
+                    {PREDEFINED_POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
                     <option value="__custom__">Outra (personalizada)</option>
                   </select>
-                  {position === '__custom__' && (
-                    <Input
-                      type="text"
-                      placeholder="Digite a função"
-                      value={customPosition}
-                      onChange={e => setCustomPosition(e.target.value)}
-                      style={{ marginTop: 6 }}
-                    />
-                  )}
+                  {position === '__custom__' && <Input type="text" placeholder="Digite a função" value={customPosition} onChange={e => setCustomPosition(e.target.value)} style={{ marginTop: 6 }} />}
                 </Field>
                 <Field label="Acesso">
-                  <select
-                    value={role}
-                    onChange={e => setRole(e.target.value)}
-                    style={selectStyle}
-                  >
+                  <select value={role} onChange={e => setRole(e.target.value)} style={selectStyle}>
+                    <option value="gestor">Gestor</option>
+                    <option value="coordenacao">Coordenação</option>
                     <option value="admin">Admin</option>
-                    <option value="colaborador">Colaborador</option>
-                    <option value="solicitante">Solicitante</option>
                   </select>
                 </Field>
               </div>
-
-              <Field label="Marcas Atendidas">
-                <div style={{
-                  display: 'flex', flexWrap: 'wrap', gap: '0.5rem',
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  borderRadius: 10, padding: '10px 12px'
-                }}>
-                  {brands.map(brandObj => {
-                    const b = brandObj.name;
-                    const checked = selectedBrands.includes(b);
-                    return (
-                      <label key={b} style={{
-                        display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
-                        fontSize: 13, color: checked ? 'var(--brand-500)' : 'var(--text-2)',
-                        fontWeight: checked ? 600 : 400,
-                      }}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => setSelectedBrands(prev =>
-                            prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b]
-                          )}
-                          style={{ accentColor: 'var(--brand-500)' }}
-                        />
-                        {b}
-                      </label>
-                    );
-                  })}
-                </div>
-              </Field>
-
               <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  className="btn-ghost flex-1"
-                >
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primary flex-1">
-                  Adicionar
-                </button>
+                <button type="button" onClick={() => setIsOpen(false)} className="btn-ghost flex-1">Cancelar</button>
+                <button type="submit" className="btn-primary flex-1">Adicionar</button>
               </div>
             </form>
           </div>
@@ -500,118 +335,39 @@ export default function Team() {
 
       {/* Edit User Modal */}
       {editTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }}
-          onClick={e => { if (e.target === e.currentTarget) setEditTarget(null); }}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl p-6 flex flex-col gap-5"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid var(--border)',
-              boxShadow: 'var(--shadow-lg)',
-            }}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setEditTarget(null); }}>
+          <div className="w-full max-w-md rounded-2xl p-6 flex flex-col gap-5" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-base" style={{ color: 'var(--text-1)' }}>Editar Usuário</h2>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
-                  Editando <span className="font-semibold" style={{ color: 'var(--text-1)' }}>{editTarget.name}</span>
-                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Editando <span className="font-semibold" style={{ color: 'var(--text-1)' }}>{editTarget.name}</span></p>
               </div>
-              <button
-                onClick={() => setEditTarget(null)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                style={{ color: 'var(--text-3)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-              >
+              <button onClick={() => setEditTarget(null)} className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ color: 'var(--text-3)' }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
                 <X size={16} />
               </button>
             </div>
-
-            {error && (
-              <div className="text-xs p-3 rounded-lg" style={{ background: 'hsl(0 85% 60% / 0.1)', color: 'hsl(0 85% 65%)', border: '1px solid hsl(0 85% 60% / 0.2)' }}>
-                {error}
-              </div>
-            )}
-
+            {error && <div className="text-xs p-3 rounded-lg" style={{ background: 'hsl(0 85% 60% / 0.1)', color: 'hsl(0 85% 65%)', border: '1px solid hsl(0 85% 60% / 0.2)' }}>{error}</div>}
             <div className="flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Função">
-                  <select
-                    value={editPosition}
-                    onChange={e => { setEditPosition(e.target.value); if (e.target.value !== '__custom__') setEditCustomPosition(''); }}
-                    style={selectStyle}
-                  >
+                  <select value={editPosition} onChange={e => { setEditPosition(e.target.value); if (e.target.value !== '__custom__') setEditCustomPosition(''); }} style={selectStyle}>
                     <option value="">Sem função</option>
-                    {PREDEFINED_POSITIONS.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
+                    {PREDEFINED_POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
                     <option value="__custom__">Outra (personalizada)</option>
                   </select>
-                  {editPosition === '__custom__' && (
-                    <Input
-                      type="text"
-                      placeholder="Digite a função"
-                      value={editCustomPosition}
-                      onChange={e => setEditCustomPosition(e.target.value)}
-                      style={{ marginTop: 6 }}
-                    />
-                  )}
+                  {editPosition === '__custom__' && <Input type="text" placeholder="Digite a função" value={editCustomPosition} onChange={e => setEditCustomPosition(e.target.value)} style={{ marginTop: 6 }} />}
                 </Field>
                 <Field label="Acesso">
-                  <select
-                    value={editRole}
-                    onChange={e => setEditRole(e.target.value)}
-                    style={selectStyle}
-                  >
+                  <select value={editRole} onChange={e => setEditRole(e.target.value)} style={selectStyle}>
+                    <option value="gestor">Gestor</option>
+                    <option value="coordenacao">Coordenação</option>
                     <option value="admin">Admin</option>
-                    <option value="colaborador">Colaborador</option>
-                    <option value="solicitante">Solicitante</option>
                   </select>
                 </Field>
               </div>
-
-              <Field label="Marcas Atendidas">
-                <div style={{
-                  display: 'flex', flexWrap: 'wrap', gap: '0.5rem',
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  borderRadius: 10, padding: '10px 12px'
-                }}>
-                  {brands.map(brandObj => {
-                    const b = brandObj.name;
-                    const checked = editBrands.includes(b);
-                    return (
-                      <label key={b} style={{
-                        display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
-                        fontSize: 13, color: checked ? 'var(--brand-500)' : 'var(--text-2)',
-                        fontWeight: checked ? 600 : 400,
-                      }}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => setEditBrands(prev =>
-                            prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b]
-                          )}
-                          style={{ accentColor: 'var(--brand-500)' }}
-                        />
-                        {b}
-                      </label>
-                    );
-                  })}
-                </div>
-              </Field>
-
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setEditTarget(null)} className="btn-ghost flex-1">
-                  Cancelar
-                </button>
-                <button onClick={handleEditUser} className="btn-primary flex-1 flex items-center justify-center gap-2">
-                  <Pencil size={14} />
-                  Salvar Alterações
-                </button>
+                <button type="button" onClick={() => setEditTarget(null)} className="btn-ghost flex-1">Cancelar</button>
+                <button onClick={handleEditUser} className="btn-primary flex-1 flex items-center justify-center gap-2"><Pencil size={14} />Salvar</button>
               </div>
             </div>
           </div>
@@ -620,57 +376,22 @@ export default function Team() {
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }}
-          onClick={e => { if (e.target === e.currentTarget) setDeleteTarget(null); }}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-5"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid hsl(0 85% 60% / 0.3)',
-              boxShadow: 'var(--shadow-lg)',
-            }}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setDeleteTarget(null); }}>
+          <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-5" style={{ background: 'var(--surface-1)', border: '1px solid hsl(0 85% 60% / 0.3)', boxShadow: 'var(--shadow-lg)' }}>
             <div className="flex items-center gap-3">
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: 'hsl(0 85% 60% / 0.12)', color: 'hsl(0 85% 65%)' }}
-              >
-                <AlertTriangle size={20} />
-              </div>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'hsl(0 85% 60% / 0.12)', color: 'hsl(0 85% 65%)' }}><AlertTriangle size={20} /></div>
               <div>
                 <h2 className="font-bold text-base" style={{ color: 'var(--text-1)' }}>Excluir Usuário</h2>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
-                  Esta ação não pode ser desfeita.
-                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Esta ação não pode ser desfeita.</p>
               </div>
             </div>
-
             <p className="text-sm" style={{ color: 'var(--text-2)' }}>
               Tem certeza que deseja excluir <span className="font-semibold" style={{ color: 'var(--text-1)' }}>{deleteTarget.name}</span>?
-              Todos os dados relacionados a este usuário serão removidos permanentemente.
             </p>
-
             <div className="flex gap-3 pt-1">
-              <button type="button" onClick={() => setDeleteTarget(null)} className="btn-ghost flex-1">
-                Cancelar
-              </button>
-              <button
-                onClick={handleDeleteUser}
-                className="flex-1 flex items-center justify-center gap-2 font-semibold text-sm py-2 px-4 rounded-xl transition-all"
-                style={{
-                  background: 'hsl(0 85% 60%)',
-                  color: '#fff',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 50%)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 60%)'}
-              >
-                <Trash2 size={14} />
-                Excluir
+              <button type="button" onClick={() => setDeleteTarget(null)} className="btn-ghost flex-1">Cancelar</button>
+              <button onClick={handleDeleteUser} className="flex-1 flex items-center justify-center gap-2 font-semibold text-sm py-2 px-4 rounded-xl transition-all" style={{ background: 'hsl(0 85% 60%)', color: '#fff' }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 50%)'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 60%)'}>
+                <Trash2 size={14} /> Excluir
               </button>
             </div>
           </div>
@@ -679,65 +400,23 @@ export default function Team() {
 
       {/* Reset password modal */}
       {resetTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }}
-          onClick={e => { if (e.target === e.currentTarget) setResetTarget(null); }}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-5"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid var(--border)',
-              boxShadow: 'var(--shadow-lg)',
-            }}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setResetTarget(null); }}>
+          <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-5" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-base" style={{ color: 'var(--text-1)' }}>Redefinir Senha</h2>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
-                  Nova senha para <span className="font-semibold" style={{ color: 'var(--text-1)' }}>{resetTarget.name}</span>
-                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Nova senha para <span className="font-semibold" style={{ color: 'var(--text-1)' }}>{resetTarget.name}</span></p>
               </div>
-              <button
-                onClick={() => setResetTarget(null)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                style={{ color: 'var(--text-3)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-              >
+              <button onClick={() => setResetTarget(null)} className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ color: 'var(--text-3)' }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
                 <X size={16} />
               </button>
             </div>
-
-            {error && (
-              <div className="text-xs p-3 rounded-lg" style={{ background: 'hsl(0 85% 60% / 0.1)', color: 'hsl(0 85% 65%)', border: '1px solid hsl(0 85% 60% / 0.2)' }}>
-                {error}
-              </div>
-            )}
-
-            <Field label="Nova Senha">
-              <Input
-                type="password"
-                required
-                placeholder="Mínimo 6 caracteres"
-                value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-              />
-            </Field>
-
+            {error && <div className="text-xs p-3 rounded-lg" style={{ background: 'hsl(0 85% 60% / 0.1)', color: 'hsl(0 85% 65%)', border: '1px solid hsl(0 85% 60% / 0.2)' }}>{error}</div>}
+            <Field label="Nova Senha"><Input type="password" required placeholder="Mínimo 6 caracteres" value={newPassword} onChange={e => setNewPassword(e.target.value)} /></Field>
             <div className="flex gap-3 pt-1">
-              <button type="button" onClick={() => setResetTarget(null)} className="btn-ghost flex-1">
-                Cancelar
-              </button>
-              <button
-                onClick={handleResetPassword}
-                disabled={newPassword.length < 6}
-                className="btn-primary flex-1 flex items-center justify-center gap-2"
-                style={{ opacity: newPassword.length < 6 ? 0.5 : 1 }}
-              >
-                <KeyRound size={14} />
-                Redefinir
+              <button type="button" onClick={() => setResetTarget(null)} className="btn-ghost flex-1">Cancelar</button>
+              <button onClick={handleResetPassword} disabled={newPassword.length < 6} className="btn-primary flex-1 flex items-center justify-center gap-2" style={{ opacity: newPassword.length < 6 ? 0.5 : 1 }}>
+                <KeyRound size={14} /> Redefinir
               </button>
             </div>
           </div>

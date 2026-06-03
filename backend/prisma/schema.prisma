@@ -22,6 +22,8 @@ model User {
   passwordResets       PasswordReset[]
   projetos             Projeto[]
   colaboradoresCriados Colaborador[]
+  alocacoesCriadas     Alocacao[]         @relation("AlocacaoCreatedBy")
+  alocacoesAtualizadas Alocacao[]         @relation("AlocacaoUpdatedBy")
 
   @@map("users")
 }
@@ -81,7 +83,8 @@ model Colaborador {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  createdBy User @relation(fields: [createdById], references: [id])
+  createdBy User      @relation(fields: [createdById], references: [id])
+  alocacoes Alocacao[]
 
   @@map("colaboradores")
 }
@@ -95,9 +98,10 @@ model Projeto {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  gestor            User               @relation(fields: [gestorId], references: [id])
-  macroEntregas     MacroEntrega[]
-  prestacoesContas  PrestacaoContas[]
+  gestor           User              @relation(fields: [gestorId], references: [id])
+  macroEntregas    MacroEntrega[]
+  prestacoesContas PrestacaoContas[]
+  alocacoes        Alocacao[]
 
   @@map("projetos")
 }
@@ -125,6 +129,7 @@ model MacroEntrega {
 
   projeto       Projeto        @relation(fields: [projetoId], references: [id])
   microEntregas MicroEntrega[]
+  alocacoes     Alocacao[]
 
   @@map("macro_entregas")
 }
@@ -140,6 +145,38 @@ model MicroEntrega {
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   macroEntrega MacroEntrega @relation(fields: [macroEntregaId], references: [id])
+  alocacoes    Alocacao[]
 
   @@map("micro_entregas")
+}
+
+// ─── Fase 2: Alocação mensal com teto ─────────────────────────────
+
+model Alocacao {
+  id              String   @id @db.VarChar(191)
+  colaboradorId   String   @map("colaborador_id") @db.VarChar(191)
+  projetoId       String   @map("projeto_id") @db.VarChar(191)
+  macroEntregaId  String   @map("macro_entrega_id") @db.VarChar(191)
+  microEntregaId  String   @map("micro_entrega_id") @db.VarChar(191)
+  ano             Int
+  mes             Int      // 1–12; validado na camada de aplicação
+  horasPlanejadas Decimal  @map("horas_planejadas") @db.Decimal(6, 2)
+  horasRealizadas Decimal? @map("horas_realizadas") @db.Decimal(6, 2)  // nullable — preenchido no C3
+  createdById     String   @map("created_by_id") @db.VarChar(191)
+  updatedById     String   @map("updated_by_id") @db.VarChar(191)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  colaborador  Colaborador  @relation(fields: [colaboradorId],  references: [id])
+  projeto      Projeto      @relation(fields: [projetoId],      references: [id])
+  macroEntrega MacroEntrega @relation(fields: [macroEntregaId], references: [id])
+  microEntrega MicroEntrega @relation(fields: [microEntregaId], references: [id])
+  createdBy    User         @relation("AlocacaoCreatedBy", fields: [createdById], references: [id])
+  updatedBy    User         @relation("AlocacaoUpdatedBy", fields: [updatedById], references: [id])
+
+  // Chave natural: um colaborador tem no máximo uma alocação por micro/mês
+  @@unique([colaboradorId, projetoId, macroEntregaId, microEntregaId, ano, mes])
+  // Índice crítico: toda verificação de teto soma por (colaborador, ano, mes)
+  @@index([colaboradorId, ano, mes])
+  @@map("alocacoes")
 }

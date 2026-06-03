@@ -13,6 +13,7 @@ import notificationRoutes from './routes/notifications.js';
 import colaboradoresRoutes from './routes/colaboradores.js';
 import projetosRoutes from './routes/projetos.js';
 import macrosRoutes from './routes/macros.js';
+import alocacoesRoutes from './routes/alocacoes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -30,6 +31,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/colaboradores', colaboradoresRoutes);
 app.use('/api/projetos', projetosRoutes);
 app.use('/api/projetos/:projetoId/macros', macrosRoutes);
+app.use('/api/alocacoes', alocacoesRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', ambiente: process.env.NODE_ENV });

@@ -24,6 +24,7 @@ const SEED_USERS = [
 
 export async function initDb() {
   // Delete dependents before users — FK order mais profundo primeiro
+  await prisma.alocacao.deleteMany();          // não tem dependentes; vai primeiro
   await prisma.microEntrega.deleteMany();
   await prisma.macroEntrega.deleteMany();
   await prisma.projeto.deleteMany();

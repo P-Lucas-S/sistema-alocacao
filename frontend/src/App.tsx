@@ -10,6 +10,7 @@ import Profile from './pages/Profile';
 import Colaboradores from './pages/Colaboradores';
 import Projetos from './pages/Projetos';
 import ProjetoDetalhe from './pages/ProjetoDetalhe';
+import Alocacoes from './pages/Alocacoes';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) => {
@@ -61,6 +62,11 @@ export default function App() {
               <Route path="/projetos" element={
                 <ProtectedRoute>
                   <Layout><Projetos /></Layout>
+                </ProtectedRoute>
+              } />
+              <Route path="/alocacoes" element={
+                <ProtectedRoute>
+                  <Layout><Alocacoes /></Layout>
                 </ProtectedRoute>
               } />
               <Route path="/projetos/:id" element={

@@ -120,6 +120,13 @@ router.delete('/:macroId', authenticate, requireRole('admin', 'gestor'), async (
     const macro = await prisma.macroEntrega.findFirst({ where: { id: macroId, projetoId } });
     if (!macro) return res.status(404).json({ error: 'MacroEntrega não encontrada' });
 
+    const alocCount = await prisma.alocacao.count({ where: { macroEntregaId: macroId } });
+    if (alocCount > 0) {
+      return res.status(400).json({
+        error: `Não é possível remover: há ${alocCount} alocação(ões) vinculada(s) a esta macro-entrega.`,
+      });
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.microEntrega.deleteMany({ where: { macroEntregaId: macroId } });
       await tx.macroEntrega.delete({ where: { id: macroId } });
@@ -206,6 +213,13 @@ router.delete('/:macroId/micros/:microId', authenticate, requireRole('admin', 'g
     if (count <= 1) {
       return res.status(400).json({
         error: 'Não é possível remover a única micro-entrega de uma macro. Adicione outra antes de remover esta.',
+      });
+    }
+
+    const alocCount = await prisma.alocacao.count({ where: { microEntregaId: microId } });
+    if (alocCount > 0) {
+      return res.status(400).json({
+        error: `Não é possível remover: há ${alocCount} alocação(ões) vinculada(s) a esta micro-entrega.`,
       });
     }
 

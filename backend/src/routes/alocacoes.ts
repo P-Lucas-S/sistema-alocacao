@@ -1,0 +1,267 @@
+import express from 'express';
+import { Prisma } from '@prisma/client';
+import prisma from '../prisma.js';
+import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
+
+const router = express.Router();
+const generateId = () => Math.random().toString(36).substring(2, 15);
+
+// Teto global de horas planejadas por colaborador/mês — constante de negócio
+const TETO_HORAS_MES = new Prisma.Decimal(220);
+
+// ── Erro tipado para bloqueio de teto ─────────────────────────────────────
+interface DistribuicaoItem {
+  projeto_codigo: string;
+  projeto_nome:   string;
+  gestor_nome:    string;
+  horas:          string;
+}
+
+class TetoBloqueioError extends Error {
+  constructor(
+    public readonly totalAlocado: Prisma.Decimal,
+    public readonly horasSolicitadas: Prisma.Decimal,
+    public readonly horasDisponiveis: Prisma.Decimal,
+    public readonly distribuicao: DistribuicaoItem[],
+  ) {
+    super('Teto de horas excedido');
+    this.name = 'TetoBloqueioError';
+  }
+}
+
+// ── Núcleo transacional com lock ──────────────────────────────────────────
+// Toda verificação de teto e gravação acontece aqui, dentro de uma
+// única transação interativa. Nunca verifique fora da transação.
+async function alocarComLock(params: {
+  colaboradorId:  string;
+  projetoId:      string;
+  macroEntregaId: string;
+  microEntregaId: string;
+  ano:            number;
+  mes:            number;
+  horasPlanejadas: Prisma.Decimal;
+  userId:         string;
+}) {
+  const { colaboradorId, projetoId, macroEntregaId, microEntregaId,
+          ano, mes, horasPlanejadas, userId } = params;
+
+  return prisma.$transaction(async (tx) => {
+    // ── PASSO 1: Lock pessimista sobre o colaborador ─────────────────
+    // SELECT ... FOR UPDATE adquire X-lock na linha do colaborador.
+    // Qualquer outra transação que tente o mesmo FOR UPDATE vai ESPERAR
+    // até este commit/rollback — serializando o acesso por colaborador.
+    // O colaborador sempre existe (validamos antes), então há sempre
+    // algo para travar — sem o problema do gap lock de linhas vazias.
+    await tx.$queryRaw`
+      SELECT id FROM colaboradores WHERE id = ${colaboradorId} FOR UPDATE
+    `;
+
+    // ── PASSO 2: Verificar se já existe alocação para este destino ────
+    const chave = {
+      colaboradorId_projetoId_macroEntregaId_microEntregaId_ano_mes: {
+        colaboradorId, projetoId, macroEntregaId, microEntregaId, ano, mes,
+      },
+    };
+    const existente = await tx.alocacao.findUnique({ where: chave });
+
+    // ── PASSO 3: Somar horas já alocadas (excluindo a linha atual se edição)
+    // LOCK IN SHARE MODE força leitura dos dados COMMITTED mais recentes,
+    // não o snapshot MVCC do início da transação.
+    // Sem isso, uma transação B que esperou A commitar ainda leria
+    // os dados antigos (antes do commit de A), furando o teto.
+    const somaQuery = existente
+      ? Prisma.sql`
+          SELECT COALESCE(SUM(horas_planejadas), 0) AS total
+          FROM alocacoes
+          WHERE colaborador_id = ${colaboradorId}
+            AND ano = ${ano} AND mes = ${mes}
+            AND id != ${existente.id}
+          LOCK IN SHARE MODE`
+      : Prisma.sql`
+          SELECT COALESCE(SUM(horas_planejadas), 0) AS total
+          FROM alocacoes
+          WHERE colaborador_id = ${colaboradorId}
+            AND ano = ${ano} AND mes = ${mes}
+          LOCK IN SHARE MODE`;
+
+    const [{ total }] = await tx.$queryRaw<{ total: string }[]>(somaQuery);
+    const somaAtual = new Prisma.Decimal(total ?? '0');
+
+    // ── PASSO 4: Verificar teto ───────────────────────────────────────
+    if (somaAtual.plus(horasPlanejadas).greaterThan(TETO_HORAS_MES)) {
+      const disponivel = Prisma.Decimal.max(
+        TETO_HORAS_MES.minus(somaAtual),
+        new Prisma.Decimal(0),
+      );
+
+      // Distribuição atual para informar o gestor de onde estão as horas
+      const distribuicao = await tx.$queryRaw<DistribuicaoItem[]>`
+        SELECT
+          p.codigo  AS projeto_codigo,
+          p.nome    AS projeto_nome,
+          u.name    AS gestor_nome,
+          SUM(a.horas_planejadas) AS horas
+        FROM alocacoes a
+        JOIN projetos p ON a.projeto_id = p.id
+        JOIN users    u ON p.gestor_id  = u.id
+        WHERE a.colaborador_id = ${colaboradorId}
+          AND a.ano = ${ano} AND a.mes = ${mes}
+        GROUP BY a.projeto_id, p.codigo, p.nome, u.name
+        ORDER BY horas DESC
+        LOCK IN SHARE MODE
+      `;
+
+      throw new TetoBloqueioError(somaAtual, horasPlanejadas, disponivel, distribuicao);
+    }
+
+    // ── PASSO 5: Gravar — dentro da mesma transação, com lock ainda ativo
+    const alocacao = await tx.alocacao.upsert({
+      where: chave,
+      create: {
+        id: generateId(),
+        colaboradorId, projetoId, macroEntregaId, microEntregaId,
+        ano, mes,
+        horasPlanejadas,
+        createdById: userId,
+        updatedById: userId,
+      },
+      update: {
+        horasPlanejadas,
+        updatedById: userId,
+      },
+      include: {
+        colaborador:  { select: { nome: true } },
+        projeto:      { select: { codigo: true, nome: true } },
+        macroEntrega: { select: { nome: true } },
+        microEntrega: { select: { nome: true } },
+      },
+    });
+
+    return { alocacao, somaFinal: somaAtual.plus(horasPlanejadas) };
+  // TODO (C1 dívida): o comentário abaixo estava confuso — revisitar redação na próxima passada.
+  // TODO (C3): quando horasRealizadas entrar, confirmar se o lock precisa cobrir
+  //   atualizações de realizado ou se elas ficam fora do teto (provavelmente fora —
+  //   o teto é sobre planejado — mas validar na hora da implementação).
+  }, { timeout: 15_000 }); // Prisma cancela a transação após 15s; o innodb_lock_wait_timeout padrão do MariaDB é 50s, então o Prisma vence primeiro em caso de espera longa
+}
+
+// ── GET / — lista alocações ───────────────────────────────────────────────
+router.get('/', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { colaboradorId, projetoId, ano, mes } = req.query as Record<string, string | undefined>;
+
+    const where: Prisma.AlocacaoWhereInput = {};
+    if (colaboradorId) where.colaboradorId = colaboradorId;
+    if (projetoId)     where.projetoId     = projetoId;
+    if (ano)           where.ano           = parseInt(ano);
+    if (mes)           where.mes           = parseInt(mes);
+
+    const alocacoes = await prisma.alocacao.findMany({
+      where,
+      orderBy: [{ ano: 'asc' }, { mes: 'asc' }],
+      include: {
+        colaborador:  { select: { nome: true, funcao: true } },
+        projeto:      { select: { codigo: true, nome: true, gestor: { select: { name: true } } } },
+        macroEntrega: { select: { nome: true } },
+        microEntrega: { select: { nome: true } },
+        createdBy:    { select: { name: true } },
+        updatedBy:    { select: { name: true } },
+      },
+    });
+
+    res.json(alocacoes);
+  } catch (error) {
+    console.error('List alocacoes error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST / — cria ou atualiza alocação (upsert com lock) ─────────────────
+router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  try {
+    const { colaboradorId, projetoId, macroEntregaId, microEntregaId,
+            ano, mes, horasPlanejadas } = req.body;
+    const userId = req.user!.id;
+
+    // ── Validações de entrada ─────────────────────────────────────────
+    if (!colaboradorId || !projetoId || !macroEntregaId || !microEntregaId) {
+      return res.status(400).json({ error: 'colaboradorId, projetoId, macroEntregaId e microEntregaId são obrigatórios' });
+    }
+    const anoN = parseInt(ano);
+    const mesN  = parseInt(mes);
+    if (!anoN || anoN < 2020 || anoN > 2100) {
+      return res.status(400).json({ error: 'ano inválido (2020–2100)' });
+    }
+    if (!mesN || mesN < 1 || mesN > 12) {
+      return res.status(400).json({ error: 'mes inválido (1–12)' });
+    }
+
+    let horas: Prisma.Decimal;
+    try {
+      horas = new Prisma.Decimal(horasPlanejadas);
+      if (horas.lessThanOrEqualTo(0)) throw new Error();
+    } catch {
+      return res.status(400).json({ error: 'horasPlanejadas deve ser um número positivo' });
+    }
+
+    // Colaborador ativo?
+    const colaborador = await prisma.colaborador.findUnique({ where: { id: colaboradorId } });
+    if (!colaborador)        return res.status(404).json({ error: 'Colaborador não encontrado' });
+    if (!colaborador.ativo)  return res.status(400).json({ error: 'Colaborador está inativo' });
+
+    // micro pertence a macro, que pertence ao projeto?
+    const micro = await prisma.microEntrega.findFirst({
+      where: { id: microEntregaId, macroEntregaId },
+      include: { macroEntrega: true },
+    });
+    if (!micro)                              return res.status(400).json({ error: 'MicroEntrega não encontrada nesta macro' });
+    if (micro.macroEntrega.projetoId !== projetoId) {
+      return res.status(400).json({ error: 'MacroEntrega não pertence ao projeto informado' });
+    }
+
+    // ── Transação com lock ────────────────────────────────────────────
+    const { alocacao, somaFinal } = await alocarComLock({
+      colaboradorId, projetoId, macroEntregaId, microEntregaId,
+      ano: anoN, mes: mesN, horasPlanejadas: horas, userId,
+    });
+
+    res.status(201).json({
+      alocacao,
+      somaFinalMes: somaFinal.toString(),
+      horasRestantes: TETO_HORAS_MES.minus(somaFinal).toString(),
+    });
+  } catch (err) {
+    if (err instanceof TetoBloqueioError) {
+      return res.status(409).json({
+        bloqueado:       true,
+        totalAlocado:    err.totalAlocado.toString(),
+        horasSolicitadas: err.horasSolicitadas.toString(),
+        horasDisponiveis: err.horasDisponiveis.toString(),
+        distribuicao: err.distribuicao.map(d => ({
+          projetoCodigo: d.projeto_codigo,
+          projetoNome:   d.projeto_nome,
+          gestorNome:    d.gestor_nome,
+          horas:         new Prisma.Decimal(d.horas ?? '0').toString(),
+        })),
+      });
+    }
+    console.error('Alocar error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /:id — remove alocação ─────────────────────────────────────────
+router.delete('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const alocacao = await prisma.alocacao.findUnique({ where: { id } });
+    if (!alocacao) return res.status(404).json({ error: 'Alocação não encontrada' });
+    await prisma.alocacao.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete alocacao error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;

@@ -11,6 +11,7 @@ import Colaboradores from './pages/Colaboradores';
 import Projetos from './pages/Projetos';
 import ProjetoDetalhe from './pages/ProjetoDetalhe';
 import Alocacoes from './pages/Alocacoes';
+import GridAlocacao from './pages/GridAlocacao';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) => {
@@ -62,6 +63,11 @@ export default function App() {
               <Route path="/projetos" element={
                 <ProtectedRoute>
                   <Layout><Projetos /></Layout>
+                </ProtectedRoute>
+              } />
+              <Route path="/grid" element={
+                <ProtectedRoute>
+                  <Layout><GridAlocacao /></Layout>
                 </ProtectedRoute>
               } />
               <Route path="/alocacoes" element={

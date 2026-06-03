@@ -145,6 +145,119 @@ async function alocarComLock(params: {
   }, { timeout: 15_000 }); // Prisma cancela a transação após 15s; o innodb_lock_wait_timeout padrão do MariaDB é 50s, então o Prisma vence primeiro em caso de espera longa
 }
 
+// ── GET /grid — dados do grid para o mês ─────────────────────────────────
+// Retorna projetos (colunas) + linhas (colaboradores com alocação nos meus
+// projetos naquele mês) + saldo real de cada colaborador no mês.
+//
+// Gestor vê apenas seus projetos como colunas.
+// Saldo inclui horas de TODOS os gestores (totalGeral) para o cálculo correto
+// do espaço disponível, mesmo que o gestor só possa editar as suas.
+router.get('/grid', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+    const { ano, mes } = req.query as { ano?: string; mes?: string };
+
+    const anoN = parseInt(ano ?? String(new Date().getFullYear()));
+    const mesN = parseInt(mes ?? String(new Date().getMonth() + 1));
+    if (!anoN || anoN < 2020 || anoN > 2100) return res.status(400).json({ error: 'ano inválido' });
+    if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
+
+    // ── Colunas: projetos do gestor (ou todos para admin) ─────────────────
+    const projWhere = role === 'gestor'
+      ? { gestorId: userId, status: 'ativo' }
+      : { status: 'ativo' };
+
+    const projetos = await prisma.projeto.findMany({
+      where: projWhere,
+      orderBy: { codigo: 'asc' },
+      select: { id: true, codigo: true, nome: true, gestorId: true },
+    });
+
+    if (projetos.length === 0) return res.json({ projetos: [], linhas: [] });
+
+    const meusProjIds = new Set(projetos.map(p => p.id));
+
+    // ── Alocações nos MEUS projetos este mês — define as linhas ──────────
+    const minhasAlocs = await prisma.alocacao.findMany({
+      where: { projetoId: { in: [...meusProjIds] }, ano: anoN, mes: mesN },
+      include: { colaborador: { select: { id: true, nome: true, funcao: true } } },
+    });
+
+    if (minhasAlocs.length === 0) return res.json({ projetos, linhas: [] });
+
+    const colabIds = [...new Set(minhasAlocs.map(a => a.colaboradorId))];
+
+    // ── TODAS as alocações desses colaboradores este mês (saldo real) ─────
+    const todasAlocs = await prisma.alocacao.findMany({
+      where: { colaboradorId: { in: colabIds }, ano: anoN, mes: mesN },
+      select: {
+        id: true, colaboradorId: true, projetoId: true,
+        macroEntregaId: true, microEntregaId: true,
+        horasPlanejadas: true,
+      },
+    });
+
+    // ── Mapa colaboradorId → info de exibição ─────────────────────────────
+    const colabInfo = new Map(minhasAlocs.map(a => [a.colaboradorId, a.colaborador]));
+
+    // ── Construir linhas ──────────────────────────────────────────────────
+    const D0 = new Prisma.Decimal(0);
+    const TETO = new Prisma.Decimal(220);
+
+    const linhas = colabIds.map(colabId => {
+      const alocs = todasAlocs.filter(a => a.colaboradorId === colabId);
+
+      const totalMeusProj = alocs
+        .filter(a => meusProjIds.has(a.projetoId))
+        .reduce((s, a) => s.plus(a.horasPlanejadas), D0);
+
+      const totalOutros = alocs
+        .filter(a => !meusProjIds.has(a.projetoId))
+        .reduce((s, a) => s.plus(a.horasPlanejadas), D0);
+
+      const totalGeral = totalMeusProj.plus(totalOutros);
+      const disponivel = Prisma.Decimal.max(TETO.minus(totalGeral), D0);
+
+      const celulas: Record<string, {
+        id: string; horasPlanejadas: string;
+        macroEntregaId: string; microEntregaId: string;
+      } | null> = {};
+
+      for (const proj of projetos) {
+        const aloc = alocs.find(
+          a => a.projetoId === proj.id && meusProjIds.has(a.projetoId)
+        );
+        celulas[proj.id] = aloc ? {
+          id: aloc.id,
+          horasPlanejadas: aloc.horasPlanejadas.toString(),
+          macroEntregaId: aloc.macroEntregaId,
+          microEntregaId: aloc.microEntregaId,
+        } : null;
+      }
+
+      return {
+        colaborador: colabInfo.get(colabId)!,
+        saldo: {
+          totalMeusProj: totalMeusProj.toString(),
+          totalOutros:   totalOutros.toString(),
+          totalGeral:    totalGeral.toString(),
+          disponivel:    disponivel.toString(),
+        },
+        celulas,
+      };
+    });
+
+    // Ordenar por nome do colaborador
+    linhas.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'));
+
+    res.json({ projetos, linhas });
+  } catch (error) {
+    console.error('Grid error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── GET / — lista alocações ───────────────────────────────────────────────
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {

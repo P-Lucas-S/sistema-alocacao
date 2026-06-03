@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { FolderOpen, FolderPlus, Calendar, Archive, ArchiveRestore, Pencil, X, Plus, AlertTriangle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FolderOpen, FolderPlus, Calendar, Archive, ArchiveRestore, Pencil, X, Plus, AlertTriangle, Layers } from 'lucide-react';
 
 interface PrestacaoContas {
   id: string;
@@ -79,6 +80,7 @@ export default function Projetos() {
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
 
+  const navigate   = useNavigate();
   const canWrite   = user?.role === 'admin' || user?.role === 'gestor';
   const showGestor = user?.role === 'admin' || user?.role === 'coordenacao';
 
@@ -321,9 +323,18 @@ export default function Projetos() {
                 )}
 
                 {/* Actions */}
-                {canAct && (
+                {(canAct || true) && (
                   <div className="flex items-center gap-2 pt-1 border-t" style={{ borderColor: 'var(--border)' }}>
-                    {p.status === 'ativo' && (
+                    <button
+                      onClick={() => navigate(`/projetos/${p.id}`)}
+                      className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg"
+                      style={{ color: 'var(--text-3)', border: '1px solid var(--border)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                    >
+                      <Layers size={11} /> Ver entregas
+                    </button>
+                    {canAct && p.status === 'ativo' && (
                       <button
                         onClick={() => openEdit(p)}
                         className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg"
@@ -334,7 +345,7 @@ export default function Projetos() {
                         <Pencil size={11} /> Editar
                       </button>
                     )}
-                    <button
+                    {canAct && <button
                       onClick={() => handleToggleStatus(p)}
                       className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg ml-auto"
                       style={{ color: 'var(--text-3)', border: '1px solid var(--border)' }}
@@ -344,7 +355,7 @@ export default function Projetos() {
                       {p.status === 'ativo'
                         ? <><Archive size={11} /> Arquivar</>
                         : <><ArchiveRestore size={11} /> Reativar</>}
-                    </button>
+                    </button>}
                   </div>
                 )}
               </div>

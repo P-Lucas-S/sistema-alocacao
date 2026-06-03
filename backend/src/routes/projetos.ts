@@ -70,6 +70,32 @@ function parseDatas(raw: unknown): Date[] | null {
   return raw.map((d: string) => new Date(d));
 }
 
+// ── GET /:id — detalhe de um projeto ──────────────────────────────────────
+router.get('/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({
+      where: { id },
+      include: {
+        gestor: { select: { id: true, name: true } },
+        prestacoesContas: { orderBy: { data: 'asc' } },
+      },
+    });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    res.json(serializeProjeto(projeto));
+  } catch (error) {
+    console.error('Get projeto error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── GET / ─────────────────────────────────────────────────────────────────
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {

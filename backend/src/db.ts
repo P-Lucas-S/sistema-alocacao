@@ -23,7 +23,11 @@ const SEED_USERS = [
 ];
 
 export async function initDb() {
-  // Delete dependents before users (FK order)
+  // Delete dependents before users — FK order mais profundo primeiro
+  await prisma.microEntrega.deleteMany();
+  await prisma.macroEntrega.deleteMany();
+  await prisma.projeto.deleteMany();
+  await prisma.colaborador.deleteMany();
   await prisma.pushSubscription.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.passwordReset.deleteMany();

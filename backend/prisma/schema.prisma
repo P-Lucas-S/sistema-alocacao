@@ -87,19 +87,30 @@ model Colaborador {
 }
 
 model Projeto {
-  id                  String    @id @db.VarChar(191)
-  codigo              String    @unique @db.VarChar(50)
-  nome                String    @db.VarChar(255)
-  gestorId            String    @map("gestor_id") @db.VarChar(191)
-  dataPrestacaoContas DateTime  @map("data_prestacao_contas")
-  status              String    @default("ativo") @db.VarChar(50)
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  id        String   @id @db.VarChar(191)
+  codigo    String   @unique @db.VarChar(50)
+  nome      String   @db.VarChar(255)
+  gestorId  String   @map("gestor_id") @db.VarChar(191)
+  status    String   @default("ativo") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  gestor        User           @relation(fields: [gestorId], references: [id])
-  macroEntregas MacroEntrega[]
+  gestor            User               @relation(fields: [gestorId], references: [id])
+  macroEntregas     MacroEntrega[]
+  prestacoesContas  PrestacaoContas[]
 
   @@map("projetos")
+}
+
+model PrestacaoContas {
+  id        String   @id @db.VarChar(191)
+  projetoId String   @map("projeto_id") @db.VarChar(191)
+  data      DateTime @db.Date
+
+  projeto Projeto @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+
+  @@index([projetoId])
+  @@map("prestacoes_contas")
 }
 
 model MacroEntrega {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { LogOut, LayoutDashboard, Users, UserCheck, Moon, Sun } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, Moon, Sun } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 
@@ -15,6 +15,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Início', icon: LayoutDashboard, end: true },
+  { to: '/projetos', label: 'Projetos', icon: FolderOpen },
   { to: '/colaboradores', label: 'Colaboradores', icon: UserCheck },
   { to: '/team', label: 'Equipe (Usuários)', icon: Users, adminOnly: true },
 ];

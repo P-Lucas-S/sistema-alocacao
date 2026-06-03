@@ -7,6 +7,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Team from './pages/Team';
 import Profile from './pages/Profile';
+import Colaboradores from './pages/Colaboradores';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) => {
@@ -48,6 +49,11 @@ export default function App() {
               <Route path="/team" element={
                 <ProtectedRoute requireAdmin={true}>
                   <Layout><Team /></Layout>
+                </ProtectedRoute>
+              } />
+              <Route path="/colaboradores" element={
+                <ProtectedRoute>
+                  <Layout><Colaboradores /></Layout>
                 </ProtectedRoute>
               } />
               <Route path="/profile" element={

@@ -17,9 +17,11 @@ model User {
   avatarUrl    String?  @map("avatar_url") @db.LongText
   createdAt    DateTime @default(now()) @map("created_at")
 
-  notifications     Notification[]
-  pushSubscriptions PushSubscription[]
-  passwordResets    PasswordReset[]
+  notifications        Notification[]
+  pushSubscriptions    PushSubscription[]
+  passwordResets       PasswordReset[]
+  projetos             Projeto[]
+  colaboradoresCriados Colaborador[]
 
   @@map("users")
 }
@@ -65,4 +67,68 @@ model PasswordReset {
   user User @relation(fields: [userId], references: [id])
 
   @@map("password_resets")
+}
+
+// ─── Fase 1: Domínio de Alocação ──────────────────────────────────
+
+model Colaborador {
+  id          String   @id @db.VarChar(191)
+  nome        String   @db.VarChar(255)
+  email       String   @unique @db.VarChar(255)
+  funcao      String?  @db.VarChar(100)
+  ativo       Boolean  @default(true)
+  createdById String   @map("created_by_id") @db.VarChar(191)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@map("colaboradores")
+}
+
+model Projeto {
+  id                  String    @id @db.VarChar(191)
+  codigo              String    @unique @db.VarChar(50)
+  nome                String    @db.VarChar(255)
+  gestorId            String    @map("gestor_id") @db.VarChar(191)
+  dataPrestacaoContas DateTime  @map("data_prestacao_contas")
+  status              String    @default("ativo") @db.VarChar(50)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  gestor        User           @relation(fields: [gestorId], references: [id])
+  macroEntregas MacroEntrega[]
+
+  @@map("projetos")
+}
+
+model MacroEntrega {
+  id        String    @id @db.VarChar(191)
+  projetoId String    @map("projeto_id") @db.VarChar(191)
+  nome      String    @db.VarChar(255)
+  descricao String?   @db.Text
+  deadline  DateTime?
+  status    String    @default("ativa") @db.VarChar(50)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  projeto       Projeto        @relation(fields: [projetoId], references: [id])
+  microEntregas MicroEntrega[]
+
+  @@map("macro_entregas")
+}
+
+model MicroEntrega {
+  id             String    @id @db.VarChar(191)
+  macroEntregaId String    @map("macro_entrega_id") @db.VarChar(191)
+  nome           String    @db.VarChar(255)
+  descricao      String?   @db.Text
+  deadline       DateTime?
+  status         String    @default("pendente") @db.VarChar(50)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  macroEntrega MacroEntrega @relation(fields: [macroEntregaId], references: [id])
+
+  @@map("micro_entregas")
 }

@@ -10,6 +10,7 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import profileRoutes from './routes/profile.js';
 import notificationRoutes from './routes/notifications.js';
+import colaboradoresRoutes from './routes/colaboradores.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,6 +25,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/colaboradores', colaboradoresRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', ambiente: process.env.NODE_ENV });

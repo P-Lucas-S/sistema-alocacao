@@ -1,3 +1,5 @@
+> OBSOLETO — superado por PLANO_FINAL.md. Mantido só por histórico.
+
 # Análise de Adaptação: Registro de Ponto → Gestão de Alocação de Equipes
 
 > **Status:** Rascunho para revisão. Não escreva código com base neste documento antes de revisar os casos de borda da seção 6.

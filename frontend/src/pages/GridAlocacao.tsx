@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { LayoutGrid, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { LayoutGrid, ChevronLeft, ChevronRight, Search, List, X } from 'lucide-react';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -13,12 +13,22 @@ interface ProjetoCol {
   defaultMicroId: string | null;
 }
 
-interface Celula {
-  id: string;
-  horasPlanejadas: string;
+// Uma alocação individual dentro de uma célula (uma macro/micro específica)
+interface CelulaDetalhe {
+  alocacaoId:    string;
+  macroNome:     string;
+  microNome:     string;
   macroEntregaId: string;
   microEntregaId: string;
+  horas:         string;
 }
+
+// Dados de uma célula: total do projeto + composição por macro/micro
+// null quando o colaborador não tem nenhuma alocação naquele projeto
+type CelulaData = {
+  totalHoras: string;
+  detalhes:   CelulaDetalhe[];
+} | null;
 
 interface Saldo {
   totalMeusProj: string;
@@ -30,12 +40,21 @@ interface Saldo {
 interface Linha {
   colaborador: { id: string; nome: string; funcao: string | null };
   saldo: Saldo;
-  celulas: Record<string, Celula | null>;
+  celulas: Record<string, CelulaData>;
 }
 
 interface GridData {
   projetos: ProjetoCol[];
   linhas:   Linha[];
+}
+
+// Info passada para o drawer ao abrir
+interface DrawerInfo {
+  colabNome:  string;
+  projCodigo: string;
+  projNome:   string;
+  celula:     CelulaData;
+  saldo:      Saldo;
 }
 
 interface BloqueioInfo {
@@ -134,10 +153,10 @@ function BarraSaldo({ saldo }: { saldo: Saldo }) {
 // Bloqueio 409 → popover fixo ancorado à célula com distribuição do teto.
 
 interface CelulaEditavelProps {
-  celula:          Celula | null;
+  celula:          CelulaData;        // { totalHoras, detalhes } | null
   projetoId:       string;
   defaultMacroId:  string | null;
-  defaultMicroId:  string | null;
+  defaultMicroId:  string | null;     // ID da micro Geral (destino do clique rápido)
   colaboradorId:   string;
   colaboradorNome: string;
   totalGeral:      string;
@@ -145,38 +164,43 @@ interface CelulaEditavelProps {
   mes:             number;
   token:           string;
   onSaved:         () => void;
-  isHighlighted?:  boolean;  // destaque passageiro ao localizar via busca
+  onOpenDrawer:    (info: DrawerInfo) => void;
+  projCodigo:      string;
+  projNome:        string;
+  saldo:           Saldo;
+  isHighlighted?:  boolean;
 }
 
 function CelulaEditavel(props: CelulaEditavelProps) {
   const { celula, projetoId, defaultMacroId, defaultMicroId,
           colaboradorId, colaboradorNome, totalGeral,
-          ano, mes, token, onSaved, isHighlighted = false } = props;
+          ano, mes, token, onSaved, onOpenDrawer,
+          projCodigo, projNome, saldo, isHighlighted = false } = props;
 
-  // maxCelula = 220 − (tudo o que o colaborador tem MENOS o valor desta célula)
-  // Garante que o gestor vê o mesmo teto que a barra de saldo mostra.
-  // Ex: Daniela, totalGeral=200h, celula=120h → 220−(200−120)=140h
-  const celulaHoras = celula ? parseFloat(celula.horasPlanejadas) : 0;
-  const maxCelula   = Math.max(0, TETO - parseFloat(totalGeral) + celulaHoras);
+  // Localiza a alocação da micro Geral dentro dos detalhes da célula.
+  // O clique rápido (inline edit) sempre escreve/deleta APENAS essa micro.
+  // Outras micros (ex: Design, Conteúdo) permanecem intactas.
+  const geralDetalhe  = celula?.detalhes.find(d => d.microEntregaId === defaultMicroId) ?? null;
+  const geralHoras    = geralDetalhe ? parseFloat(geralDetalhe.horas) : 0;
+
+  // maxCelula = máximo que cabe na micro Geral deste projeto, dado o saldo total.
+  // Usa geralHoras (não totalHoras) porque editamos só a Geral.
+  const maxCelula = Math.max(0, TETO - parseFloat(totalGeral) + geralHoras);
 
   const [mode, setMode]         = useState<'idle' | 'editing' | 'saving'>('idle');
   const [editValue, setEditValue] = useState('');
+  const [hovered, setHovered]   = useState(false);
   const [bloqueio, setBloqueio]   = useState<BloqueioInfo | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
 
   const tdRef    = useRef<HTMLTableCellElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Guard contra double-fire Enter→blur
   const activeRef = useRef(false);
 
-  // Fecha o popover clicando fora
   useEffect(() => {
     if (!bloqueio) return;
     const handler = (e: MouseEvent) => {
-      if (tdRef.current && !tdRef.current.contains(e.target as Node)) {
-        setBloqueio(null);
-      }
+      if (tdRef.current && !tdRef.current.contains(e.target as Node)) setBloqueio(null);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -185,9 +209,15 @@ function CelulaEditavel(props: CelulaEditavelProps) {
   function startEdit() {
     setBloqueio(null);
     activeRef.current = true;
-    setEditValue(celula ? fmtHoras(celula.horasPlanejadas) : '');
+    // Edita as horas da Geral (não o total do projeto)
+    setEditValue(geralHoras > 0 ? fmtHoras(geralHoras) : '');
     setMode('editing');
     setTimeout(() => { inputRef.current?.select(); }, 0);
+  }
+
+  function handleOpenDrawer(e: React.MouseEvent) {
+    e.stopPropagation(); // não dispara o startEdit do <td>
+    onOpenDrawer({ colabNome: colaboradorNome, projCodigo, projNome, celula, saldo });
   }
 
   async function confirm() {
@@ -196,14 +226,13 @@ function CelulaEditavel(props: CelulaEditavelProps) {
 
     const val   = editValue.trim();
     const horas = parseFloat(val);
-    const originalHoras = celula ? parseFloat(celula.horasPlanejadas) : null;
 
-    // ── Vazio ou zero: remove se existia, senão cancela ──────────────────
+    // ── Vazio ou zero: remove a Geral se existia, senão cancela ──────────
     if (!val || isNaN(horas) || horas <= 0) {
-      if (celula) {
+      if (geralDetalhe) {
         setMode('saving');
         try {
-          await fetch(`/api/alocacoes/${celula.id}`, {
+          await fetch(`/api/alocacoes/${geralDetalhe.alocacaoId}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
           });
@@ -214,15 +243,16 @@ function CelulaEditavel(props: CelulaEditavelProps) {
       return;
     }
 
-    // ── Sem mudança: cancela sem rede ──────────────────────────────────────
-    if (originalHoras !== null && Math.abs(horas - originalHoras) < 0.001) {
+    // ── Sem mudança na Geral: cancela sem rede ────────────────────────────
+    if (geralHoras > 0 && Math.abs(horas - geralHoras) < 0.001) {
       setMode('idle');
       return;
     }
 
-    // ── Salva via POST upsert (com teto + lock no backend) ─────────────────
-    const macroId = celula?.macroEntregaId ?? defaultMacroId;
-    const microId = celula?.microEntregaId ?? defaultMicroId;
+    // ── Salva via POST upsert — sempre na micro Geral ─────────────────────
+    // Outras micros do projeto (Design, Conteúdo, etc.) NÃO são tocadas.
+    const macroId = defaultMacroId;
+    const microId = defaultMicroId;
     if (!macroId || !microId) { setMode('idle'); return; }
 
     setMode('saving');
@@ -285,20 +315,47 @@ function CelulaEditavel(props: CelulaEditavelProps) {
       ref={tdRef}
       style={tdStyle}
       onClick={() => { if (mode === 'idle') startEdit(); }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {/* ── idle: mostra valor ou placeholder ── */}
+      {/* ── idle: mostra totalHoras do projeto + ícone de drawer ── */}
       {mode === 'idle' && (
-        <div style={{ padding: '6px 12px' }}
+        <div style={{ padding: '6px 8px', position: 'relative' }}
           title={celula ? undefined : 'Clique para alocar'}>
           {celula ? (
             <>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.2 }}>
-                {fmtHoras(celula.horasPlanejadas)}h
+                {fmtHoras(celula.totalHoras)}h
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>— real.</div>
             </>
           ) : (
             <span style={{ color: 'var(--text-3)', fontSize: 20, lineHeight: 1 }}>+</span>
+          )}
+          {/* Ícone de drawer — sempre montado (evita loop mount/unmount no hover),
+              discreto por padrão, nítido no hover via opacity.
+              O loop ocorria porque montar o botão sob o cursor disparava
+              mouseleave no <td>, desmontava o botão, e repetia ad infinitum. */}
+          {celula && mode === 'idle' && (
+            <button
+              onClick={handleOpenDrawer}
+              title="Ver composição macro/micro"
+              style={{
+                position: 'absolute', top: 3, right: 3,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                borderRadius: 4, cursor: 'pointer', padding: '2px 4px',
+                display: 'flex', alignItems: 'center',
+                color: 'var(--text-2)',
+                // 0.5 em repouso: discreto mas claramente perceptível
+                // 1 no hover: nítido — refinamento, não requisito
+                opacity: hovered ? 1 : 0.5,
+                transition: 'opacity 0.15s ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--brand-500)'; e.currentTarget.style.opacity = '1'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.opacity = hovered ? '1' : '0.5'; }}
+            >
+              <List size={13} />
+            </button>
           )}
         </div>
       )}
@@ -328,6 +385,12 @@ function CelulaEditavel(props: CelulaEditavelProps) {
             color: maxCelula <= 0 ? '#f87171' : maxCelula < 20 ? '#f59e0b' : 'var(--text-3)' }}>
             {maxCelula <= 0 ? 'sem espaço' : `máx ${fmtHoras(maxCelula)}h`}
           </div>
+          {/* Aviso quando há outras micros além da Geral no projeto */}
+          {celula && (celula.detalhes.length > 1 || !geralDetalhe) && (
+            <div style={{ fontSize: 9, marginTop: 1, color: 'var(--text-3)' }}>
+              editando micro Geral
+            </div>
+          )}
         </div>
       )}
 
@@ -403,6 +466,143 @@ function CelulaEditavel(props: CelulaEditavelProps) {
         </div>
       )}
     </td>
+  );
+}
+
+// ── Painel lateral de detalhamento (drawer) — só LEITURA nesta etapa ─────────
+
+function Drawer({ info, onClose }: { info: DrawerInfo; onClose: () => void }) {
+  const drawerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (!drawerRef.current?.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [onClose]);
+
+  const { colabNome, projCodigo, projNome, celula, saldo } = info;
+  const totalGeral = parseFloat(saldo.totalGeral);
+
+  // Agrupa detalhes por macro para exibição hierárquica
+  const porMacro: Map<string, { macroNome: string; micros: CelulaDetalhe[] }> = new Map();
+  if (celula) {
+    for (const d of celula.detalhes) {
+      if (!porMacro.has(d.macroEntregaId)) {
+        porMacro.set(d.macroEntregaId, { macroNome: d.macroNome, micros: [] });
+      }
+      porMacro.get(d.macroEntregaId)!.micros.push(d);
+    }
+  }
+
+  return (
+    <>
+      {/* Overlay escuro */}
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 200 }} />
+      {/* Drawer */}
+      <div
+        ref={drawerRef}
+        style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0, width: 340,
+          background: 'var(--surface-1)', borderLeft: '1px solid var(--border)',
+          boxShadow: '-8px 0 32px rgba(0,0,0,0.2)',
+          zIndex: 201, display: 'flex', flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: 0 }}>
+                {colabNome}
+              </p>
+              <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '2px 0 0' }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--brand-500)' }}>{projCodigo}</span>
+                {' '}{projNome}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', padding: 4, borderRadius: 6, flexShrink: 0 }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-3)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {/* Saldo do colaborador no mês */}
+          <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8 }}>
+            <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+              Capacidade no mês
+            </p>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                Total: <strong style={{ color: totalGeral >= 220 ? '#ef4444' : totalGeral >= 176 ? '#f59e0b' : 'var(--text-1)' }}>
+                  {fmtHoras(saldo.totalGeral)}/220h
+                </strong>
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                Disponível: <strong>{fmtHoras(saldo.disponivel)}h</strong>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Conteúdo — composição por macro/micro */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+          {!celula ? (
+            <p style={{ fontSize: 13, color: 'var(--text-3)', textAlign: 'center', marginTop: 40 }}>
+              Nenhuma alocação neste projeto.
+            </p>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                  Composição
+                </p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)', margin: 0 }}>
+                  Total: {fmtHoras(celula.totalHoras)}h
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[...porMacro.values()].map((grupo, gi) => (
+                  <div key={gi} style={{ background: 'var(--surface-2)', borderRadius: 10, overflow: 'hidden' }}>
+                    {/* Header da macro */}
+                    <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--text-1)' }}>
+                        {grupo.macroNome}
+                      </p>
+                    </div>
+                    {/* Micros */}
+                    {grupo.micros.map((d, mi) => (
+                      <div key={mi} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', borderTop: mi > 0 ? '1px solid var(--border)' : 'none' }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                          {d.microNome}
+                          {d.microNome === 'Geral' && (
+                            <span style={{ fontSize: 9, marginLeft: 5, color: 'var(--brand-500)', fontWeight: 600, textTransform: 'uppercase' }}>padrão</span>
+                          )}
+                        </span>
+                        <strong style={{ fontSize: 13, color: 'var(--text-1)' }}>{fmtHoras(d.horas)}h</strong>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              {/* Indicação futura de edição no drawer */}
+              <div style={{ marginTop: 16, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px dashed var(--border)' }}>
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
+                  Edição por macro/micro disponível em breve (D3-b)
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -615,6 +815,9 @@ export default function GridAlocacao() {
 
   // Colaboradores adicionados manualmente (sem alocação nos meus projetos ainda)
   const [extrasColabs, setExtrasColabs] = useState<ExtraLinha[]>([]);
+
+  // Painel lateral de detalhamento
+  const [drawer, setDrawer] = useState<DrawerInfo | null>(null);
 
   // Highlight passageiro ao localizar colaborador via busca
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -875,6 +1078,10 @@ export default function GridAlocacao() {
                         mes={mes}
                         token={token!}
                         onSaved={fetchGrid}
+                        onOpenDrawer={setDrawer}
+                        projCodigo={p.codigo}
+                        projNome={p.nome}
+                        saldo={linha.saldo}
                         isHighlighted={isHighlight}
                       />
                     ))}
@@ -885,6 +1092,9 @@ export default function GridAlocacao() {
           </table>
         )}
       </div>
+
+      {/* Drawer lateral de detalhamento */}
+      {drawer && <Drawer info={drawer} onClose={() => setDrawer(null)} />}
     </div>
   );
 }

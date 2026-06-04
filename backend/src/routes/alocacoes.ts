@@ -202,9 +202,14 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     const meusProjIds = new Set(projetos.map(p => p.id));
 
     // ── Alocações nos MEUS projetos este mês — define as linhas ──────────
+    // Inclui macroEntrega e microEntrega para montar os detalhes do drawer.
     const minhasAlocs = await prisma.alocacao.findMany({
       where: { projetoId: { in: [...meusProjIds] }, ano: anoN, mes: mesN },
-      include: { colaborador: { select: { id: true, nome: true, funcao: true } } },
+      include: {
+        colaborador:  { select: { id: true, nome: true, funcao: true } },
+        macroEntrega: { select: { nome: true } },
+        microEntrega: { select: { nome: true } },
+      },
     });
 
     if (minhasAlocs.length === 0) return res.json({ projetos, linhas: [] });
@@ -224,8 +229,39 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     // ── Mapa colaboradorId → info de exibição ─────────────────────────────
     const colabInfo = new Map(minhasAlocs.map(a => [a.colaboradorId, a.colaborador]));
 
+    // ── Agregação de celulas por (colabId, projId) ────────────────────────
+    // Agrupa no código (não no BD) para ter acesso aos nomes de macro/micro
+    // necessários para o drawer de detalhes.
+    type DetalheCell = {
+      alocacaoId:    string;
+      macroNome:     string;
+      microNome:     string;
+      macroEntregaId: string;
+      microEntregaId: string;
+      horas:         string;
+    };
+    type CelulaAgregada = { totalHoras: Prisma.Decimal; detalhes: DetalheCell[] };
+
+    const celulasByColabProj = new Map<string, CelulaAgregada>();
+    for (const aloc of minhasAlocs) {
+      const k = `${aloc.colaboradorId}::${aloc.projetoId}`;
+      if (!celulasByColabProj.has(k)) {
+        celulasByColabProj.set(k, { totalHoras: new Prisma.Decimal(0), detalhes: [] });
+      }
+      const entry = celulasByColabProj.get(k)!;
+      entry.totalHoras = entry.totalHoras.plus(aloc.horasPlanejadas);
+      entry.detalhes.push({
+        alocacaoId:    aloc.id,
+        macroNome:     aloc.macroEntrega.nome,
+        microNome:     aloc.microEntrega.nome,
+        macroEntregaId: aloc.macroEntregaId,
+        microEntregaId: aloc.microEntregaId,
+        horas:         aloc.horasPlanejadas.toString(),
+      });
+    }
+
     // ── Construir linhas ──────────────────────────────────────────────────
-    const D0 = new Prisma.Decimal(0);
+    const D0   = new Prisma.Decimal(0);
     const TETO = new Prisma.Decimal(220);
 
     const linhas = colabIds.map(colabId => {
@@ -242,21 +278,13 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       const totalGeral = totalMeusProj.plus(totalOutros);
       const disponivel = Prisma.Decimal.max(TETO.minus(totalGeral), D0);
 
-      const celulas: Record<string, {
-        id: string; horasPlanejadas: string;
-        macroEntregaId: string; microEntregaId: string;
-      } | null> = {};
-
+      // celulas[projetoId] = { totalHoras, detalhes[] } | null
+      const celulas: Record<string, { totalHoras: string; detalhes: DetalheCell[] } | null> = {};
       for (const proj of projetos) {
-        const aloc = alocs.find(
-          a => a.projetoId === proj.id && meusProjIds.has(a.projetoId)
-        );
-        celulas[proj.id] = aloc ? {
-          id: aloc.id,
-          horasPlanejadas: aloc.horasPlanejadas.toString(),
-          macroEntregaId: aloc.macroEntregaId,
-          microEntregaId: aloc.microEntregaId,
-        } : null;
+        const entry = celulasByColabProj.get(`${colabId}::${proj.id}`);
+        celulas[proj.id] = entry
+          ? { totalHoras: entry.totalHoras.toString(), detalhes: entry.detalhes }
+          : null;
       }
 
       return {

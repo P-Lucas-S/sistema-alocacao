@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { LayoutGrid, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutGrid, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -48,6 +48,12 @@ interface BloqueioInfo {
     gestorNome:    string;
     horas:         string;
   }[];
+}
+
+// Colaborador adicionado manualmente ao grid (ainda sem alocação nos meus projetos)
+interface ExtraLinha {
+  colaborador: { id: string; nome: string; funcao: string | null };
+  saldo: Saldo;
 }
 
 // ── Constantes ───────────────────────────────────────────────────────────────
@@ -134,17 +140,18 @@ interface CelulaEditavelProps {
   defaultMicroId:  string | null;
   colaboradorId:   string;
   colaboradorNome: string;
-  totalGeral:      string;   // saldo.totalGeral da linha — usado para calcular maxCelula localmente
+  totalGeral:      string;
   ano:             number;
   mes:             number;
   token:           string;
   onSaved:         () => void;
+  isHighlighted?:  boolean;  // destaque passageiro ao localizar via busca
 }
 
 function CelulaEditavel(props: CelulaEditavelProps) {
   const { celula, projetoId, defaultMacroId, defaultMicroId,
           colaboradorId, colaboradorNome, totalGeral,
-          ano, mes, token, onSaved } = props;
+          ano, mes, token, onSaved, isHighlighted = false } = props;
 
   // maxCelula = 220 − (tudo o que o colaborador tem MENOS o valor desta célula)
   // Garante que o gestor vê o mesmo teto que a barra de saldo mostra.
@@ -268,7 +275,9 @@ function CelulaEditavel(props: CelulaEditavelProps) {
         ? '2px solid var(--brand-500)'
         : 'none',
     outlineOffset: '-2px',
-    transition: 'outline 0.1s',
+    // Highlight passageiro: transição sempre presente para que o fade-out seja animado
+    background: isHighlighted ? 'rgba(79,70,229,0.1)' : undefined,
+    transition: 'background-color 0.6s ease, outline 0.1s',
   };
 
   return (
@@ -397,6 +406,173 @@ function CelulaEditavel(props: CelulaEditavelProps) {
   );
 }
 
+// ── Busca de colaborador para adicionar ao grid ───────────────────────────────
+// Usa GET /api/colaboradores?search=X&ativo=true (rota existente, sem alteração).
+// Ao selecionar, busca saldo via GET /api/alocacoes?colaboradorId=X&ano=Y&mes=Z
+// e computa totalGeral/totalOutros localmente — sem novo endpoint.
+
+function BuscaColaborador({
+  idsNoGrid, projetos, ano, mes, token, onAdd, onLocate,
+}: {
+  idsNoGrid: Set<string>;
+  projetos: ProjetoCol[];
+  ano: number; mes: number;
+  token: string;
+  onAdd: (extra: ExtraLinha) => void;
+  onLocate: (colabId: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [resultados, setResultados] = useState<{ id: string; nome: string; funcao: string | null }[]>([]);
+  const [open, setOpen]     = useState(false);
+  const [loading, setLoading] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fecha dropdown ao clicar fora
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  // Busca com debounce de 300ms
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setResultados([]); setOpen(false); return; }
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/colaboradores?search=${encodeURIComponent(q)}&ativo=true`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (res.ok) {
+          const data: { id: string; nome: string; funcao: string | null; ativo: boolean }[] = await res.json();
+          // Mostra TODOS os ativos — quem está no grid recebe badge, não é escondido
+          setResultados(data.filter(c => c.ativo).slice(0, 8));
+          setOpen(true);
+        }
+      } finally { setLoading(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query, token, idsNoGrid]);
+
+  async function handleSelect(c: { id: string; nome: string; funcao: string | null }) {
+    setOpen(false);
+    setQuery('');
+
+    // Já está no grid → rola até a linha e destaca
+    if (idsNoGrid.has(c.id)) {
+      onLocate(c.id);
+      return;
+    }
+
+    // Não está no grid → calcula saldo e adiciona como linha extra
+    const res = await fetch(
+      `/api/alocacoes?colaboradorId=${c.id}&ano=${ano}&mes=${mes}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const alocs: { projetoId: string; horasPlanejadas: string }[] = res.ok ? await res.json() : [];
+
+    const meusProjIds = new Set(projetos.map(p => p.id));
+    const totalGeral    = alocs.reduce((s, a) => s + parseFloat(a.horasPlanejadas), 0);
+    const totalMeusProj = alocs.filter(a => meusProjIds.has(a.projetoId))
+                               .reduce((s, a) => s + parseFloat(a.horasPlanejadas), 0);
+    const totalOutros   = totalGeral - totalMeusProj;
+    const disponivel    = Math.max(0, TETO - totalGeral);
+
+    onAdd({
+      colaborador: { id: c.id, nome: c.nome, funcao: c.funcao },
+      saldo: {
+        totalMeusProj: String(totalMeusProj),
+        totalOutros:   String(totalOutros),
+        totalGeral:    String(totalGeral),
+        disponivel:    String(disponivel),
+      },
+    });
+  }
+
+  const inputStyle: React.CSSProperties = {
+    background: 'var(--surface-2)', border: '1px solid var(--border)',
+    borderRadius: 8, padding: '5px 10px 5px 28px', fontSize: 13,
+    color: 'var(--text-1)', outline: 'none', width: 200,
+  };
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      {/* Input com ícone */}
+      <div style={{ position: 'relative' }}>
+        <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') { setOpen(false); setQuery(''); } }}
+          placeholder="Adicionar colaborador…"
+          style={inputStyle}
+        />
+        {loading && (
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-3)' }}>…</span>
+        )}
+      </div>
+
+      {/* Dropdown de resultados */}
+      {open && resultados.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 4,
+          width: 260, background: 'var(--surface-1)',
+          border: '1px solid var(--border)', borderRadius: 10,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.2)', zIndex: 999, overflow: 'hidden',
+        }}>
+          {resultados.map((c, i) => {
+            const jaNoGrid = idsNoGrid.has(c.id);
+            return (
+              <button
+                key={c.id}
+                onClick={() => handleSelect(c)}
+                style={{
+                  width: '100%', textAlign: 'left', display: 'block',
+                  padding: '8px 12px', background: 'none', border: 'none',
+                  cursor: 'pointer', borderTop: i > 0 ? '1px solid var(--border)' : 'none',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>{c.nome}</span>
+                  {jaNoGrid && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4,
+                      background: 'var(--brand-500)18', color: 'var(--brand-500)',
+                      textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0,
+                    }}>
+                      no grid
+                    </span>
+                  )}
+                </div>
+                {c.funcao && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{c.funcao}</div>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Nenhum resultado */}
+      {open && query.trim().length >= 2 && resultados.length === 0 && !loading && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 4,
+          width: 240, background: 'var(--surface-1)',
+          border: '1px solid var(--border)', borderRadius: 10,
+          padding: '10px 12px', zIndex: 999, fontSize: 12, color: 'var(--text-3)',
+        }}>
+          Nenhum resultado ativo encontrado.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Seletor de mês ────────────────────────────────────────────────────────────
 
 function SeletorMes({ mes, ano, onMes, onAno }: { mes: number; ano: number; onMes: (m: number) => void; onAno: (a: number) => void }) {
@@ -436,6 +612,53 @@ export default function GridAlocacao() {
   const [data, setData]       = useState<GridData | null>(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro]       = useState('');
+
+  // Colaboradores adicionados manualmente (sem alocação nos meus projetos ainda)
+  const [extrasColabs, setExtrasColabs] = useState<ExtraLinha[]>([]);
+
+  // Highlight passageiro ao localizar colaborador via busca
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mapa colabId → <tr> element para scroll programático
+  const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
+
+  function handleLocate(colabId: string) {
+    const el = rowRefs.current.get(colabId);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Highlight: liga, e desliga após 2s (a transição CSS cobre o fade-out)
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    setHighlightedId(colabId);
+    highlightTimer.current = setTimeout(() => setHighlightedId(null), 2000);
+  }
+
+  // Limpa os extras ao navegar para outro mês (são contextuais ao mês)
+  useEffect(() => { setExtrasColabs([]); }, [ano, mes]);
+
+  // Remove extras que agora aparecem naturalmente no grid (ganharam alocação)
+  useEffect(() => {
+    if (!data) return;
+    const idsGrid = new Set(data.linhas.map(l => l.colaborador.id));
+    setExtrasColabs(prev => prev.filter(e => !idsGrid.has(e.colaborador.id)));
+  }, [data]);
+
+  // Mescla linhas do grid + extras, ordenado por nome
+  const todasLinhas: Linha[] = useMemo(() => {
+    if (!data) return [];
+    const idsGrid = new Set(data.linhas.map(l => l.colaborador.id));
+    const extras  = extrasColabs
+      .filter(e => !idsGrid.has(e.colaborador.id))
+      .map(e => ({
+        colaborador: e.colaborador,
+        saldo:       e.saldo,
+        celulas:     Object.fromEntries(data.projetos.map(p => [p.id, null])) as Record<string, Celula | null>,
+      }));
+    return [...data.linhas, ...extras]
+      .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'));
+  }, [data, extrasColabs]);
+
+  // IDs já no grid (para filtrar os resultados da busca)
+  const idsNoGrid = useMemo(() => new Set(todasLinhas.map(l => l.colaborador.id)), [todasLinhas]);
 
   const fetchGrid = useCallback(async () => {
     setLoading(true);
@@ -505,11 +728,25 @@ export default function GridAlocacao() {
         </div>
         <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
         {data && (
-          <span className="text-xs ml-auto" style={{ color: 'var(--text-3)' }}>
-            {data.linhas.length} colaborador{data.linhas.length !== 1 ? 'es' : ''} ·{' '}
-            {data.projetos.length} projeto{data.projetos.length !== 1 ? 's' : ''}
-            {' '}· clique em célula para editar
-          </span>
+          <>
+            <BuscaColaborador
+              idsNoGrid={idsNoGrid}
+              projetos={data.projetos}
+              ano={ano} mes={mes}
+              token={token!}
+              onAdd={(extra) =>
+                setExtrasColabs(prev =>
+                  prev.some(e => e.colaborador.id === extra.colaborador.id) ? prev : [...prev, extra]
+                )
+              }
+              onLocate={handleLocate}
+            />
+            <span className="text-xs ml-auto" style={{ color: 'var(--text-3)' }}>
+              {todasLinhas.length} colaborador{todasLinhas.length !== 1 ? 'es' : ''} ·{' '}
+              {data.projetos.length} projeto{data.projetos.length !== 1 ? 's' : ''}
+              {' '}· clique em célula para editar
+            </span>
+          </>
         )}
       </div>
 
@@ -531,7 +768,7 @@ export default function GridAlocacao() {
             <p className="text-sm">Nenhum projeto ativo.</p>
           </div>
         )}
-        {!loading && !erro && data && data.projetos.length > 0 && data.linhas.length === 0 && (
+        {!loading && !erro && data && data.projetos.length > 0 && todasLinhas.length === 0 && (
           <div className="flex flex-col items-center justify-center h-60 gap-2" style={{ color: 'var(--text-3)' }}>
             <LayoutGrid size={40} strokeWidth={1} />
             <p className="text-sm font-medium">Nenhuma alocação em {mesLabel}.</p>
@@ -539,7 +776,7 @@ export default function GridAlocacao() {
           </div>
         )}
 
-        {!loading && !erro && data && data.linhas.length > 0 && (
+        {!loading && !erro && data && todasLinhas.length > 0 && (
           <table style={{
             borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed',
             minWidth: COL_COLAB_W + COL_SALDO_W + data.projetos.length * COL_PROJ_W,
@@ -583,16 +820,26 @@ export default function GridAlocacao() {
             </thead>
 
             <tbody>
-              {data.linhas.map((linha, idx) => {
-                const totalG   = parseFloat(linha.saldo.totalGeral);
-                const pctTotal = (totalG / TETO) * 100;
-                const cor      = corSaldo(pctTotal);
-                const rowBg    = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-2)';
+              {todasLinhas.map((linha, idx) => {
+                const totalG      = parseFloat(linha.saldo.totalGeral);
+                const pctTotal    = (totalG / TETO) * 100;
+                const cor         = corSaldo(pctTotal);
+                const isHighlight = highlightedId === linha.colaborador.id;
+                // Quando destacado, sobrepõe a cor zebrada com highlight; transição no td
+                const rowBg = isHighlight
+                  ? 'rgba(79,70,229,0.08)'
+                  : idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-2)';
 
                 return (
-                  <tr key={linha.colaborador.id}>
+                  <tr
+                    key={linha.colaborador.id}
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(linha.colaborador.id, el);
+                      else rowRefs.current.delete(linha.colaborador.id);
+                    }}
+                  >
                     {/* Colaborador (sticky) */}
-                    <td style={{ ...stickyColabStyle, background: rowBg, verticalAlign: 'middle' }}>
+                    <td style={{ ...stickyColabStyle, background: rowBg, verticalAlign: 'middle', transition: 'background-color 0.6s ease' }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={linha.colaborador.nome}>
                         {linha.colaborador.nome}
                       </div>
@@ -604,7 +851,7 @@ export default function GridAlocacao() {
                     </td>
 
                     {/* Saldo (sticky) */}
-                    <td style={{ ...stickySaldoStyle, background: rowBg, left: COL_COLAB_W, borderRight: '2px solid var(--border)', verticalAlign: 'middle' }}>
+                    <td style={{ ...stickySaldoStyle, background: rowBg, left: COL_COLAB_W, borderRight: '2px solid var(--border)', verticalAlign: 'middle', transition: 'background-color 0.6s ease' }}>
                       <BarraSaldo saldo={linha.saldo} />
                       {pctTotal >= 90 && (
                         <div style={{ fontSize: 9, marginTop: 3, color: cor, fontWeight: 600 }}>
@@ -628,6 +875,7 @@ export default function GridAlocacao() {
                         mes={mes}
                         token={token!}
                         onSaved={fetchGrid}
+                        isHighlighted={isHighlight}
                       />
                     ))}
                   </tr>

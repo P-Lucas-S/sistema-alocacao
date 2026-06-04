@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { LayoutGrid, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -9,6 +9,8 @@ interface ProjetoCol {
   codigo: string;
   nome: string;
   gestorId: string;
+  defaultMacroId: string | null;
+  defaultMicroId: string | null;
 }
 
 interface Celula {
@@ -36,6 +38,18 @@ interface GridData {
   linhas:   Linha[];
 }
 
+interface BloqueioInfo {
+  totalAlocado:     string;
+  horasSolicitadas: string;
+  horasDisponiveis: string;
+  distribuicao: {
+    projetoCodigo: string;
+    projetoNome:   string;
+    gestorNome:    string;
+    horas:         string;
+  }[];
+}
+
 // ── Constantes ───────────────────────────────────────────────────────────────
 
 const TETO = 220;
@@ -45,17 +59,16 @@ const MESES = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
 
-// Larguras das colunas fixas (sticky)
-const COL_COLAB_W  = 200;
-const COL_SALDO_W  = 260;
-const COL_PROJ_W   = 130;
+const COL_COLAB_W = 200;
+const COL_SALDO_W = 260;
+const COL_PROJ_W  = 130;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function corSaldo(pct: number): string {
-  if (pct >= 100) return '#ef4444'; // vermelho
-  if (pct >= 80)  return '#f59e0b'; // âmbar
-  return '#22c55e';                 // verde
+  if (pct >= 100) return '#ef4444';
+  if (pct >= 80)  return '#f59e0b';
+  return '#22c55e';
 }
 
 function fmtHoras(h: string | number): string {
@@ -63,15 +76,10 @@ function fmtHoras(h: string | number): string {
   return Number.isInteger(n) ? `${n}` : n.toFixed(1);
 }
 
-// ── Barra de saldo ───────────────────────────────────────────────────────────
-//
-// Regra de leitura:
-//   COR  → lotação total do colaborador (verde/âmbar/vermelho). Mesma cor em
-//           ambos os segmentos — a lotação não depende de quem alocou.
-//   TEXTURA → sólido = minhas horas (editáveis); hachurado = outros gestores
-//              (só-leitura). Ambos somam visualmente à ocupação total.
-//   FUNDO → var(--surface-3) inequivocamente vazio; não deve ser confundido
-//            com ocupação.
+// ── Barra de saldo ────────────────────────────────────────────────────────────
+// COR  = lotação total (verde/âmbar/vermelho) — mesma cor para sólido e hatch.
+// TEXTURA = sólido (minhas horas) · hachurado 45° (outros gestores).
+// FUNDO   = var(--surface-3) inequivocamente vazio.
 
 function BarraSaldo({ saldo }: { saldo: Saldo }) {
   const totalG = parseFloat(saldo.totalGeral);
@@ -83,177 +91,335 @@ function BarraSaldo({ saldo }: { saldo: Saldo }) {
   const pctMeus   = Math.min((meus   / TETO) * 100, pctTotal);
   const pctOutros = Math.min((outros / TETO) * 100, Math.max(0, pctTotal - pctMeus));
 
-  // Cor reflete APENAS a lotação total — não quem alocou
-  const cor = corSaldo((totalG / TETO) * 100);
-
-  // Hatch na mesma cor de status: distingue por textura, não por cor diferente
-  const hatch = `repeating-linear-gradient(
-    45deg,
-    ${cor},
-    ${cor} 3px,
-    transparent 3px,
-    transparent 8px
-  )`;
-
+  const cor   = corSaldo((totalG / TETO) * 100);
+  const hatch = `repeating-linear-gradient(45deg,${cor},${cor} 3px,transparent 3px,transparent 8px)`;
   const tooltip = `Você: ${fmtHoras(meus)}h · Outros: ${fmtHoras(outros)}h · Disponível: ${fmtHoras(disp)}h`;
 
   return (
     <div className="flex items-center gap-2 min-w-0 w-full" title={tooltip}>
-      {/* Barra — overflow:hidden + border-radius recortam os filhos */}
-      <div
-        style={{
-          position: 'relative',
-          flex: 1,
-          height: 8,
-          borderRadius: 9999,
-          overflow: 'hidden',
-          background: 'var(--surface-3)',  // espaço livre: inequivocamente vazio
-          minWidth: 80,
-        }}
-      >
-        {/* Outros gestores: hachurado, mesma cor de status */}
+      <div style={{ position: 'relative', flex: 1, height: 8, borderRadius: 9999, overflow: 'hidden', background: 'var(--surface-3)', minWidth: 80 }}>
         {pctOutros > 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              left: `${pctMeus}%`,
-              width: `${pctOutros}%`,
-              height: '100%',
-              background: hatch,
-            }}
-          />
+          <div style={{ position: 'absolute', left: `${pctMeus}%`, width: `${pctOutros}%`, height: '100%', background: hatch }} />
         )}
-        {/* Minhas horas: sólido, cor de status — desenhado por cima do hatch */}
         {pctMeus > 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              left: 0,
-              width: `${pctMeus}%`,
-              height: '100%',
-              background: cor,
-            }}
-          />
+          <div style={{ position: 'absolute', left: 0, width: `${pctMeus}%`, height: '100%', background: cor }} />
         )}
       </div>
-      {/* Texto na cor de status */}
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: 700,
-          whiteSpace: 'nowrap',
-          flexShrink: 0,
-          color: cor,
-          minWidth: 56,
-          textAlign: 'right',
-        }}
-      >
+      <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, color: cor, minWidth: 56, textAlign: 'right' }}>
         {fmtHoras(saldo.totalGeral)}/{TETO}h
       </span>
     </div>
   );
 }
 
-// ── Célula (read-only em D1) ──────────────────────────────────────────────────
+// ── Célula editável ────────────────────────────────────────────────────────────
+//
+// Estados:
+//   idle    → exibe valor (ou "—") — clique inicia edição
+//   editing → <input> com foco automático
+//   saving  → exibe "…" com opacidade reduzida (SEM otimismo reverso)
+//
+// Confirmação: Enter · Tab · blur.   Cancelamento: Escape.
+//
+// Valor 0 ou vazio numa célula com alocação → DELETE /api/alocacoes/:id.
+// Nova alocação (célula vazia) → POST com defaultMacroId/defaultMicroId (Geral).
+// Atualização → POST upsert via composite key (preserva macro/micro anteriores).
+//
+// Bloqueio 409 → popover fixo ancorado à célula com distribuição do teto.
 
-function CelulaGrid({ celula }: { celula: Celula | null }) {
-  const base: React.CSSProperties = {
-    width: COL_PROJ_W,
-    minWidth: COL_PROJ_W,
-    padding: '6px 12px',
+interface CelulaEditavelProps {
+  celula:          Celula | null;
+  projetoId:       string;
+  defaultMacroId:  string | null;
+  defaultMicroId:  string | null;
+  colaboradorId:   string;
+  colaboradorNome: string;
+  totalGeral:      string;   // saldo.totalGeral da linha — usado para calcular maxCelula localmente
+  ano:             number;
+  mes:             number;
+  token:           string;
+  onSaved:         () => void;
+}
+
+function CelulaEditavel(props: CelulaEditavelProps) {
+  const { celula, projetoId, defaultMacroId, defaultMicroId,
+          colaboradorId, colaboradorNome, totalGeral,
+          ano, mes, token, onSaved } = props;
+
+  // maxCelula = 220 − (tudo o que o colaborador tem MENOS o valor desta célula)
+  // Garante que o gestor vê o mesmo teto que a barra de saldo mostra.
+  // Ex: Daniela, totalGeral=200h, celula=120h → 220−(200−120)=140h
+  const celulaHoras = celula ? parseFloat(celula.horasPlanejadas) : 0;
+  const maxCelula   = Math.max(0, TETO - parseFloat(totalGeral) + celulaHoras);
+
+  const [mode, setMode]         = useState<'idle' | 'editing' | 'saving'>('idle');
+  const [editValue, setEditValue] = useState('');
+  const [bloqueio, setBloqueio]   = useState<BloqueioInfo | null>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+
+  const tdRef    = useRef<HTMLTableCellElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Guard contra double-fire Enter→blur
+  const activeRef = useRef(false);
+
+  // Fecha o popover clicando fora
+  useEffect(() => {
+    if (!bloqueio) return;
+    const handler = (e: MouseEvent) => {
+      if (tdRef.current && !tdRef.current.contains(e.target as Node)) {
+        setBloqueio(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [bloqueio]);
+
+  function startEdit() {
+    setBloqueio(null);
+    activeRef.current = true;
+    setEditValue(celula ? fmtHoras(celula.horasPlanejadas) : '');
+    setMode('editing');
+    setTimeout(() => { inputRef.current?.select(); }, 0);
+  }
+
+  async function confirm() {
+    if (!activeRef.current) return;
+    activeRef.current = false;
+
+    const val   = editValue.trim();
+    const horas = parseFloat(val);
+    const originalHoras = celula ? parseFloat(celula.horasPlanejadas) : null;
+
+    // ── Vazio ou zero: remove se existia, senão cancela ──────────────────
+    if (!val || isNaN(horas) || horas <= 0) {
+      if (celula) {
+        setMode('saving');
+        try {
+          await fetch(`/api/alocacoes/${celula.id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          onSaved();
+        } catch { /* silently fail */ }
+      }
+      setMode('idle');
+      return;
+    }
+
+    // ── Sem mudança: cancela sem rede ──────────────────────────────────────
+    if (originalHoras !== null && Math.abs(horas - originalHoras) < 0.001) {
+      setMode('idle');
+      return;
+    }
+
+    // ── Salva via POST upsert (com teto + lock no backend) ─────────────────
+    const macroId = celula?.macroEntregaId ?? defaultMacroId;
+    const microId = celula?.microEntregaId ?? defaultMicroId;
+    if (!macroId || !microId) { setMode('idle'); return; }
+
+    setMode('saving');
+
+    try {
+      const res = await fetch('/api/alocacoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ colaboradorId, projetoId, macroEntregaId: macroId, microEntregaId: microId, ano, mes, horasPlanejadas: horas }),
+      });
+      const data = await res.json();
+
+      if (res.status === 201) {
+        onSaved(); // refetch grid → atualiza saldo da linha
+      } else if (res.status === 409 && data.bloqueado) {
+        // Posiciona popover fixo (não clipado pelo overflow da tabela)
+        const rect = tdRef.current?.getBoundingClientRect();
+        if (rect) {
+          setPopoverPos({
+            top:  Math.min(rect.bottom + 6, window.innerHeight - 240),
+            left: Math.max(8, Math.min(rect.left, window.innerWidth - 276)),
+          });
+        }
+        setBloqueio(data);
+      }
+    } catch { /* silently fail */ }
+
+    setMode('idle');
+  }
+
+  function cancel() {
+    activeRef.current = false;
+    setBloqueio(null);
+    setMode('idle');
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  const tdStyle: React.CSSProperties = {
+    width: COL_PROJ_W, minWidth: COL_PROJ_W,
+    padding: 0,
     textAlign: 'center',
     borderRight: '1px solid var(--border)',
     verticalAlign: 'middle',
+    position: 'relative',
+    cursor: 'pointer',
+    outline: bloqueio
+      ? '2px solid #ef4444'
+      : mode === 'editing'
+        ? '2px solid var(--brand-500)'
+        : 'none',
+    outlineOffset: '-2px',
+    transition: 'outline 0.1s',
   };
 
-  if (!celula) {
-    return (
-      <td style={base}>
-        <span style={{ color: 'var(--text-3)', fontSize: 13 }}>—</span>
-      </td>
-    );
-  }
-
   return (
-    <td style={base}>
-      {/* Planejado */}
-      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.2 }}>
-        {fmtHoras(celula.horasPlanejadas)}h
-      </div>
-      {/* Placeholder realizado — preenchido no C3 */}
-      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-        — real.
-      </div>
+    <td
+      ref={tdRef}
+      style={tdStyle}
+      onClick={() => { if (mode === 'idle') startEdit(); }}
+    >
+      {/* ── idle: mostra valor ou placeholder ── */}
+      {mode === 'idle' && (
+        <div style={{ padding: '6px 12px' }}
+          title={celula ? undefined : 'Clique para alocar'}>
+          {celula ? (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.2 }}>
+                {fmtHoras(celula.horasPlanejadas)}h
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>— real.</div>
+            </>
+          ) : (
+            <span style={{ color: 'var(--text-3)', fontSize: 20, lineHeight: 1 }}>+</span>
+          )}
+        </div>
+      )}
+
+      {/* ── editing: input numérico ── */}
+      {mode === 'editing' && (
+        <div style={{ padding: '4px 8px' }}>
+          <input
+            ref={inputRef}
+            type="number"
+            value={editValue}
+            min={0} max={220} step={0.5}
+            autoFocus
+            onChange={e => setEditValue(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+              if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+            }}
+            onBlur={confirm}
+            style={{
+              width: '100%', background: 'transparent', border: 'none', outline: 'none',
+              textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text-1)',
+              padding: 0,
+            }}
+          />
+          <div style={{ fontSize: 10, marginTop: 2, fontWeight: 600,
+            color: maxCelula <= 0 ? '#f87171' : maxCelula < 20 ? '#f59e0b' : 'var(--text-3)' }}>
+            {maxCelula <= 0 ? 'sem espaço' : `máx ${fmtHoras(maxCelula)}h`}
+          </div>
+        </div>
+      )}
+
+      {/* ── saving: spinner visual, sem otimismo reverso ── */}
+      {mode === 'saving' && (
+        <div style={{ padding: '6px 12px', opacity: 0.35 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-2)', fontWeight: 600 }}>…</div>
+        </div>
+      )}
+
+      {/* ── Popover de bloqueio (position:fixed — não clipado pelo overflow) ── */}
+      {bloqueio && popoverPos && (
+        <div
+          style={{
+            position: 'fixed',
+            top: popoverPos.top,
+            left: popoverPos.left,
+            zIndex: 9999,
+            width: 268,
+            background: 'var(--surface-1)',
+            border: '1.5px solid #ef4444',
+            borderRadius: 12,
+            boxShadow: '0 8px 28px rgba(0,0,0,0.25)',
+            padding: '12px 14px',
+            pointerEvents: 'auto',
+          }}
+          // Previne que o mousedown no popover o feche (o handler verifica tdRef)
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {/* Cabeçalho */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#f87171' }}>
+              Teto de 220h atingido
+            </span>
+            <button
+              onClick={() => setBloqueio(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Resumo — usa totalGeral da linha (mesmo número da barra de saldo) */}
+          <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 4, lineHeight: 1.5 }}>
+            <strong>{colaboradorNome.split(' ')[0]}</strong> está em{' '}
+            <strong style={{ color: '#f87171' }}>{fmtHoras(totalGeral)}/220h</strong> este mês.
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10 }}>
+            Máximo nesta célula:{' '}
+            <strong style={{ color: maxCelula <= 0 ? '#f87171' : '#fbbf24' }}>
+              {maxCelula <= 0 ? 'sem espaço' : `${fmtHoras(maxCelula)}h`}
+            </strong>
+          </div>
+
+          {/* Distribuição */}
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+            Distribuição atual
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {bloqueio.distribuicao.map((d, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-1)', padding: '3px 0', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--brand-500)', fontWeight: 700 }}>{d.projetoCodigo}</span>
+                  {' '}
+                  <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{d.gestorNome}</span>
+                </span>
+                <strong style={{ flexShrink: 0, marginLeft: 8 }}>{d.horas}h</strong>
+              </div>
+            ))}
+          </div>
+
+          {/* Máximo já aparece no cabeçalho do popover — nada extra aqui */}
+        </div>
+      )}
     </td>
   );
 }
 
 // ── Seletor de mês ────────────────────────────────────────────────────────────
 
-function SeletorMes({
-  mes, ano, onMes, onAno,
-}: {
-  mes: number; ano: number;
-  onMes: (m: number) => void;
-  onAno: (a: number) => void;
-}) {
-  const prev = () => {
-    if (mes === 1) { onMes(12); onAno(ano - 1); }
-    else onMes(mes - 1);
-  };
-  const next = () => {
-    if (mes === 12) { onMes(1); onAno(ano + 1); }
-    else onMes(mes + 1);
+function SeletorMes({ mes, ano, onMes, onAno }: { mes: number; ano: number; onMes: (m: number) => void; onAno: (a: number) => void }) {
+  const prev = () => { if (mes === 1) { onMes(12); onAno(ano - 1); } else onMes(mes - 1); };
+  const next = () => { if (mes === 12) { onMes(1); onAno(ano + 1); } else onMes(mes + 1); };
+
+  const btnStyle: React.CSSProperties = {
+    width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', color: 'var(--text-3)', border: '1px solid var(--border)', background: 'transparent',
   };
 
   return (
     <div className="flex items-center gap-2 shrink-0">
-      <button
-        onClick={prev}
-        className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-        style={{ color: 'var(--text-3)', border: '1px solid var(--border)' }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-      >
-        <ChevronLeft size={14} />
-      </button>
-
+      <button style={btnStyle} onClick={prev}><ChevronLeft size={14} /></button>
       <div className="flex items-center gap-1.5">
-        <select
-          value={mes}
-          onChange={e => onMes(parseInt(e.target.value))}
-          style={{
-            background: 'var(--surface-2)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '4px 8px', fontSize: 13,
-            color: 'var(--text-1)', outline: 'none',
-          }}
-        >
-          {MESES.map((nm, i) => (
-            <option key={i + 1} value={i + 1}>{nm}</option>
-          ))}
+        <select value={mes} onChange={e => onMes(parseInt(e.target.value))}
+          style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 8px', fontSize: 13, color: 'var(--text-1)', outline: 'none' }}>
+          {MESES.map((nm, i) => <option key={i + 1} value={i + 1}>{nm}</option>)}
         </select>
-        <input
-          type="number"
-          value={ano}
-          min={2020} max={2100}
-          onChange={e => onAno(parseInt(e.target.value))}
-          style={{
-            width: 72, background: 'var(--surface-2)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '4px 8px', fontSize: 13,
-            color: 'var(--text-1)', outline: 'none', textAlign: 'center',
-          }}
-        />
+        <input type="number" value={ano} min={2020} max={2100} onChange={e => onAno(parseInt(e.target.value))}
+          style={{ width: 72, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 8px', fontSize: 13, color: 'var(--text-1)', outline: 'none', textAlign: 'center' }} />
       </div>
-
-      <button
-        onClick={next}
-        className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-        style={{ color: 'var(--text-3)', border: '1px solid var(--border)' }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-      >
-        <ChevronRight size={14} />
-      </button>
+      <button style={btnStyle} onClick={next}><ChevronRight size={14} /></button>
     </div>
   );
 }
@@ -261,7 +427,7 @@ function SeletorMes({
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function GridAlocacao() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
 
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
@@ -294,7 +460,8 @@ export default function GridAlocacao() {
 
   useEffect(() => { fetchGrid(); }, [fetchGrid]);
 
-  // ── Estilos das colunas fixas ─────────────────────────────────────────────
+  // ── Estilos sticky ────────────────────────────────────────────────────────
+
   const stickyColabStyle: React.CSSProperties = {
     position: 'sticky', left: 0, zIndex: 10,
     width: COL_COLAB_W, minWidth: COL_COLAB_W,
@@ -312,22 +479,20 @@ export default function GridAlocacao() {
   };
 
   const thBase: React.CSSProperties = {
-    padding: '8px 12px',
-    fontSize: 11, fontWeight: 700,
+    padding: '8px 12px', fontSize: 11, fontWeight: 700,
     textTransform: 'uppercase', letterSpacing: '0.05em',
     color: 'var(--text-3)',
     background: 'var(--surface-2)',
     borderBottom: '1px solid var(--border)',
     borderRight: '1px solid var(--border)',
-    whiteSpace: 'nowrap',
-    verticalAlign: 'bottom',
+    whiteSpace: 'nowrap', verticalAlign: 'bottom',
   };
 
   const mesLabel = `${MESES[mes - 1]} ${ano}`;
 
   return (
     <div className="flex flex-col h-full">
-      {/* ── Header ───────────────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div
         className="flex items-center gap-4 px-6 py-3 shrink-0 flex-wrap gap-y-2"
         style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-1)' }}
@@ -338,208 +503,132 @@ export default function GridAlocacao() {
             Grid de Alocação
           </h1>
         </div>
-
         <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
-
         {data && (
           <span className="text-xs ml-auto" style={{ color: 'var(--text-3)' }}>
             {data.linhas.length} colaborador{data.linhas.length !== 1 ? 'es' : ''} ·{' '}
             {data.projetos.length} projeto{data.projetos.length !== 1 ? 's' : ''}
+            {' '}· clique em célula para editar
           </span>
         )}
       </div>
 
-      {/* ── Conteúdo ─────────────────────────────────────────────────────── */}
+      {/* ── Conteúdo ───────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
-        {/* Estados de carregamento e erro */}
         {loading && (
           <div className="flex items-center justify-center h-40 gap-2" style={{ color: 'var(--text-3)' }}>
             <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
               <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
             </svg>
-            Carregando grid de {mesLabel}…
+            Carregando {mesLabel}…
           </div>
         )}
-
-        {!loading && erro && (
-          <div className="p-6 text-sm" style={{ color: '#f87171' }}>{erro}</div>
-        )}
-
+        {!loading && erro && <div className="p-6 text-sm" style={{ color: '#f87171' }}>{erro}</div>}
         {!loading && !erro && data && data.projetos.length === 0 && (
           <div className="flex flex-col items-center justify-center h-60 gap-2" style={{ color: 'var(--text-3)' }}>
             <LayoutGrid size={40} strokeWidth={1} />
-            <p className="text-sm">Nenhum projeto ativo encontrado.</p>
-            <p className="text-xs">Crie projetos em <strong>/projetos</strong> para começar a alocar.</p>
+            <p className="text-sm">Nenhum projeto ativo.</p>
           </div>
         )}
-
         {!loading && !erro && data && data.projetos.length > 0 && data.linhas.length === 0 && (
           <div className="flex flex-col items-center justify-center h-60 gap-2" style={{ color: 'var(--text-3)' }}>
             <LayoutGrid size={40} strokeWidth={1} />
             <p className="text-sm font-medium">Nenhuma alocação em {mesLabel}.</p>
-            <p className="text-xs">
-              Use a tela <strong>/alocacoes</strong> para alocar colaboradores neste mês.
-            </p>
+            <p className="text-xs">Use <strong>/alocacoes</strong> para alocar colaboradores neste mês.</p>
           </div>
         )}
 
-        {/* ── Grid ─────────────────────────────────────────────────────── */}
         {!loading && !erro && data && data.linhas.length > 0 && (
-          <table
-            style={{
-              borderCollapse: 'collapse',
-              width: '100%',
-              tableLayout: 'fixed',
-              minWidth: COL_COLAB_W + COL_SALDO_W + data.projetos.length * COL_PROJ_W,
-            }}
-          >
-            {/* Larguras fixas via colgroup */}
+          <table style={{
+            borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed',
+            minWidth: COL_COLAB_W + COL_SALDO_W + data.projetos.length * COL_PROJ_W,
+          }}>
             <colgroup>
               <col style={{ width: COL_COLAB_W }} />
               <col style={{ width: COL_SALDO_W }} />
               {data.projetos.map(p => <col key={p.id} style={{ width: COL_PROJ_W }} />)}
             </colgroup>
 
-            {/* Cabeçalho */}
             <thead>
               <tr>
-                {/* Col 1 — Colaborador (sticky) */}
-                <th
-                  style={{
-                    ...thBase,
-                    ...stickyColabStyle,
-                    background: 'var(--surface-2)',
-                    zIndex: 20,
-                  }}
-                >
+                {/* Colaborador (sticky) */}
+                <th style={{ ...thBase, ...stickyColabStyle, background: 'var(--surface-2)', zIndex: 20 }}>
                   Colaborador
                 </th>
 
-                {/* Col 2 — Saldo (sticky) */}
-                <th
-                  style={{
-                    ...thBase,
-                    ...stickySaldoStyle,
-                    background: 'var(--surface-2)',
-                    zIndex: 20,
-                    left: COL_COLAB_W,
-                    borderRight: '2px solid var(--border)',
-                  }}
-                >
+                {/* Saldo (sticky) */}
+                <th style={{ ...thBase, ...stickySaldoStyle, background: 'var(--surface-2)', zIndex: 20, left: COL_COLAB_W, borderRight: '2px solid var(--border)' }}>
                   Saldo {TETO}h
-                  {/* Legenda: cor = lotação · textura = quem alocou */}
                   <div style={{ fontSize: 9, fontWeight: 400, color: 'var(--text-3)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <span style={{
-                        display: 'inline-block', width: 9, height: 9,
-                        background: '#22c55e', borderRadius: 2, flexShrink: 0,
-                      }} />
+                      <span style={{ display: 'inline-block', width: 9, height: 9, background: '#22c55e', borderRadius: 2 }} />
                       você
                     </span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <span style={{
-                        display: 'inline-block', width: 9, height: 9,
-                        background: 'repeating-linear-gradient(45deg,#22c55e,#22c55e 2px,transparent 2px,transparent 5px)',
-                        borderRadius: 2, flexShrink: 0,
-                      }} />
-                      outros
+                      <span style={{ display: 'inline-block', width: 9, height: 9, background: 'repeating-linear-gradient(45deg,#22c55e,#22c55e 2px,transparent 2px,transparent 5px)', borderRadius: 2 }} />
+                      outros gestores
                     </span>
                   </div>
                 </th>
 
-                {/* Colunas de projeto */}
+                {/* Projetos */}
                 {data.projetos.map(p => (
                   <th key={p.id} style={{ ...thBase, textAlign: 'center', width: COL_PROJ_W }}>
-                    <div
-                      style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-500)' }}
-                      title={p.nome}
-                    >
-                      {p.codigo}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 10, fontWeight: 400, color: 'var(--text-3)',
-                        overflow: 'hidden', textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap', maxWidth: COL_PROJ_W - 16,
-                      }}
-                      title={p.nome}
-                    >
-                      {p.nome}
-                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-500)' }} title={p.nome}>{p.codigo}</div>
+                    <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: COL_PROJ_W - 16 }} title={p.nome}>{p.nome}</div>
                   </th>
                 ))}
               </tr>
             </thead>
 
-            {/* Linhas de colaboradores */}
             <tbody>
               {data.linhas.map((linha, idx) => {
-                const totalG  = parseFloat(linha.saldo.totalGeral);
+                const totalG   = parseFloat(linha.saldo.totalGeral);
                 const pctTotal = (totalG / TETO) * 100;
-                const cor = corSaldo(pctTotal);
-                const rowBg = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-2)';
+                const cor      = corSaldo(pctTotal);
+                const rowBg    = idx % 2 === 0 ? 'var(--surface-1)' : 'var(--surface-2)';
 
                 return (
                   <tr key={linha.colaborador.id}>
-                    {/* Col 1 — Colaborador (sticky) */}
-                    <td
-                      style={{
-                        ...stickyColabStyle,
-                        background: rowBg,
-                        verticalAlign: 'middle',
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 13, fontWeight: 600,
-                          color: 'var(--text-1)',
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}
-                        title={linha.colaborador.nome}
-                      >
+                    {/* Colaborador (sticky) */}
+                    <td style={{ ...stickyColabStyle, background: rowBg, verticalAlign: 'middle' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={linha.colaborador.nome}>
                         {linha.colaborador.nome}
                       </div>
                       {linha.colaborador.funcao && (
-                        <div
-                          style={{
-                            fontSize: 10, color: 'var(--text-3)', marginTop: 1,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}
-                        >
+                        <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {linha.colaborador.funcao}
                         </div>
                       )}
                     </td>
 
-                    {/* Col 2 — Saldo (sticky) */}
-                    <td
-                      style={{
-                        ...stickySaldoStyle,
-                        background: rowBg,
-                        left: COL_COLAB_W,
-                        borderRight: '2px solid var(--border)',
-                        verticalAlign: 'middle',
-                      }}
-                    >
+                    {/* Saldo (sticky) */}
+                    <td style={{ ...stickySaldoStyle, background: rowBg, left: COL_COLAB_W, borderRight: '2px solid var(--border)', verticalAlign: 'middle' }}>
                       <BarraSaldo saldo={linha.saldo} />
                       {pctTotal >= 90 && (
-                        <div
-                          style={{
-                            fontSize: 9, marginTop: 3,
-                            color: cor, fontWeight: 600,
-                          }}
-                        >
-                          {pctTotal >= 100
-                            ? 'Capacidade esgotada'
-                            : `${(TETO - totalG).toFixed(1)}h disponíveis`}
+                        <div style={{ fontSize: 9, marginTop: 3, color: cor, fontWeight: 600 }}>
+                          {pctTotal >= 100 ? 'Capacidade esgotada' : `${(TETO - totalG).toFixed(1)}h disponíveis`}
                         </div>
                       )}
                     </td>
 
-                    {/* Células de projeto */}
+                    {/* Células editáveis */}
                     {data.projetos.map(p => (
-                      <CelulaGrid key={p.id} celula={linha.celulas[p.id] ?? null} />
+                      <CelulaEditavel
+                        key={p.id}
+                        celula={linha.celulas[p.id] ?? null}
+                        projetoId={p.id}
+                        defaultMacroId={p.defaultMacroId}
+                        defaultMicroId={p.defaultMicroId}
+                        colaboradorId={linha.colaborador.id}
+                        colaboradorNome={linha.colaborador.nome}
+                        totalGeral={linha.saldo.totalGeral}
+                        ano={ano}
+                        mes={mes}
+                        token={token!}
+                        onSaved={fetchGrid}
+                      />
                     ))}
                   </tr>
                 );

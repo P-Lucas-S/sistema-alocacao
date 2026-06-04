@@ -168,11 +168,34 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       ? { gestorId: userId, status: 'ativo' }
       : { status: 'ativo' };
 
-    const projetos = await prisma.projeto.findMany({
+    // Inclui a primeira macro (ordenada por createdAt) e sua micro "Geral"
+    // para que as células vazias saibam onde gravar sem chamada extra.
+    const projetosRaw = await prisma.projeto.findMany({
       where: projWhere,
       orderBy: { codigo: 'asc' },
-      select: { id: true, codigo: true, nome: true, gestorId: true },
+      include: {
+        macroEntregas: {
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          include: {
+            microEntregas: {
+              where: { nome: 'Geral' },
+              orderBy: { createdAt: 'asc' },
+              take: 1,
+            },
+          },
+        },
+      },
     });
+
+    const projetos = projetosRaw.map(p => ({
+      id: p.id,
+      codigo: p.codigo,
+      nome: p.nome,
+      gestorId: p.gestorId,
+      defaultMacroId: p.macroEntregas[0]?.id ?? null,
+      defaultMicroId: p.macroEntregas[0]?.microEntregas[0]?.id ?? null,
+    }));
 
     if (projetos.length === 0) return res.json({ projetos: [], linhas: [] });
 

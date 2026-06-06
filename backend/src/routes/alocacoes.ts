@@ -414,6 +414,46 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
   }
 });
 
+// ── PATCH /:id/realizado — atualiza horasRealizadas (sem teto, sem lock) ──
+// Ownership: mesmo critério do POST — gestor pode editar qualquer alocação,
+// não só a dos próprios projetos (POST também não verifica ownership).
+router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+
+    if (!('horasRealizadas' in req.body)) {
+      return res.status(400).json({ error: 'horasRealizadas é obrigatório (número >= 0 ou null)' });
+    }
+    const { horasRealizadas } = req.body;
+
+    let horas: Prisma.Decimal | null;
+    if (horasRealizadas === null) {
+      horas = null;
+    } else {
+      try {
+        horas = new Prisma.Decimal(horasRealizadas);
+        if (horas.lessThan(0)) throw new Error();
+      } catch {
+        return res.status(400).json({ error: 'horasRealizadas deve ser um número >= 0 ou null' });
+      }
+    }
+
+    const alocacao = await prisma.alocacao.findUnique({ where: { id } });
+    if (!alocacao) return res.status(404).json({ error: 'Alocação não encontrada' });
+
+    const atualizada = await prisma.alocacao.update({
+      where: { id },
+      data: { horasRealizadas: horas, updatedById: userId },
+    });
+
+    res.json({ alocacao: atualizada });
+  } catch (error) {
+    console.error('Realizado patch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── DELETE /:id — remove alocação ─────────────────────────────────────────
 router.delete('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {

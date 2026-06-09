@@ -470,6 +470,55 @@ router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor'), asy
   }
 });
 
+// ── POST /copiar-realizado — copia horas_planejadas → horas_realizadas em massa ──
+// Preenche SOMENTE onde horas_realizadas IS NULL.  Sem lock — realizado fora do teto.
+router.post('/copiar-realizado', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  try {
+    const { ano, mes } = req.body;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const anoN = parseInt(ano);
+    const mesN = parseInt(mes);
+    if (!anoN || anoN < 2020 || anoN > 2100) {
+      return res.status(400).json({ error: 'ano inválido (2020–2100)' });
+    }
+    if (!mesN || mesN < 1 || mesN > 12) {
+      return res.status(400).json({ error: 'mes inválido (1–12)' });
+    }
+
+    let atualizadas: number;
+    if (role === 'admin') {
+      atualizadas = await prisma.$executeRaw`
+        UPDATE alocacoes
+        SET horas_realizadas = horas_planejadas,
+            updated_by_id    = ${userId},
+            updated_at       = NOW()
+        WHERE projeto_id IN (SELECT id FROM projetos WHERE status = 'ativo')
+          AND ano              = ${anoN}
+          AND mes              = ${mesN}
+          AND horas_realizadas IS NULL
+      `;
+    } else {
+      atualizadas = await prisma.$executeRaw`
+        UPDATE alocacoes
+        SET horas_realizadas = horas_planejadas,
+            updated_by_id    = ${userId},
+            updated_at       = NOW()
+        WHERE projeto_id IN (SELECT id FROM projetos WHERE gestor_id = ${userId} AND status = 'ativo')
+          AND ano              = ${anoN}
+          AND mes              = ${mesN}
+          AND horas_realizadas IS NULL
+      `;
+    }
+
+    res.json({ atualizadas });
+  } catch (error) {
+    console.error('Copiar realizado error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── DELETE /:id — remove alocação ─────────────────────────────────────────
 router.delete('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {

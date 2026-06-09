@@ -200,6 +200,10 @@ function CelulaEditavel(props: CelulaEditavelProps) {
     ? parseFloat(geralDetalhe.horasRealizadas)
     : null;
 
+  const totalPlanNum  = celula ? parseFloat(celula.totalHoras) : 0;
+  const totalRealNum: number | null = celula?.totalRealizado != null ? parseFloat(celula.totalRealizado) : null;
+  const deltaCelula: number | null  = totalRealNum != null ? totalRealNum - totalPlanNum : null;
+
   // maxCelula = máximo que cabe na micro Geral deste projeto, dado o saldo total.
   // Usa geralHoras (não totalHoras) porque editamos só a Geral.
   const maxCelula = Math.max(0, TETO - parseFloat(totalGeral) + geralHoras);
@@ -431,6 +435,11 @@ function CelulaEditavel(props: CelulaEditavelProps) {
                       ? `${fmtHoras(celula.totalRealizado)}h real.`
                       : '— real.'}
                   </span>
+                </div>
+              )}
+              {deltaCelula != null && Math.abs(deltaCelula) >= 0.001 && (
+                <div style={{ fontSize: 9, color: deltaCelula > 0 ? '#f59e0b' : 'var(--text-3)', marginTop: 1, textAlign: 'center', fontWeight: 500 }}>
+                  {deltaCelula > 0 ? '+' : ''}{fmtHoras(deltaCelula)}h
                 </div>
               )}
             </>
@@ -1108,6 +1117,11 @@ export default function GridAlocacao() {
   // Painel lateral de detalhamento
   const [drawer, setDrawer] = useState<DrawerInfo | null>(null);
 
+  // Copiar planejado → realizado
+  const [confirmCopiar, setConfirmCopiar]   = useState(false);
+  const [copiando, setCopiando]             = useState(false);
+  const [feedbackCopiar, setFeedbackCopiar] = useState('');
+
   // Highlight passageiro ao localizar colaborador via busca
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1152,6 +1166,16 @@ export default function GridAlocacao() {
   // IDs já no grid (para filtrar os resultados da busca)
   const idsNoGrid = useMemo(() => new Set(todasLinhas.map(l => l.colaborador.id)), [todasLinhas]);
 
+  // Conta alocações visíveis sem realizado (estimativa para o dialog de cópia)
+  const nullRealizadoCount = useMemo(() => {
+    if (!data) return 0;
+    return data.linhas.reduce((total, linha) =>
+      total + Object.values(linha.celulas).reduce((sum, c) => {
+        if (!c) return sum;
+        return sum + c.detalhes.filter(d => d.horasRealizadas === null).length;
+      }, 0), 0);
+  }, [data]);
+
   const fetchGrid = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setErro('');
@@ -1174,6 +1198,32 @@ export default function GridAlocacao() {
   }, [token, ano, mes]);
 
   useEffect(() => { fetchGrid(); }, [fetchGrid]);
+
+  // Limpa feedback de cópia após 4s
+  useEffect(() => {
+    if (!feedbackCopiar) return;
+    const t = setTimeout(() => setFeedbackCopiar(''), 4000);
+    return () => clearTimeout(t);
+  }, [feedbackCopiar]);
+
+  async function handleCopiarRealizado() {
+    setCopiando(true);
+    try {
+      const res = await fetch('/api/alocacoes/copiar-realizado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ano, mes }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        const n = d.atualizadas as number;
+        setFeedbackCopiar(`${n} célula${n !== 1 ? 's' : ''} preenchida${n !== 1 ? 's' : ''}`);
+        fetchGrid();
+      }
+    } catch {}
+    setCopiando(false);
+    setConfirmCopiar(false);
+  }
 
   // ── Estilos sticky ────────────────────────────────────────────────────────
 
@@ -1233,6 +1283,24 @@ export default function GridAlocacao() {
               }
               onLocate={handleLocate}
             />
+            <button
+              onClick={() => setConfirmCopiar(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+                padding: '5px 10px', borderRadius: 8, border: '1px solid var(--border)',
+                background: 'var(--surface-2)', color: 'var(--text-2)',
+                fontSize: 12, fontWeight: 500, cursor: 'pointer',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-3)'; e.currentTarget.style.color = 'var(--text-1)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.color = 'var(--text-2)'; }}
+            >
+              Copiar plan. → real.
+            </button>
+            {feedbackCopiar && (
+              <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600, flexShrink: 0 }}>
+                ✓ {feedbackCopiar}
+              </span>
+            )}
             <span className="text-xs ml-auto" style={{ color: 'var(--text-3)' }}>
               {todasLinhas.length} colaborador{todasLinhas.length !== 1 ? 'es' : ''} ·{' '}
               {data.projetos.length} projeto{data.projetos.length !== 1 ? 's' : ''}
@@ -1382,6 +1450,45 @@ export default function GridAlocacao() {
           </table>
         )}
       </div>
+
+      {/* Modal de confirmação: copiar planejado → realizado */}
+      {confirmCopiar && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => { if (!copiando) setConfirmCopiar(false); }}
+        >
+          <div
+            style={{ background: 'var(--surface-1)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: '20px 24px', width: 340, maxWidth: '90vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: '0 0 10px' }}>
+              Copiar planejado → realizado
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 16px', lineHeight: 1.55 }}>
+              {nullRealizadoCount > 0
+                ? `Preenche o realizado de ${nullRealizadoCount} célula${nullRealizadoCount !== 1 ? 's' : ''} ainda sem valor com o planejado do mês.`
+                : 'Todas as células visíveis já têm realizado preenchido.'}
+              {' '}Registros que já têm realizado não são alterados.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setConfirmCopiar(false)}
+                disabled={copiando}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCopiarRealizado}
+                disabled={copiando || nullRealizadoCount === 0}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--brand-500)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: copiando || nullRealizadoCount === 0 ? 'not-allowed' : 'pointer', opacity: copiando || nullRealizadoCount === 0 ? 0.6 : 1 }}
+              >
+                {copiando ? 'Copiando…' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Drawer lateral de detalhamento */}
       {drawer && <Drawer info={drawer} token={token!} onClose={() => setDrawer(null)} onSaved={() => fetchGrid(true)} />}

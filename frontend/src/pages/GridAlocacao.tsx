@@ -15,19 +15,21 @@ interface ProjetoCol {
 
 // Uma alocação individual dentro de uma célula (uma macro/micro específica)
 interface CelulaDetalhe {
-  alocacaoId:    string;
-  macroNome:     string;
-  microNome:     string;
-  macroEntregaId: string;
-  microEntregaId: string;
-  horas:         string;
+  alocacaoId:      string;
+  macroNome:       string;
+  microNome:       string;
+  macroEntregaId:  string;
+  microEntregaId:  string;
+  horas:           string;
+  horasRealizadas: string | null;
 }
 
 // Dados de uma célula: total do projeto + composição por macro/micro
 // null quando o colaborador não tem nenhuma alocação naquele projeto
 type CelulaData = {
-  totalHoras: string;
-  detalhes:   CelulaDetalhe[];
+  totalHoras:     string;
+  totalRealizado: string | null;
+  detalhes:       CelulaDetalhe[];
 } | null;
 
 interface Saldo {
@@ -175,6 +177,7 @@ interface CelulaEditavelProps {
   mes:             number;
   token:           string;
   onSaved:         () => void;
+  onSavedSilent:   () => void;
   onOpenDrawer:    (info: DrawerInfo) => void;
   projCodigo:      string;
   projNome:        string;
@@ -185,7 +188,7 @@ interface CelulaEditavelProps {
 function CelulaEditavel(props: CelulaEditavelProps) {
   const { celula, projetoId, defaultMacroId, defaultMicroId,
           colaboradorId, colaboradorNome, totalGeral,
-          ano, mes, token, onSaved, onOpenDrawer,
+          ano, mes, token, onSaved, onSavedSilent, onOpenDrawer,
           projCodigo, projNome, saldo, isHighlighted = false } = props;
 
   // Localiza a alocação da micro Geral dentro dos detalhes da célula.
@@ -193,6 +196,9 @@ function CelulaEditavel(props: CelulaEditavelProps) {
   // Outras micros (ex: Design, Conteúdo) permanecem intactas.
   const geralDetalhe  = celula?.detalhes.find(d => d.microEntregaId === defaultMicroId) ?? null;
   const geralHoras    = geralDetalhe ? parseFloat(geralDetalhe.horas) : 0;
+  const geralRealizado: number | null = geralDetalhe?.horasRealizadas != null
+    ? parseFloat(geralDetalhe.horasRealizadas)
+    : null;
 
   // maxCelula = máximo que cabe na micro Geral deste projeto, dado o saldo total.
   // Usa geralHoras (não totalHoras) porque editamos só a Geral.
@@ -203,10 +209,14 @@ function CelulaEditavel(props: CelulaEditavelProps) {
   const [hovered, setHovered]   = useState(false);
   const [bloqueio, setBloqueio]   = useState<BloqueioInfo | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const [modeReal, setModeReal]         = useState<'idle' | 'editing' | 'saving'>('idle');
+  const [editValueReal, setEditValueReal] = useState('');
 
-  const tdRef    = useRef<HTMLTableCellElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const activeRef = useRef(false);
+  const tdRef       = useRef<HTMLTableCellElement>(null);
+  const inputRef    = useRef<HTMLInputElement>(null);
+  const activeRef   = useRef(false);
+  const inputRealRef  = useRef<HTMLInputElement>(null);
+  const activeRealRef = useRef(false);
 
   useEffect(() => {
     if (!bloqueio) return;
@@ -233,6 +243,42 @@ function CelulaEditavel(props: CelulaEditavelProps) {
       projetoId, projCodigo, projNome,
       celula, saldo, ano, mes,
     });
+  }
+
+  function startEditReal() {
+    activeRealRef.current = true;
+    setEditValueReal(geralRealizado != null ? fmtHoras(geralRealizado) : '');
+    setModeReal('editing');
+    setTimeout(() => { inputRealRef.current?.select(); }, 0);
+  }
+
+  async function confirmReal() {
+    if (!activeRealRef.current) return;
+    activeRealRef.current = false;
+    const val = editValueReal.trim();
+    const h = parseFloat(val);
+    const horasRealizadas = (!val || isNaN(h)) ? null : h;
+    // Sem mudança
+    if (horasRealizadas === null && geralRealizado === null) { setModeReal('idle'); return; }
+    if (horasRealizadas !== null && geralRealizado !== null && Math.abs(horasRealizadas - geralRealizado) < 0.001) {
+      setModeReal('idle'); return;
+    }
+    if (!geralDetalhe) { setModeReal('idle'); return; }
+    setModeReal('saving');
+    try {
+      await fetch(`/api/alocacoes/${geralDetalhe.alocacaoId}/realizado`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ horasRealizadas }),
+      });
+      onSavedSilent();
+    } catch { /* silently fail */ }
+    setModeReal('idle');
+  }
+
+  function cancelReal() {
+    activeRealRef.current = false;
+    setModeReal('idle');
   }
 
   async function confirm() {
@@ -329,7 +375,7 @@ function CelulaEditavel(props: CelulaEditavelProps) {
     <td
       ref={tdRef}
       style={tdStyle}
-      onClick={() => { if (mode === 'idle') startEdit(); }}
+      onClick={() => { if (mode === 'idle' && modeReal === 'idle') startEdit(); }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -342,7 +388,51 @@ function CelulaEditavel(props: CelulaEditavelProps) {
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.2 }}>
                 {fmtHoras(celula.totalHoras)}h
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>— real.</div>
+              {/* Zona do realizado — 3 estados independentes do planejado */}
+              {modeReal === 'editing' ? (
+                <div style={{ marginTop: 2 }} onClick={e => e.stopPropagation()}>
+                  <input
+                    ref={inputRealRef}
+                    type="number" value={editValueReal} min={0} step={0.5}
+                    autoFocus
+                    onChange={e => setEditValueReal(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter')  { e.preventDefault(); confirmReal(); }
+                      if (e.key === 'Escape') { e.preventDefault(); cancelReal(); }
+                    }}
+                    onBlur={confirmReal}
+                    style={{
+                      width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                      textAlign: 'center', fontSize: 11, color: 'var(--text-2)', padding: 0,
+                    }}
+                  />
+                </div>
+              ) : modeReal === 'saving' ? (
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, opacity: 0.35 }}>…</div>
+              ) : (
+                <div style={{ textAlign: 'center', marginTop: 2 }}>
+                  <span
+                    style={{
+                      fontSize: 11, color: 'var(--text-3)',
+                      display: 'inline-block', padding: '0 3px', borderRadius: 3,
+                      cursor: geralDetalhe ? 'text' : 'default',
+                      borderBottom: geralDetalhe ? '1px dashed var(--text-3)' : 'none',
+                      transition: 'background 0.12s',
+                    }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (geralDetalhe && mode === 'idle') startEditReal();
+                    }}
+                    onMouseEnter={e => { if (geralDetalhe) (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}
+                    title={geralDetalhe ? undefined : 'Edite pelo painel'}
+                  >
+                    {celula.totalRealizado != null
+                      ? `${fmtHoras(celula.totalRealizado)}h real.`
+                      : '— real.'}
+                  </span>
+                </div>
+              )}
             </>
           ) : (
             <span style={{ color: 'var(--text-3)', fontSize: 20, lineHeight: 1 }}>+</span>
@@ -487,26 +577,35 @@ function CelulaEditavel(props: CelulaEditavelProps) {
 // ── Linha de micro editável dentro do drawer ──────────────────────────────────
 
 function MicroLinha({
-  macro, micro, horas, alocacaoId, totalGeralAtual, token,
-  onSave, saving, bloqueio, onClearBloqueio,
+  macro, micro, horas, alocacaoId, horasRealizadas, totalGeralAtual, token,
+  onSave, saving, onSaveRealizado, savingRealizado, bloqueio, onClearBloqueio,
 }: {
-  macro:           { id: string };
-  micro:           { id: string; nome: string };
-  horas:           number;
-  alocacaoId:      string | null;
-  totalGeralAtual: number;
-  token:           string;
-  onSave:          (macroId: string, microId: string, horas: number, alocId: string | null) => Promise<void>;
-  saving:          boolean;
-  bloqueio:        BloqueioInfo | null;
-  onClearBloqueio: () => void;
+  macro:            { id: string };
+  micro:            { id: string; nome: string };
+  horas:            number;
+  alocacaoId:       string | null;
+  horasRealizadas:  number | null;
+  totalGeralAtual:  number;
+  token:            string;
+  onSave:           (macroId: string, microId: string, horas: number, alocId: string | null) => Promise<void>;
+  saving:           boolean;
+  onSaveRealizado:  (microId: string, alocId: string, horas: number | null) => Promise<void>;
+  savingRealizado:  boolean;
+  bloqueio:         BloqueioInfo | null;
+  onClearBloqueio:  () => void;
 }) {
-  const [val, setVal] = useState(horas > 0 ? fmtHoras(horas) : '');
+  const [val, setVal]         = useState(horas > 0 ? fmtHoras(horas) : '');
+  const [valReal, setValReal] = useState(horasRealizadas != null ? fmtHoras(horasRealizadas) : '');
   const activeRef     = useRef(false);
+  const activeRealRef = useRef(false);
 
   useEffect(() => {
     if (!activeRef.current) setVal(horas > 0 ? fmtHoras(horas) : '');
   }, [horas]);
+
+  useEffect(() => {
+    if (!activeRealRef.current) setValReal(horasRealizadas != null ? fmtHoras(horasRealizadas) : '');
+  }, [horasRealizadas]);
 
   const maxMicro = Math.max(0, TETO - totalGeralAtual + horas);
 
@@ -519,11 +618,29 @@ function MicroLinha({
     await onSave(macro.id, micro.id, isNaN(h) || h <= 0 ? 0 : h, alocacaoId);
   }
 
+  async function confirmReal() {
+    if (!activeRealRef.current) return;
+    activeRealRef.current = false;
+    if (!alocacaoId) return;
+    const h = parseFloat(valReal);
+    const hrs = (!valReal.trim() || isNaN(h)) ? null : h;
+    if (hrs === null && horasRealizadas === null) return;
+    if (hrs !== null && horasRealizadas !== null && Math.abs(hrs - horasRealizadas) < 0.001) return;
+    await onSaveRealizado(micro.id, alocacaoId, hrs);
+  }
+
   const inputStyle: React.CSSProperties = {
     width: 60, textAlign: 'right', fontSize: 13, fontWeight: 600,
     background: 'var(--surface-1)', border: '1px solid var(--border)',
     borderRadius: 6, padding: '3px 7px', color: 'var(--text-1)', outline: 'none',
     opacity: saving ? 0.45 : 1,
+  };
+
+  const realInputStyle: React.CSSProperties = {
+    width: 52, textAlign: 'right', fontSize: 13, fontWeight: 600,
+    background: 'var(--surface-3)', border: '1px solid var(--border)',
+    borderRadius: 6, padding: '3px 7px', color: 'var(--text-2)', outline: 'none',
+    opacity: savingRealizado ? 0.45 : 1,
   };
 
   return (
@@ -535,25 +652,50 @@ function MicroLinha({
             <span style={{ fontSize: 9, color: 'var(--brand-500)', fontWeight: 600, textTransform: 'uppercase' }}>padrão</span>
           )}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
           <span style={{ fontSize: 10, fontWeight: 600,
             color: maxMicro <= 0 ? '#ef4444' : maxMicro < 20 ? '#f59e0b' : 'var(--text-3)' }}>
             {maxMicro <= 0 ? 'sem espaço' : `máx ${fmtHoras(maxMicro)}h`}
           </span>
-          {saving ? (
-            <span style={{ ...inputStyle, color: 'var(--text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>...</span>
-          ) : (
-            <input
-              type="number" value={val} min={0} max={220} step={0.5} placeholder="-"
-              style={inputStyle}
-              onFocus={() => { activeRef.current = true; onClearBloqueio(); }}
-              onChange={e => setVal(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter')  { e.preventDefault(); confirm(); }
-                if (e.key === 'Escape') { activeRef.current = false; setVal(horas > 0 ? fmtHoras(horas) : ''); onClearBloqueio(); }
-              }}
-              onBlur={confirm}
-            />
+          {/* Coluna Plan. */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+            <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)' }}>Plan.</span>
+            {saving ? (
+              <span style={{ ...inputStyle, color: 'var(--text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>...</span>
+            ) : (
+              <input
+                type="number" value={val} min={0} max={220} step={0.5} placeholder="-"
+                style={inputStyle}
+                onFocus={() => { activeRef.current = true; onClearBloqueio(); }}
+                onChange={e => setVal(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter')  { e.preventDefault(); confirm(); }
+                  if (e.key === 'Escape') { activeRef.current = false; setVal(horas > 0 ? fmtHoras(horas) : ''); onClearBloqueio(); }
+                }}
+                onBlur={confirm}
+              />
+            )}
+          </div>
+          {/* Coluna Real. — só quando há alocação nesta micro */}
+          {alocacaoId && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+              <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)' }}>Real.</span>
+              {savingRealizado ? (
+                <span style={{ ...realInputStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>…</span>
+              ) : (
+                <input
+                  type="number" value={valReal} min={0} step={0.5} placeholder="—"
+                  style={realInputStyle}
+                  onFocus={() => { activeRealRef.current = true; }}
+                  onChange={e => setValReal(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter')  { e.preventDefault(); confirmReal(); }
+                    if (e.key === 'Escape') { activeRealRef.current = false; setValReal(horasRealizadas != null ? fmtHoras(horasRealizadas) : ''); }
+                  }}
+                  onBlur={confirmReal}
+                />
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -594,16 +736,21 @@ function Drawer({ info, token, onClose, onSaved }: { info: DrawerInfo; token: st
   const [estrutura, setEstrutura]     = useState<MacroEstrutura[]>([]);
   const [loadingEstr, setLoadingEstr] = useState(true);
 
-  type DetalheEntry = { alocacaoId: string; horas: number };
+  type DetalheEntry = { alocacaoId: string; horas: number; horasRealizadas: number | null };
   const [detalheMap, setDetalheMap]   = useState<Record<string, DetalheEntry>>(() => {
     const m: Record<string, DetalheEntry> = {};
-    if (celula) for (const d of celula.detalhes) m[d.microEntregaId] = { alocacaoId: d.alocacaoId, horas: parseFloat(d.horas) };
+    if (celula) for (const d of celula.detalhes) m[d.microEntregaId] = {
+      alocacaoId: d.alocacaoId,
+      horas: parseFloat(d.horas),
+      horasRealizadas: d.horasRealizadas != null ? parseFloat(d.horasRealizadas) : null,
+    };
     return m;
   });
 
-  const [totalGeralAtual, setTotalGeralAtual] = useState(parseFloat(saldo.totalGeral));
-  const [savingMicroId, setSavingMicroId]     = useState<string | null>(null);
-  const [bloqueioMap, setBloqueioMap]         = useState<Record<string, BloqueioInfo>>({});
+  const [totalGeralAtual, setTotalGeralAtual]   = useState(parseFloat(saldo.totalGeral));
+  const [savingMicroId, setSavingMicroId]       = useState<string | null>(null);
+  const [savingRealizadoId, setSavingRealizadoId] = useState<string | null>(null);
+  const [bloqueioMap, setBloqueioMap]           = useState<Record<string, BloqueioInfo>>({});
 
   useEffect(() => {
     fetch(`/api/projetos/${projetoId}/macros`, { headers: { Authorization: `Bearer ${token}` } })
@@ -640,7 +787,7 @@ function Drawer({ info, token, onClose, onSaved }: { info: DrawerInfo; token: st
         });
         const data = await res.json();
         if (res.status === 201) {
-          setDetalheMap(m => ({ ...m, [microId]: { alocacaoId: data.alocacao.id, horas } }));
+          setDetalheMap(m => ({ ...m, [microId]: { alocacaoId: data.alocacao.id, horas, horasRealizadas: m[microId]?.horasRealizadas ?? null } }));
           await refreshSaldo(); onSaved();
         } else if (res.status === 409 && data.bloqueado) {
           setBloqueioMap(m => ({ ...m, [microId]: data }));
@@ -648,6 +795,22 @@ function Drawer({ info, token, onClose, onSaved }: { info: DrawerInfo; token: st
       }
     } catch { /* silently fail */ }
     setSavingMicroId(null);
+  }
+
+  async function handleSaveRealizado(microId: string, alocId: string, horas: number | null) {
+    setSavingRealizadoId(microId);
+    try {
+      const res = await fetch(`/api/alocacoes/${alocId}/realizado`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ horasRealizadas: horas }),
+      });
+      if (res.ok) {
+        setDetalheMap(m => ({ ...m, [microId]: { ...m[microId], horasRealizadas: horas } }));
+        onSaved();
+      }
+    } catch { /* silently fail */ }
+    setSavingRealizadoId(null);
   }
 
   const corTotal  = totalGeralAtual >= 220 ? '#ef4444' : totalGeralAtual >= 176 ? '#f59e0b' : 'var(--text-1)';
@@ -708,10 +871,13 @@ function Drawer({ info, token, onClose, onSaved }: { info: DrawerInfo; token: st
                             macro={macro} micro={micro}
                             horas={detalheMap[micro.id]?.horas ?? 0}
                             alocacaoId={detalheMap[micro.id]?.alocacaoId ?? null}
+                            horasRealizadas={detalheMap[micro.id]?.horasRealizadas ?? null}
                             totalGeralAtual={totalGeralAtual}
                             token={token}
                             onSave={handleSaveMicro}
                             saving={savingMicroId === micro.id}
+                            onSaveRealizado={handleSaveRealizado}
+                            savingRealizado={savingRealizadoId === micro.id}
                             bloqueio={bloqueioMap[micro.id] ?? null}
                             onClearBloqueio={() => setBloqueioMap(m => { const n = { ...m }; delete n[micro.id]; return n; })}
                           />
@@ -977,7 +1143,7 @@ export default function GridAlocacao() {
       .map(e => ({
         colaborador: e.colaborador,
         saldo:       e.saldo,
-        celulas:     Object.fromEntries(data.projetos.map(p => [p.id, null])) as Record<string, Celula | null>,
+        celulas:     Object.fromEntries(data.projetos.map(p => [p.id, null])) as Record<string, CelulaData>,
       }));
     return [...data.linhas, ...extras]
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'));
@@ -1201,6 +1367,7 @@ export default function GridAlocacao() {
                         mes={mes}
                         token={token!}
                         onSaved={fetchGrid}
+                        onSavedSilent={() => fetchGrid(true)}
                         onOpenDrawer={setDrawer}
                         projCodigo={p.codigo}
                         projNome={p.nome}

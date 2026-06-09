@@ -111,6 +111,11 @@ r = await req('PATCH', '/api/alocacoes/id-nao-existe-xyz/realizado', { horasReal
 if (r.status !== 404) fail('T5b', `esperado 404, got ${r.status}`);
 ok('T5b: alocação inexistente → 404');
 
+// ── T5c: valor acima do limite Decimal(6,2) → 400 ────────────────────────────
+r = await req('PATCH', `/api/alocacoes/${alocacaoId}/realizado`, { horasRealizadas: 10000 }, tokenGestor);
+if (r.status !== 400) fail('T5c', `esperado 400, got ${r.status}`);
+ok('T5c: valor > 9999.99 (10000) → 400 (teto de sanidade da coluna)');
+
 // ── T6a: coordenador → 403 ────────────────────────────────────────────────────
 r = await req('PATCH', `/api/alocacoes/${alocacaoId}/realizado`, { horasRealizadas: 50 }, tokenCoord);
 if (r.status !== 403) fail('T6a', `esperado 403, got ${r.status}`);

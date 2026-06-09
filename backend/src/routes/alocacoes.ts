@@ -233,31 +233,36 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     // Agrupa no código (não no BD) para ter acesso aos nomes de macro/micro
     // necessários para o drawer de detalhes.
     type DetalheCell = {
-      alocacaoId:    string;
-      macroNome:     string;
-      microNome:     string;
-      macroEntregaId: string;
-      microEntregaId: string;
-      horas:         string;
+      alocacaoId:      string;
+      macroNome:       string;
+      microNome:       string;
+      macroEntregaId:  string;
+      microEntregaId:  string;
+      horas:           string;
+      horasRealizadas: string | null;
     };
-    type CelulaAgregada = { totalHoras: Prisma.Decimal; detalhes: DetalheCell[] };
+    type CelulaAgregada = { totalHoras: Prisma.Decimal; totalRealizado: Prisma.Decimal | null; detalhes: DetalheCell[] };
 
     const celulasByColabProj = new Map<string, CelulaAgregada>();
     for (const aloc of minhasAlocs) {
       const k = `${aloc.colaboradorId}::${aloc.projetoId}`;
       if (!celulasByColabProj.has(k)) {
-        celulasByColabProj.set(k, { totalHoras: new Prisma.Decimal(0), detalhes: [] });
+        celulasByColabProj.set(k, { totalHoras: new Prisma.Decimal(0), totalRealizado: null, detalhes: [] });
       }
       const entry = celulasByColabProj.get(k)!;
       entry.totalHoras = entry.totalHoras.plus(aloc.horasPlanejadas);
       entry.detalhes.push({
-        alocacaoId:    aloc.id,
-        macroNome:     aloc.macroEntrega.nome,
-        microNome:     aloc.microEntrega.nome,
-        macroEntregaId: aloc.macroEntregaId,
-        microEntregaId: aloc.microEntregaId,
-        horas:         aloc.horasPlanejadas.toString(),
+        alocacaoId:      aloc.id,
+        macroNome:       aloc.macroEntrega.nome,
+        microNome:       aloc.microEntrega.nome,
+        macroEntregaId:  aloc.macroEntregaId,
+        microEntregaId:  aloc.microEntregaId,
+        horas:           aloc.horasPlanejadas.toString(),
+        horasRealizadas: aloc.horasRealizadas != null ? aloc.horasRealizadas.toString() : null,
       });
+      if (aloc.horasRealizadas != null) {
+        entry.totalRealizado = (entry.totalRealizado ?? new Prisma.Decimal(0)).plus(aloc.horasRealizadas);
+      }
     }
 
     // ── Construir linhas ──────────────────────────────────────────────────
@@ -278,12 +283,16 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       const totalGeral = totalMeusProj.plus(totalOutros);
       const disponivel = Prisma.Decimal.max(TETO.minus(totalGeral), D0);
 
-      // celulas[projetoId] = { totalHoras, detalhes[] } | null
-      const celulas: Record<string, { totalHoras: string; detalhes: DetalheCell[] } | null> = {};
+      // celulas[projetoId] = { totalHoras, totalRealizado, detalhes[] } | null
+      const celulas: Record<string, { totalHoras: string; totalRealizado: string | null; detalhes: DetalheCell[] } | null> = {};
       for (const proj of projetos) {
         const entry = celulasByColabProj.get(`${colabId}::${proj.id}`);
         celulas[proj.id] = entry
-          ? { totalHoras: entry.totalHoras.toString(), detalhes: entry.detalhes }
+          ? {
+              totalHoras:     entry.totalHoras.toString(),
+              totalRealizado: entry.totalRealizado != null ? entry.totalRealizado.toString() : null,
+              detalhes:       entry.detalhes,
+            }
           : null;
       }
 
@@ -431,12 +440,19 @@ router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor'), asy
     if (horasRealizadas === null) {
       horas = null;
     } else {
+      let decimal: Prisma.Decimal;
       try {
-        horas = new Prisma.Decimal(horasRealizadas);
-        if (horas.lessThan(0)) throw new Error();
+        decimal = new Prisma.Decimal(horasRealizadas);
       } catch {
         return res.status(400).json({ error: 'horasRealizadas deve ser um número >= 0 ou null' });
       }
+      if (decimal.lessThan(0)) {
+        return res.status(400).json({ error: 'horasRealizadas deve ser um número >= 0 ou null' });
+      }
+      if (decimal.greaterThan(new Prisma.Decimal('9999.99'))) {
+        return res.status(400).json({ error: 'horasRealizadas não pode exceder 9999.99' });
+      }
+      horas = decimal;
     }
 
     const alocacao = await prisma.alocacao.findUnique({ where: { id } });

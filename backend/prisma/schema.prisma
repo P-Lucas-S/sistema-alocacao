@@ -24,6 +24,7 @@ model User {
   colaboradoresCriados Colaborador[]
   alocacoesCriadas     Alocacao[]         @relation("AlocacaoCreatedBy")
   alocacoesAtualizadas Alocacao[]         @relation("AlocacaoUpdatedBy")
+  fechamentosMensais   FechamentoMensal[] @relation("FechamentoMensalFechadoPor")
 
   @@map("users")
 }
@@ -179,4 +180,19 @@ model Alocacao {
   // Índice crítico: toda verificação de teto soma por (colaborador, ano, mes)
   @@index([colaboradorId, ano, mes])
   @@map("alocacoes")
+}
+
+// ─── Fase 3: Fechamento mensal (read-only lock) ────────────────────
+
+model FechamentoMensal {
+  id           String   @id @db.VarChar(191)
+  ano          Int
+  mes          Int
+  fechadoPorId String   @map("fechado_por_id") @db.VarChar(191)
+  fechadoEm    DateTime @default(now()) @map("fechado_em")
+
+  fechadoPor User @relation("FechamentoMensalFechadoPor", fields: [fechadoPorId], references: [id])
+
+  @@unique([ano, mes])
+  @@map("fechamentos_mensais")
 }

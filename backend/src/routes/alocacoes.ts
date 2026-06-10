@@ -9,6 +9,15 @@ const generateId = () => Math.random().toString(36).substring(2, 15);
 // Teto global de horas planejadas por colaborador/mês — constante de negócio
 const TETO_HORAS_MES = new Prisma.Decimal(220);
 
+// ── Helper: verificar se um mês está fechado ──────────────────────────────────
+async function mesEstaFechado(ano: number, mes: number): Promise<boolean> {
+  const f = await prisma.fechamentoMensal.findUnique({
+    where: { ano_mes: { ano, mes } },
+    select: { id: true },
+  });
+  return f !== null;
+}
+
 // ── Erro tipado para bloqueio de teto ─────────────────────────────────────
 interface DistribuicaoItem {
   projeto_codigo: string;
@@ -163,6 +172,13 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     if (!anoN || anoN < 2020 || anoN > 2100) return res.status(400).json({ error: 'ano inválido' });
     if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
 
+    // ── Verifica se o mês está fechado ───────────────────────────────────
+    const fechadoRecord = await prisma.fechamentoMensal.findUnique({
+      where: { ano_mes: { ano: anoN, mes: mesN } },
+      select: { id: true },
+    });
+    const fechado = fechadoRecord !== null;
+
     // ── Colunas: projetos do gestor (ou todos para admin) ─────────────────
     const projWhere = role === 'gestor'
       ? { gestorId: userId, status: 'ativo' }
@@ -197,7 +213,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       defaultMicroId: p.macroEntregas[0]?.microEntregas[0]?.id ?? null,
     }));
 
-    if (projetos.length === 0) return res.json({ projetos: [], linhas: [] });
+    if (projetos.length === 0) return res.json({ projetos: [], linhas: [], fechado });
 
     const meusProjIds = new Set(projetos.map(p => p.id));
 
@@ -212,7 +228,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       },
     });
 
-    if (minhasAlocs.length === 0) return res.json({ projetos, linhas: [] });
+    if (minhasAlocs.length === 0) return res.json({ projetos, linhas: [], fechado });
 
     const colabIds = [...new Set(minhasAlocs.map(a => a.colaboradorId))];
 
@@ -311,7 +327,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     // Ordenar por nome do colaborador
     linhas.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'));
 
-    res.json({ projetos, linhas });
+    res.json({ projetos, linhas, fechado });
   } catch (error) {
     console.error('Grid error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -367,6 +383,10 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     }
     if (!mesN || mesN < 1 || mesN > 12) {
       return res.status(400).json({ error: 'mes inválido (1–12)' });
+    }
+
+    if (await mesEstaFechado(anoN, mesN)) {
+      return res.status(409).json({ error: 'Mês fechado', mesFechado: true });
     }
 
     let horas: Prisma.Decimal;
@@ -458,6 +478,10 @@ router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor'), asy
     const alocacao = await prisma.alocacao.findUnique({ where: { id } });
     if (!alocacao) return res.status(404).json({ error: 'Alocação não encontrada' });
 
+    if (await mesEstaFechado(alocacao.ano, alocacao.mes)) {
+      return res.status(409).json({ error: 'Mês fechado', mesFechado: true });
+    }
+
     const atualizada = await prisma.alocacao.update({
       where: { id },
       data: { horasRealizadas: horas, updatedById: userId },
@@ -485,6 +509,10 @@ router.post('/copiar-realizado', authenticate, requireRole('admin', 'gestor'), a
     }
     if (!mesN || mesN < 1 || mesN > 12) {
       return res.status(400).json({ error: 'mes inválido (1–12)' });
+    }
+
+    if (await mesEstaFechado(anoN, mesN)) {
+      return res.status(409).json({ error: 'Mês fechado', mesFechado: true });
     }
 
     let atualizadas: number;
@@ -525,6 +553,11 @@ router.delete('/:id', authenticate, requireRole('admin', 'gestor'), async (req: 
     const { id } = req.params;
     const alocacao = await prisma.alocacao.findUnique({ where: { id } });
     if (!alocacao) return res.status(404).json({ error: 'Alocação não encontrada' });
+
+    if (await mesEstaFechado(alocacao.ano, alocacao.mes)) {
+      return res.status(409).json({ error: 'Mês fechado', mesFechado: true });
+    }
+
     await prisma.alocacao.delete({ where: { id } });
     res.json({ success: true });
   } catch (error) {

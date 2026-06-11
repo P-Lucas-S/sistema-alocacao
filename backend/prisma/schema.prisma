@@ -25,6 +25,7 @@ model User {
   alocacoesCriadas     Alocacao[]         @relation("AlocacaoCreatedBy")
   alocacoesAtualizadas Alocacao[]         @relation("AlocacaoUpdatedBy")
   fechamentosMensais   FechamentoMensal[] @relation("FechamentoMensalFechadoPor")
+  alocacaoLogs         AlocacaoLog[]      @relation("AlocacaoLogUsuario")
 
   @@map("users")
 }
@@ -182,7 +183,7 @@ model Alocacao {
   @@map("alocacoes")
 }
 
-// ─── Fase 3: Fechamento mensal (read-only lock) ────────────────────
+// ─── Fase 3: Fechamento mensal (read-only lock) + log de auditoria ─
 
 model FechamentoMensal {
   id           String   @id @db.VarChar(191)
@@ -195,4 +196,25 @@ model FechamentoMensal {
 
   @@unique([ano, mes])
   @@map("fechamentos_mensais")
+}
+
+model AlocacaoLog {
+  id              String   @id @db.VarChar(191)
+  alocacaoId      String   @map("alocacao_id") @db.VarChar(191)
+  colaboradorId   String   @map("colaborador_id") @db.VarChar(191)
+  projetoId       String   @map("projeto_id") @db.VarChar(191)
+  macroEntregaId  String   @map("macro_entrega_id") @db.VarChar(191)
+  microEntregaId  String   @map("micro_entrega_id") @db.VarChar(191)
+  ano             Int
+  mes             Int
+  acao            String   @db.VarChar(20)
+  horasAnteriores Decimal? @map("horas_anteriores") @db.Decimal(6, 2)
+  horasNovas      Decimal? @map("horas_novas") @db.Decimal(6, 2)
+  usuarioId       String   @map("usuario_id") @db.VarChar(191)
+  criadoEm        DateTime @default(now()) @map("criado_em")
+
+  usuario User @relation("AlocacaoLogUsuario", fields: [usuarioId], references: [id])
+
+  @@index([alocacaoId])
+  @@map("alocacao_logs")
 }

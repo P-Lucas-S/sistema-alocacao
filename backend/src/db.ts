@@ -186,6 +186,8 @@ const ALOCACOES: AlocSeed[] = [
 
 export async function initDb() {
   // ── Limpeza (ordem respeitando todas as FKs) ───────────────────────────
+  await prisma.alocacaoLog.deleteMany();
+  await prisma.fechamentoMensal.deleteMany();
   await prisma.alocacao.deleteMany();
   await prisma.microEntrega.deleteMany();
   await prisma.macroEntrega.deleteMany();

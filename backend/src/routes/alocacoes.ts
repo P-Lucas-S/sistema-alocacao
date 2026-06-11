@@ -146,11 +146,31 @@ async function alocarComLock(params: {
       },
     });
 
+    // ── PASSO 6: Gravar log de auditoria do planejado (mesma transação) ─
+    const logAcao = !existente
+      ? 'criou'
+      : existente.horasPlanejadas.minus(horasPlanejadas).isZero() ? null : 'alterou';
+
+    if (logAcao) {
+      await tx.alocacaoLog.create({
+        data: {
+          id: generateId(),
+          alocacaoId:     alocacao.id,
+          colaboradorId,
+          projetoId,
+          macroEntregaId,
+          microEntregaId,
+          ano,
+          mes,
+          acao:            logAcao,
+          horasAnteriores: existente?.horasPlanejadas ?? null,
+          horasNovas:      horasPlanejadas,
+          usuarioId:       userId,
+        },
+      });
+    }
+
     return { alocacao, somaFinal: somaAtual.plus(horasPlanejadas) };
-  // TODO (C1 dívida): o comentário abaixo estava confuso — revisitar redação na próxima passada.
-  // TODO (C3): quando horasRealizadas entrar, confirmar se o lock precisa cobrir
-  //   atualizações de realizado ou se elas ficam fora do teto (provavelmente fora —
-  //   o teto é sobre planejado — mas validar na hora da implementação).
   }, { timeout: 15_000 }); // Prisma cancela a transação após 15s; o innodb_lock_wait_timeout padrão do MariaDB é 50s, então o Prisma vence primeiro em caso de espera longa
 }
 
@@ -547,10 +567,28 @@ router.post('/copiar-realizado', authenticate, requireRole('admin', 'gestor'), a
   }
 });
 
+// ── GET /:id/log — histórico do planejado de uma alocação ────────────────
+// Busca por alocacaoId na tabela de log; sobrevive à deleção da alocação.
+router.get('/:id/log', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const logs = await prisma.alocacaoLog.findMany({
+      where:   { alocacaoId: id },
+      orderBy: { criadoEm: 'desc' },
+      include: { usuario: { select: { name: true } } },
+    });
+    res.json(logs);
+  } catch (error) {
+    console.error('Log alocacao error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── DELETE /:id — remove alocação ─────────────────────────────────────────
 router.delete('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user!.id;
     const alocacao = await prisma.alocacao.findUnique({ where: { id } });
     if (!alocacao) return res.status(404).json({ error: 'Alocação não encontrada' });
 
@@ -558,7 +596,25 @@ router.delete('/:id', authenticate, requireRole('admin', 'gestor'), async (req: 
       return res.status(409).json({ error: 'Mês fechado', mesFechado: true });
     }
 
-    await prisma.alocacao.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.alocacao.delete({ where: { id } });
+      await tx.alocacaoLog.create({
+        data: {
+          id:              generateId(),
+          alocacaoId:      id,
+          colaboradorId:   alocacao.colaboradorId,
+          projetoId:       alocacao.projetoId,
+          macroEntregaId:  alocacao.macroEntregaId,
+          microEntregaId:  alocacao.microEntregaId,
+          ano:             alocacao.ano,
+          mes:             alocacao.mes,
+          acao:            'removeu',
+          horasAnteriores: alocacao.horasPlanejadas,
+          horasNovas:      null,
+          usuarioId:       userId,
+        },
+      });
+    });
     res.json({ success: true });
   } catch (error) {
     console.error('Delete alocacao error:', error);

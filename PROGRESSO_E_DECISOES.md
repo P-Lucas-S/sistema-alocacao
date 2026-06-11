@@ -26,7 +26,7 @@ O objetivo central é **comunicação entre gestores e documentação da equipe*
 ### Branches
 - **`feat/alocacao-fase-1`** — Fases 0, 1 e o C1 da Fase 2 (até o commit `65aea36`).
 - **`feat/alocacao-fase-2`** — Fase 2 (C2/C3) **e toda a Fase 3** (fechamento + auditoria). Todo o trabalho recente vive aqui.
-- Nada foi `git push` ainda — os commits são todos locais. **Risco anotado:** sem backup externo, se a máquina morrer o trabalho some. Vale configurar um remoto/backup em algum momento.
+- **Backup externo no GitHub privado** (`origin` → `P-Lucas-S/sistema-alocacao`) — as 4 branches estão lá. Daqui pra frente, `git push` após cada commit mantém o backup atualizado.
 
 ---
 

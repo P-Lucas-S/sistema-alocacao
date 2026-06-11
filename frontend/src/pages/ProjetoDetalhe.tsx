@@ -305,8 +305,8 @@ export default function ProjetoDetalhe() {
                     onClick={() => toggleExpand(macro.id)}
                   >
                     {isExpanded
-                      ? <ChevronDown size={15} style={{ color: 'var(--text-3)', shrink: 0 }} />
-                      : <ChevronRight size={15} style={{ color: 'var(--text-3)', shrink: 0 }} />}
+                      ? <ChevronDown size={15} style={{ color: 'var(--text-3)', flexShrink: 0 }} />
+                      : <ChevronRight size={15} style={{ color: 'var(--text-3)', flexShrink: 0 }} />}
 
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold" style={{ color: 'var(--text-1)' }}>{macro.nome}</p>
@@ -357,7 +357,7 @@ export default function ProjetoDetalhe() {
                             className="flex items-center gap-2 px-3 py-2 rounded-xl"
                             style={{ background: 'var(--surface-2)' }}
                           >
-                            <GitBranch size={12} style={{ color: 'var(--text-3)', shrink: 0 }} />
+                            <GitBranch size={12} style={{ color: 'var(--text-3)', flexShrink: 0 }} />
                             <span className="text-sm flex-1" style={{ color: 'var(--text-1)' }}>{micro.nome}</span>
                             {isGeral && (
                               <span

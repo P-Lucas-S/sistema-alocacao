@@ -2,7 +2,7 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** fim da **Fase 2 inteira** (C3 completo — realizado e comparação). O núcleo do MVP (Fases 0 + 1 + 2) está completo. Próximo passo: Fase 3 (fechamento mensal + log de auditoria).
+> **Última atualização:** fim da **Fase 3 inteira** (fechamento mensal + log de auditoria do planejado). Fases 0 a 3 completas. Próximo passo: Fase 4 (remanejamento broadcast). A telinha de histórico do log (E2-b) ficou como extra deferido — ver §7.
 
 ---
 
@@ -20,12 +20,12 @@ O objetivo central é **comunicação entre gestores e documentação da equipe*
 ### Perfis de usuário
 - **`gestor`** — cadastra colaboradores e projetos, aloca horas, (futuro) cede horas no remanejamento.
 - **`coordenacao`** — somente leitura em tudo (relatórios, visão global). Não aloca, não arbitra, não cede.
-- **`admin`** — administração técnica.
+- **`admin`** — administração técnica. Também é quem **fecha e reabre meses** (Fase 3).
 - **Colaborador NÃO é usuário** — é uma entidade de dados. Não tem login, não bate ponto. Tudo é cadastrado pelos gestores.
 
 ### Branches
 - **`feat/alocacao-fase-1`** — Fases 0, 1 e o C1 da Fase 2 (até o commit `65aea36`).
-- **`feat/alocacao-fase-2`** — Fase 2 / C2 e C3 (criado a partir do C1). Todo o trabalho do grid e do realizado vive aqui.
+- **`feat/alocacao-fase-2`** — Fase 2 (C2/C3) **e toda a Fase 3** (fechamento + auditoria). Todo o trabalho recente vive aqui.
 - Nada foi `git push` ainda — os commits são todos locais. **Risco anotado:** sem backup externo, se a máquina morrer o trabalho some. Vale configurar um remoto/backup em algum momento.
 
 ---
@@ -43,6 +43,8 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 - **Projeto:** tem um único gestor dono (relação 1:N), um código único e imutável, um nome, e **várias datas de prestação de contas** (1:N). Para priorização, conta a **próxima prestação ainda não vencida**.
 - **Projetos são arquivados, nunca deletados.** O código fica preso para sempre, mesmo arquivado (nunca reutilizável). **Projeto arquivado (status ≠ 'ativo') não aparece no grid e não é tocado pela cópia de realizado** — o escopo editável é sempre o dos projetos ativos.
 - **Planejado E realizado:** ambos digitados pelo gestor (colaborador não acessa nada). O teto é sobre o **planejado**; o **realizado fica FORA do teto e do lock** (ver C3). O realizado só pode ser lançado onde já existe uma alocação (não há realizado "solto").
+- **Fechamento mensal (Fase 3) — explícito e por mês inteiro.** Um mês é fechado/reaberto **explicitamente pelo admin** — não automático por data de prestação (isso deixaria o grid "meio-travado", confuso). Mês fechado = **somente leitura para TODOS, inclusive admin**: bloqueia os **quatro** caminhos de escrita de alocação (criar/alterar planejado, lançar realizado, deletar, copiar-realizado). Só uma **reabertura explícita** destrava. Coordenação continua só-leitura (não fecha nem reabre).
+- **Log de auditoria (Fase 3) — só do planejado, ciclo completo, imutável.** Toda vez que o **planejado** de uma alocação nasce / muda / some, grava-se uma linha de log (`criou` / `alterou` / `removeu`) com **quem** e **quando**, **dentro da mesma transação** da escrita (atômico: nunca muda sem log, nunca log sem mudança). O realizado fica de fora. O log guarda o **contexto denormalizado** (colaborador/projeto/macro/micro/mês) **sem FK** nesses campos, justamente pra **sobreviver à deleção** da alocação; só o `usuarioId` é FK real.
 - **Remanejamento (Fase 4) — modelo broadcast:** o gestor sinaliza interesse num colaborador lotado e solicita uma parcela de horas; a pendência vai a todos os gestores que têm esse colaborador; cada um pode ceder uma parcela. Prioridade por data de prestação é só visual (ordena a fila, não dá direito automático). Cessão nunca ultrapassa o pedido.
 
 ### Riscos aceitos conscientemente
@@ -60,12 +62,12 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 2 — C1** | Alocação de horas planejadas com teto de 220h + lock transacional | ✅ Completa (`65aea36`) |
 | **Fase 2 — C2** | Grid de alocação (interface rica) | ✅ Completa (`7cf45bb`, `62675cf`, `d4429b3`, `07c3096`, `bd5f631`) |
 | **Fase 2 — C3** | Horas realizadas + comparação planejado vs. realizado | ✅ Completa (`8ec779f`, `0f8469e`, `a1886f8`) |
-| **Fase 3** | Fechamento mensal + log de auditoria de edições | ⬜ **Próximo passo** |
-| **Fase 4** | Remanejamento broadcast entre gestores | ⬜ Pendente |
+| **Fase 3** | Fechamento mensal (read-only) + log de auditoria do planejado | ✅ Completa (`5aa52c4`, `0529b8d`, `af473ac`, `adc477b`) |
+| **Fase 4** | Remanejamento broadcast entre gestores | ⬜ **Próximo passo** |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
 | Transversal | Identidade visual geral | ⬜ Pendente |
 
-> **Fase 2 inteira fechada.** O MVP mínimo defensável (Fases 0+1+2) está completo: planejar com teto protegido, o grid rico, e o realizado/comparação.
+> **Fases 0–3 fechadas.** Já dá pra planejar com teto protegido, operar o grid rico, lançar e comparar o realizado, **fechar/reabrir meses** e **auditar toda mudança no planejado**. Falta a colaboração entre gestores (Fase 4) e os relatórios/escala da coordenação (Fase 5).
 
 ### Credenciais de teste (do seed)
 | Papel | E-mail | Senha |
@@ -123,7 +125,7 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 - **Mecanismo do lock:** `SELECT id FROM colaboradores WHERE id = ? FOR UPDATE` adquire um lock exclusivo na linha do colaborador (serializa o acesso — o segundo gestor espera o primeiro terminar). A soma das horas usa `LOCK IN SHARE MODE` para ler os dados *committed* mais recentes, não o snapshot antigo. O lock é ancorado no colaborador (que sempre existe) e não nas linhas de alocação (que podem não existir na primeira alocação).
 - Bloqueio retorna 409 com `totalAlocado`, `horasDisponiveis` e a `distribuicao` (projetos, horas e gestores).
 - Permissão: só gestor e admin alocam; coordenação 403.
-- **Validado com teste de concorrência:** `backend/test-concorrencia.mjs` dispara duas requisições simultâneas (via `Promise.all`) contra o mesmo colaborador/mês e confere o total real no banco. **16/16 rodadas corretas no C1, o teto nunca furou.** Re-executado a cada mexida perto da lógica de alocação ao longo de C2 e C3: sempre 8/8.
+- **Validado com teste de concorrência:** `backend/test-concorrencia.mjs` dispara duas requisições simultâneas (via `Promise.all`) contra o mesmo colaborador/mês e confere o total real no banco. **16/16 rodadas corretas no C1, o teto nunca furou.** Re-executado a cada mexida perto da lógica de alocação ao longo de C2, C3 e Fase 3: sempre 8/8.
 - Ajuste no B3: as rotas de delete de macro/micro agora checam alocações antes de deletar e retornam 400 com mensagem clara (consequência do `RESTRICT`).
 
 ### Fase 2 — C2 — Grid de alocação (branch `feat/alocacao-fase-2`)
@@ -136,6 +138,7 @@ Interface rica de alocação: **colaboradores nas linhas, projetos do gestor nas
 - Por linha: `saldo { totalMeusProj, totalOutros, totalGeral, disponivel }` — `totalGeral` soma TODOS os gestores (base correta do teto).
 - `celulas[projetoId] = { totalHoras, totalRealizado, detalhes: [{ alocacaoId, macroNome, microNome, macroEntregaId, microEntregaId, horas, horasRealizadas }] } | null` (o `totalRealizado` e o `horasRealizadas` por detalhe entraram no C3-b).
 - `defaultMacroId` / `defaultMicroId` por projeto = a micro "Geral", destino do clique rápido na célula.
+- **(Fase 3)** passou a retornar também `fechado: boolean` do (ano,mes) consultado.
 
 **D1 — estrutura e leitura** (`7cf45bb`)
 - Seletor de mês/ano (◀▶ + dropdown). Colunas **sticky**: Colaborador (left:0) e Saldo (left:200px) param; os projetos rolam na horizontal.
@@ -177,10 +180,40 @@ Adiciona o **realizado** (horas de fato trabalhadas, digitadas pelo gestor) e a 
 - Comparação na célula: **delta discreto** (realizado − planejado) quando os dois existem — âmbar quando acima do planejado, apagado quando abaixo, nada quando igual ou sem realizado.
 - Teste `backend/test-c3c.mjs` → 8/8 (403, ano/mes inválido, cópia só do próprio projeto / isolamento entre gestores, idempotência, não-sobrescrever). `test-concorrencia` segue 8/8.
 
+### Fase 3 — Fechamento mensal e auditoria (branch `feat/alocacao-fase-2`)
+
+Adiciona as garantias temporais e de rastreabilidade. Dividida em **E1 (fechamento)** e **E2 (log de auditoria)**. Tudo validado por API/script; a tela de histórico do log (E2-b) ficou para depois (extra). Desenho e migrations foram revisados antes de aplicar, no ritmo de sempre.
+
+**E1-a — fechamento: backend** (`5aa52c4`)
+- Migration `20260609131623_fase3_fechamento_mensal`: tabela `fechamentos_mensais` (`ano`, `mes`, `fechado_por_id` FK→`users` `RESTRICT`, `fechado_em`), `UNIQUE(ano, mes)` — um mês só fecha uma vez. Back-reference virtual no `User` (não vira coluna na tabela `users`). Aditiva, nenhuma tabela existente alterada.
+- `backend/src/routes/fechamentos.ts` (montado em `/api/fechamentos`): `POST {ano,mes}` fecha (admin; **201**; 409 se já fechado; valida ano 2020–2100 / mes 1–12); `DELETE /:ano/:mes` reabre (admin; **404** se não estava fechado; `{ success: true }`). Gestor/coordenação → **403** nos dois.
+- Helper `mesEstaFechado(ano,mes)` aplicado no **início** dos quatro caminhos de escrita em `alocacoes.ts` — POST, PATCH `/:id/realizado`, DELETE `/:id`, POST `/copiar-realizado`: mês fechado → **409** `{ error: 'Mês fechado', mesFechado: true }`, **inclusive para admin**. A trava fica **antes** do `alocarComLock` — o lock não foi tocado (`test-concorrencia` 8/8).
+- Teste `backend/test-e1a.mjs` → **18/18** (403/409 de acesso; ciclo fechar → travas nos 4 caminhos → reabrir → destravado; `fechado` no grid true/false).
+
+**E1-b — fechamento: frontend** (`0529b8d`)
+- Em `GridAlocacao.tsx`: `const mesFechado = data?.fechado ?? false`. Mês fechado → grid **somente leitura**: a célula não abre input (nem planejado nem realizado), o painel mostra os valores como **texto fixo**, o botão "Copiar plan. → real." **some**, e uma **faixa vermelha** no topo (fora do scroll) avisa "🔒 [Mês]/[Ano] está fechado — somente leitura".
+- Botão **Fechar / Reabrir** perto do seletor de mês, **só para admin** (`const isAdmin = user?.role === 'admin'`, à prova de `user` nulo; só aparece com `isAdmin && data`). Modais de confirmação (estilo da app, fecham no clique fora), e **refetch na hora** ao fechar/reabrir → trava/destrava **sem F5**. Erros de corrida (409 já-fechado / 404 não-fechado) → refetch pra ressincronizar.
+- Validado no navegador: trava/destrava na hora; gestor **não** vê o botão; a trava é **por mês** (navegar pra outro mês segue editável); painel abre em leitura.
+- **Borda conhecida (anotada, não bloqueia):** se o admin fechar enquanto um gestor está com a tela aberta, o gestor só percebe ao recarregar; se tentar editar antes, o backend recusa com 409 `mesFechado`, mas o popover de bloqueio do planejado espera o formato do teto (com distribuição) e pode parecer estranho. Corrida rara — polimento futuro.
+
+**Micro-fix do parking-lot — `shrink` → `flexShrink`** (`af473ac`)
+- `ProjetoDetalhe.tsx`: os 3 `style={{ ..., shrink: 0 }}` (propriedade inexistente em CSS-in-JS) viraram `flexShrink: 0` — o encolhimento flex agora vale de fato. As classes Tailwind `shrink-0` (em `className`) foram mantidas. `tsc` limpo. (Era o item do parking-lot; agora resolvido.)
+
+**E2 — log de auditoria do planejado** (`adc477b`)
+- Migration `20260611015805_fase3_alocacao_log`: tabela `alocacao_logs` com `id`, contexto denormalizado (`alocacao_id`, `colaborador_id`, `projeto_id`, `macro_entrega_id`, `micro_entrega_id`), `ano`, `mes`, `acao` (`VARCHAR(20)`: 'criou'/'alterou'/'removeu'), `horas_anteriores`/`horas_novas` (`Decimal(6,2)` nuláveis), `usuario_id` (FK→`users` `RESTRICT`), `criado_em`. Índice em `(alocacao_id)`. **Decisão de modelagem:** os campos de contexto são colunas simples **sem FK** (retrato imutável que sobrevive à deleção da alocação); só `usuario_id` é FK real.
+- Gravação **dentro da transação** da escrita (`alocacoes.ts`):
+  - POST / `alocarComLock`: alocação nova → `criou` (anterior `null`); existente com planejado **mudado** → `alterou` (compara Decimal via `.minus(...).isZero()`); **mesmo valor → não loga**.
+  - DELETE: transação atômica (apaga a alocação **e** grava `removeu`, anterior = valor, nova `null`). Como `alocacao_id` não tem FK, a linha de log referencia o id já apagado sem problema.
+  - `usuarioId` = usuário autenticado. **Realizado e copiar-realizado NÃO logam** (escopo é só o planejado).
+- `GET /api/alocacoes/:id/log` (admin/gestor): histórico por `alocacaoId`, **mais novo primeiro**, com o nome do usuário de cada ação; **funciona mesmo após a alocação ser deletada** (busca direto na tabela de log).
+- **Correção no seed (`db.ts`):** as novas FKs (`fechamentos_mensais` e `alocacao_logs` → `users`) quebravam o `user.deleteMany()` do reseed; a **ordem de limpeza** foi corrigida — apaga `alocacao_logs` e `fechamentos_mensais` **antes** de `users`. **Lição:** ao criar qualquer FK nova apontando pra `users`, ajustar a ordem de deleção do seed.
+- Teste `backend/test-e2.mjs` → **8/8** (criou/alterou/removeu; mesmo-valor-não-loga; realizado/copiar não logam; ordem desc; log sobrevive à deleção; coordenação 403). Regressão: concorrência 8/8, c3a 9/9, c3c 8/8, e1a 18/18.
+
 **Seed de teste (`backend/src/db.ts`) — IMPORTANTE para futuras sessões:**
 - Cenário realista: **30 colaboradores** (`sc-01`..`sc-30`), **10 projetos** (G1=4, G2=3, G3=3; `sp-01`..`sp-10`, cada um com 1–2 macros + micro "Geral"), **40 alocações** em **junho/julho/agosto de 2026**. Gestores com IDs fixos `seed-gestor-001/002/003`. Idempotente.
 - Casos de propósito: Enzo Carvalho (jun) = 220h cheio (vermelho); Daniela Rocha (jun) = 200h (âmbar); Brenda Vieira (ago) = 200h; cross-gestor / barra bicolor: Fabiana Costa (jun), Leonardo Alves e Marina Souza (jul), Nicolas Barbosa (jul), Ulisses Ribeiro (ago).
-- O seed **não** popula realizado — o realizado foi validado digitando na tela / via API.
+- O seed **não** popula realizado nem logs/fechamentos — o realizado foi validado digitando na tela / via API.
+- A **ordem de limpeza do reseed** apaga `alocacao_logs` e `fechamentos_mensais` antes de `users` (FKs novas da Fase 3).
 - **CUIDADO NA IMPLANTAÇÃO:** o seed apaga e recria tudo a cada restart do servidor. NÃO rodar em produção.
 
 ---
@@ -201,12 +234,12 @@ Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem esco
 
 O projeto vem sendo construído com um método que está funcionando e vale preservar:
 
-- **Fases pequenas, testadas e aprovadas uma a uma** antes de seguir. Cada sub-bloco (B1, B2, B3, C1, D1, D2, D3-a, D3-b, C3-a, C3-b, C3-c…) fecha com um commit, que vira um ponto de retorno seguro.
-- **Operações estruturais (migrations, mudanças de schema) são mostradas ANTES de aplicar.** Especialmente quando há dados a preservar — ver o SQL e o antes/depois evita perda silenciosa.
-- **Validação no navegador**, não só via API. Os testes automatizados provam a lógica; clicar na tela revela o que o plano no papel não captura. Várias melhorias (múltiplas datas de prestação, a confirmação de duplicata, o bug de fuso, a barra de saldo, o ícone do painel, o disponível sempre visível, a afordância do realizado, os rótulos do painel) surgiram exatamente assim.
-- **Lógica crítica é testada isoladamente, com interface mínima, antes da interface rica.** O teto (C1) e os endpoints do realizado (C3-a, copiar) foram provados via API/script antes de qualquer tela.
-- **Concorrência exige teste de concorrência.** Bugs de corrida não aparecem em teste manual — precisam de requisições paralelas disparadas de propósito, conferindo o estado real no banco.
-- **Brainstorm com IAs externas** vale quando a decisão é estrutural, com vários caminhos defensáveis, e errar custa caro de refazer (foi assim com o design do grid — `CRITICA_DESIGN_v2.md`). NÃO vale para confirmar decisões já tomadas ou detalhes localizados, baratos de iterar (foi por isso que o C3 **não** teve brainstorm — coluna já existia, invariante travado, escolhas eram UI barata de ajustar).
+- **Fases pequenas, testadas e aprovadas uma a uma** antes de seguir. Cada sub-bloco (B1, B2, B3, C1, D1, D2, D3-a, D3-b, C3-a, C3-b, C3-c, E1-a, E1-b, E2…) fecha com um commit, que vira um ponto de retorno seguro.
+- **Operações estruturais (migrations, mudanças de schema) são mostradas ANTES de aplicar.** Gerar com `prisma migrate dev --create-only`, revisar o SQL (e o antes/depois), e só então aplicar com `prisma migrate dev`. Foi assim com as duas migrations da Fase 3.
+- **Validação no navegador**, não só via API. Os testes automatizados provam a lógica; clicar na tela revela o que o plano no papel não captura. Várias melhorias (múltiplas datas de prestação, a confirmação de duplicata, o bug de fuso, a barra de saldo, o ícone do painel, o disponível sempre visível, a afordância do realizado, os rótulos do painel, a faixa de "mês fechado") surgiram exatamente assim.
+- **Lógica crítica é testada isoladamente, com interface mínima, antes da interface rica.** O teto (C1), os endpoints do realizado (C3-a, copiar), o fechamento (E1-a) e o log (E2) foram provados via API/script antes de qualquer tela.
+- **Concorrência exige teste de concorrência.** Bugs de corrida não aparecem em teste manual — precisam de requisições paralelas disparadas de propósito, conferindo o estado real no banco. `test-concorrencia` é re-rodado a cada mexida perto da alocação (seguiu 8/8 mesmo com a trava de fechamento e a gravação do log entrando no caminho de escrita).
+- **Brainstorm com IAs externas** vale quando a decisão é estrutural, com vários caminhos defensáveis, e errar custa caro de refazer (foi assim com o design do grid — `CRITICA_DESIGN_v2.md`). NÃO vale para confirmar decisões já tomadas ou detalhes localizados, baratos de iterar (por isso C3 e a Fase 3 **não** tiveram brainstorm — invariantes travados, escolhas de UI/modelagem baratas de ajustar).
 
 ### Ruído de teste a ignorar
 - Avisos de PowerShell 5.1: `Join-String` inexistente, `$pid` reservado, `ConvertFrom-Json`, `.Count`/`Measure-Object` retornando `null` em coleção de 1 item ou vazia — são da versão da máquina, não do sistema. (Geram falsos "❌"; conferir o valor real no output.)
@@ -214,38 +247,46 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 - Avisos `LF will be replaced by CRLF` no git — inofensivos (Windows).
 - "Código já em uso" / código não liberado ao arquivar em testes repetidos — é o teste reusando um código já criado, não um bug.
 - Acento corrompido (`EFBFBD`/`U+FFFD`) vindo de teste via **PowerShell 5.1**: o PS5 manda o corpo HTTP em Latin-1, não UTF-8. O navegador sempre manda UTF-8, então **não afeta o sistema real**, e o dado sujo some no próximo restart do seed.
+- Os testes de fechamento/log registram o usuário de coordenação como `role: 'coordenador'` (o nome real do perfil é `coordenacao`). O 403 vale assim mesmo porque vem de "não é admin/gestor", mas é um desalinhe de nome a corrigir nos testes quando der (mesmo deslize do `test-c3a`/`test-c3c`).
 
 ### Gotchas de ferramenta (Claude Code / ambiente)
 - **Claude Code travando com "Usage credits required for 1M context"** mesmo com a cota do plano sobrando: NÃO é limite real, é um **portão de cobrança da feature de contexto 1M**. Dispara muito na **compactação**. Saídas, do mais barato pro mais caro: fixar contexto padrão (`/model` → Sonnet 4.6, ou `--model claude-sonnet-4-6`, ou `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`); `/clear` se travar na compactação; atualizar o Claude Code; e, por último, ligar os créditos de uso (pay-as-you-go) em `claude.ai/settings/usage`.
+- **`prisma generate` / `migrate dev` falhando com `EPERM: ... rename query_engine-windows.dll.node`:** o backend em execução está segurando o DLL do Prisma. Mate os processos node (`Get-Process -Name node | Stop-Process -Force`), rode `npx prisma generate`, e só então suba de novo. Aconteceu ao aplicar a migration da Fase 3 com o servidor no ar.
 - **Editar strings acentuadas:** edite direto no arquivo (UTF-8) ou via `str_replace` buscando o texto SEM acento (ASCII puro). **NÃO escrever strings acentuadas via heredoc do PowerShell** (come os acentos).
-- **O Vite não faz type-check** (o esbuild só transpila), então erros de TypeScript **não quebram o runtime** — passam despercebidos rodando a app. Rode `node_modules/.bin/tsc --noEmit` pra pegá-los; foi assim que apareceram o erro latente do tipo `Celula` (corrigido no C3-b) e os erros de `shrink` no `ProjetoDetalhe` (ver parking-lot).
+- **O Vite não faz type-check** (o esbuild só transpila), então erros de TypeScript **não quebram o runtime** — passam despercebidos rodando a app. Rode `node_modules/.bin/tsc --noEmit` pra pegá-los; foi assim que apareceram o erro latente do tipo `Celula` (corrigido no C3-b) e os erros de `shrink` no `ProjetoDetalhe` (corrigidos em `af473ac`).
 
 ---
 
-## 7. Próximo passo: Fase 3 (Fechamento mensal + auditoria)
+## 7. Próximo passo: Fase 4 (Remanejamento broadcast entre gestores)
 
-Com a Fase 2 fechada (planejamento, grid e realizado), a Fase 3 adiciona as garantias temporais e de rastreabilidade:
+Com a Fase 3 fechada (fechamento + auditoria), a Fase 4 entrega a peça de **colaboração entre gestores** — o destravamento das horas, quando alguém está lotado, sem aprovação vertical. É a parte mais concorrente do sistema depois do teto.
 
-- **Fechamento mensal:** após a data de prestação de contas do projeto (ou um fechamento explícito), as alocações daquele período ficam **read-only**. Decidir o mecanismo (flag por alocação, tabela `FechamentoMensal`, ou derivado da prestação de contas).
-- **Log de auditoria das edições do planejado:** o planejado é editável; toda alteração precisa registrar quem/quando (a tabela já carrega `createdById`/`updatedById`; falta o log de alterações em si — `AlocacaoLog` imutável, conforme o PLANO_FINAL).
-- Atenção: o fechamento precisa valer também para o realizado e para a cópia (uma vez fechado o mês, nem o copiar-realizado pode mexer).
+- **Solicitação broadcast:** o gestor interessado sinaliza interesse num colaborador lotado e pede uma **parcela** de horas, com **destino** concreto (projeto + macro + micro + mês). A pendência aparece para **todos** os gestores que têm esse colaborador. Fila ordenada por data de prestação de contas — **só visual** (não dá direito automático).
+- **Cessão parcial atômica:** cada cedente pode ceder uma parcela, indicando a **alocação de origem**. Dentro de transação com lock: se a soma das cessões + a nova exceder o solicitado, ajusta para o saldo e avisa; ao atingir o pedido, a solicitação **fecha atomicamente** (`atendida`).
+- **Cancelamento** só enquanto `horasJaCedidas == 0`; havendo qualquer cessão, o estado final é `atendida` (mesmo parcial). Hora cedida é definitiva (não reverte o passado).
+- **Tabelas novas** (ver `PLANO_FINAL.md`): `SolicitacaoRemanejamento` e `CessaoRemanejamento`.
+- **Atenção:** o remanejamento mexe nas horas de alocações reais → tem de respeitar o teto, o lock **e** o fechamento mensal (não ceder/mover em mês fechado). E provavelmente deve gerar log de auditoria também.
+- **Aceite:** três gestores cedendo simultâneo não estouram o pedido; as horas movem atomicamente; o cedente que tenta ceder horas já movidas falha graciosamente. (Exige teste de concorrência dedicado, como o teto.)
+
+### Extra deferido da Fase 3 — Tela de histórico do log (E2-b)
+A captura do log (E2) está pronta; falta a **tela** pra visualizar o histórico de uma célula (quem alterou o planejado, quando, de quanto pra quanto). Já existe o `GET /api/alocacoes/:id/log`. Ideia: um "histórico" no painel lateral da célula. Ao montar, **decidir o acesso da coordenação ao log** (hoje o endpoint é admin/gestor → 403 pra coordenação; como transparência/relatório é o papel dela, faz sentido reavaliar). Também avaliar buscar o histórico **por contexto** (colaborador+projeto+micro+mês), não só por `alocacaoId`, pra cobrir o caso de uma alocação deletada e recriada (id novo).
 
 ### Item de navegabilidade do grid — PENDENTE (Fase 5 ou polimento dedicado)
 Apareceu no C2 e foi adiado. Com muitas colunas/projetos: (a) é difícil perceber que dá pra rolar na horizontal, (b) é difícil **achar um projeto específico** entre muitas colunas, (c) é difícil achar as células com alocação no meio das vazias. Tratar junto da virtualização da Fase 5 (a escala de 200+ colaboradores × projetos já exige virtualização lá). Ideias: filtro de colunas por nome/código; seletor "ir para o projeto" com scroll + flash; fixar/reordenar colunas. Decisão de UX estrutural — merece desenho com calma.
 
 ### Dívida técnica anotada (não urgente)
-1. ~~No C3, reavaliar se o lock precisa cobrir atualizações de realizado.~~ **RESOLVIDA:** o realizado ficou FORA do lock (PATCH `/:id/realizado` e o `copiar-realizado` via `$executeRaw` não tocam o `alocarComLock`); o `test-concorrencia` seguiu 8/8 durante todo o C3.
+1. ~~No C3, reavaliar se o lock precisa cobrir atualizações de realizado.~~ **RESOLVIDA:** o realizado ficou FORA do lock (PATCH `/:id/realizado` e o `copiar-realizado` via `$executeRaw` não tocam o `alocarComLock`); o `test-concorrencia` seguiu 8/8 durante C3 e Fase 3.
 2. A busca de similaridade de nome (B1) carrega todos os colaboradores e compara um a um. Para 200–300 está ótimo; só seria um problema em escala de milhares.
 
 ### Parking-lot (anotado, fora de fase — tratar quando der / antes de implantar)
-- **`ProjetoDetalhe.tsx`: `shrink` → `flexShrink`.** Há 3 erros de `tsc` (linhas ~308, ~309, ~360) usando `shrink` como propriedade de estilo, que não existe — então o encolhimento flex pretendido está **silenciosamente não sendo aplicado** naquela tela (B3). Correção rápida (trocar `shrink` por `flexShrink`), só não foi feita pra não misturar com o C3.
-- **Fechar o `/auth/register` público antes de implantar.** Hoje o endpoint de registro é público e aceita o `role` vindo do cliente (é o que permite os testes se registrarem como gestor/coordenador). Em produção isso é um buraco: qualquer um se cadastra como `admin`. Travar antes do deploy (só admin cria usuário, ou role não-setável pelo cliente).
+- ~~**`ProjetoDetalhe.tsx`: `shrink` → `flexShrink`.**~~ **RESOLVIDO** em `af473ac`.
+- **Fechar o `/auth/register` público antes de implantar.** Hoje o endpoint de registro é público e aceita o `role` vindo do cliente (é o que permite os testes se registrarem como gestor/coordenador/admin). Em produção isso é um buraco: qualquer um se cadastra como `admin`. Travar antes do deploy (só admin cria usuário, ou role não-setável pelo cliente). **Prioridade alta na pré-implantação.**
 
 ---
 
 ## 8. Documentos relacionados no projeto
 
-- **`PLANO_FINAL.md`** — o plano consolidado (o "o quê" e "por quê" de todas as fases). (Obs.: o `PLANO_FINAL` rotula o realizado/comparação como "Fase 3"; aqui é o "C3 da Fase 2" — só diferença de rótulo. O "Fase 3" deste documento = fechamento mensal + auditoria, que o PLANO_FINAL também descreve dentro da sua "Fase 3".)
+- **`PLANO_FINAL.md`** — o plano consolidado (o "o quê" e "por quê" de todas as fases). (Obs.: o `PLANO_FINAL` rotula o realizado/comparação como "Fase 3"; aqui isso é o "C3 da Fase 2" — só diferença de rótulo. A "Fase 3" **deste** documento = fechamento mensal + auditoria, que o `PLANO_FINAL` também descreve dentro da sua "Fase 3".)
 - **`ANALISE_ADAPTACAO_OBSOLETO.md`** — análise antiga, superada. **Ignorar** (premissas abandonadas: aprovação vertical, TimeEntry, projeto-gestor M:N).
 - **`CRITICA_DESIGN_v2.md`** — o prompt de crítica que foi levado às IAs externas (registro do brainstorm de design do grid).
 - **`PROGRESSO_E_DECISOES.md`** — este documento.

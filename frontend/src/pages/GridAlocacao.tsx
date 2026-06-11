@@ -48,6 +48,7 @@ interface Linha {
 interface GridData {
   projetos: ProjetoCol[];
   linhas:   Linha[];
+  fechado:  boolean;
 }
 
 // Info passada para o drawer ao abrir
@@ -183,13 +184,15 @@ interface CelulaEditavelProps {
   projNome:        string;
   saldo:           Saldo;
   isHighlighted?:  boolean;
+  readonly?:       boolean;
 }
 
 function CelulaEditavel(props: CelulaEditavelProps) {
   const { celula, projetoId, defaultMacroId, defaultMicroId,
           colaboradorId, colaboradorNome, totalGeral,
           ano, mes, token, onSaved, onSavedSilent, onOpenDrawer,
-          projCodigo, projNome, saldo, isHighlighted = false } = props;
+          projCodigo, projNome, saldo, isHighlighted = false,
+          readonly = false } = props;
 
   // Localiza a alocação da micro Geral dentro dos detalhes da célula.
   // O clique rápido (inline edit) sempre escreve/deleta APENAS essa micro.
@@ -366,7 +369,7 @@ function CelulaEditavel(props: CelulaEditavelProps) {
     cursor: 'pointer',
     outline: bloqueio
       ? '2px solid #ef4444'
-      : mode === 'editing'
+      : (mode === 'editing' && !readonly)
         ? '2px solid var(--brand-500)'
         : 'none',
     outlineOffset: '-2px',
@@ -379,7 +382,7 @@ function CelulaEditavel(props: CelulaEditavelProps) {
     <td
       ref={tdRef}
       style={tdStyle}
-      onClick={() => { if (mode === 'idle' && modeReal === 'idle') startEdit(); }}
+      onClick={() => { if (!readonly && mode === 'idle' && modeReal === 'idle') startEdit(); }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -419,17 +422,17 @@ function CelulaEditavel(props: CelulaEditavelProps) {
                     style={{
                       fontSize: 11, color: 'var(--text-3)',
                       display: 'inline-block', padding: '0 3px', borderRadius: 3,
-                      cursor: geralDetalhe ? 'text' : 'default',
-                      borderBottom: geralDetalhe ? '1px dashed var(--text-3)' : 'none',
+                      cursor: (geralDetalhe && !readonly) ? 'text' : 'default',
+                      borderBottom: (geralDetalhe && !readonly) ? '1px dashed var(--text-3)' : 'none',
                       transition: 'background 0.12s',
                     }}
                     onClick={e => {
                       e.stopPropagation();
-                      if (geralDetalhe && mode === 'idle') startEditReal();
+                      if (geralDetalhe && mode === 'idle' && !readonly) startEditReal();
                     }}
-                    onMouseEnter={e => { if (geralDetalhe) (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'; }}
+                    onMouseEnter={e => { if (geralDetalhe && !readonly) (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}
-                    title={geralDetalhe ? undefined : 'Edite pelo painel'}
+                    title={(!geralDetalhe || readonly) ? undefined : undefined}
                   >
                     {celula.totalRealizado != null
                       ? `${fmtHoras(celula.totalRealizado)}h real.`
@@ -587,7 +590,7 @@ function CelulaEditavel(props: CelulaEditavelProps) {
 
 function MicroLinha({
   macro, micro, horas, alocacaoId, horasRealizadas, totalGeralAtual, token,
-  onSave, saving, onSaveRealizado, savingRealizado, bloqueio, onClearBloqueio,
+  onSave, saving, onSaveRealizado, savingRealizado, bloqueio, onClearBloqueio, readonly,
 }: {
   macro:            { id: string };
   micro:            { id: string; nome: string };
@@ -602,6 +605,7 @@ function MicroLinha({
   savingRealizado:  boolean;
   bloqueio:         BloqueioInfo | null;
   onClearBloqueio:  () => void;
+  readonly:         boolean;
 }) {
   const [val, setVal]         = useState(horas > 0 ? fmtHoras(horas) : '');
   const [valReal, setValReal] = useState(horasRealizadas != null ? fmtHoras(horasRealizadas) : '');
@@ -671,6 +675,10 @@ function MicroLinha({
             <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)' }}>Plan.</span>
             {saving ? (
               <span style={{ ...inputStyle, color: 'var(--text-3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>...</span>
+            ) : readonly ? (
+              <span style={{ ...inputStyle, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', cursor: 'default', border: 'none', background: 'transparent', opacity: 0.8 }}>
+                {horas > 0 ? `${fmtHoras(horas)}` : '—'}
+              </span>
             ) : (
               <input
                 type="number" value={val} min={0} max={220} step={0.5} placeholder="-"
@@ -691,6 +699,10 @@ function MicroLinha({
               <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)' }}>Real.</span>
               {savingRealizado ? (
                 <span style={{ ...realInputStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>…</span>
+              ) : readonly ? (
+                <span style={{ ...realInputStyle, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', cursor: 'default', border: 'none', background: 'transparent', opacity: 0.8 }}>
+                  {horasRealizadas != null ? `${fmtHoras(horasRealizadas)}` : '—'}
+                </span>
               ) : (
                 <input
                   type="number" value={valReal} min={0} step={0.5} placeholder="—"
@@ -731,7 +743,7 @@ function MicroLinha({
 
 // ── Painel lateral com edicao por macro/micro ─────────────────────────────────
 
-function Drawer({ info, token, onClose, onSaved }: { info: DrawerInfo; token: string; onClose: () => void; onSaved: () => void; }) {
+function Drawer({ info, token, onClose, onSaved, readonly }: { info: DrawerInfo; token: string; onClose: () => void; onSaved: () => void; readonly: boolean; }) {
   const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -889,6 +901,7 @@ function Drawer({ info, token, onClose, onSaved }: { info: DrawerInfo; token: st
                             savingRealizado={savingRealizadoId === micro.id}
                             bloqueio={bloqueioMap[micro.id] ?? null}
                             onClearBloqueio={() => setBloqueioMap(m => { const n = { ...m }; delete n[micro.id]; return n; })}
+                            readonly={readonly}
                           />
                         </div>
                       ))}
@@ -1101,7 +1114,8 @@ function SeletorMes({ mes, ano, onMes, onAno }: { mes: number; ano: number; onMe
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function GridAlocacao() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
@@ -1121,6 +1135,10 @@ export default function GridAlocacao() {
   const [confirmCopiar, setConfirmCopiar]   = useState(false);
   const [copiando, setCopiando]             = useState(false);
   const [feedbackCopiar, setFeedbackCopiar] = useState('');
+
+  // Fechar / reabrir mês (admin)
+  const [confirmFechaAbre, setConfirmFechaAbre] = useState<'fechar' | 'reabrir' | null>(null);
+  const [fechandoMes, setFechandoMes]            = useState(false);
 
   // Highlight passageiro ao localizar colaborador via busca
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -1225,6 +1243,35 @@ export default function GridAlocacao() {
     setConfirmCopiar(false);
   }
 
+  const mesFechado = data?.fechado ?? false;
+
+  async function handleFecharMes() {
+    setFechandoMes(true);
+    try {
+      const res = await fetch('/api/fechamentos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ano, mes }),
+      });
+      if (res.ok || res.status === 409) fetchGrid();
+    } catch {}
+    setFechandoMes(false);
+    setConfirmFechaAbre(null);
+  }
+
+  async function handleReabrirMes() {
+    setFechandoMes(true);
+    try {
+      const res = await fetch(`/api/fechamentos/${ano}/${mes}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok || res.status === 404) fetchGrid();
+    } catch {}
+    setFechandoMes(false);
+    setConfirmFechaAbre(null);
+  }
+
   // ── Estilos sticky ────────────────────────────────────────────────────────
 
   const stickyColabStyle: React.CSSProperties = {
@@ -1269,6 +1316,22 @@ export default function GridAlocacao() {
           </h1>
         </div>
         <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
+        {isAdmin && data && (
+          <button
+            onClick={() => setConfirmFechaAbre(mesFechado ? 'reabrir' : 'fechar')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+              padding: '5px 10px', borderRadius: 8, border: `1px solid ${mesFechado ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
+              background: mesFechado ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)',
+              color: mesFechado ? '#f87171' : 'var(--text-2)',
+              fontSize: 12, fontWeight: 500, cursor: 'pointer',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = mesFechado ? 'rgba(239,68,68,0.12)' : 'var(--surface-3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = mesFechado ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)'; }}
+          >
+            {mesFechado ? '🔒 Reabrir mês' : 'Fechar mês'}
+          </button>
+        )}
         {data && (
           <>
             <BuscaColaborador
@@ -1283,7 +1346,7 @@ export default function GridAlocacao() {
               }
               onLocate={handleLocate}
             />
-            <button
+            {!mesFechado && <button
               onClick={() => setConfirmCopiar(true)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
@@ -1295,7 +1358,7 @@ export default function GridAlocacao() {
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.color = 'var(--text-2)'; }}
             >
               Copiar plan. → real.
-            </button>
+            </button>}
             {feedbackCopiar && (
               <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600, flexShrink: 0 }}>
                 ✓ {feedbackCopiar}
@@ -1309,6 +1372,15 @@ export default function GridAlocacao() {
           </>
         )}
       </div>
+
+      {/* ── Banner de mês fechado ──────────────────────────────────────── */}
+      {mesFechado && (
+        <div style={{ padding: '8px 20px', background: 'rgba(239,68,68,0.06)', borderBottom: '1px solid rgba(239,68,68,0.18)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{ fontSize: 13, color: '#f87171', fontWeight: 500 }}>
+            🔒 {MESES[mes - 1]} {ano} está fechado — somente leitura.
+          </span>
+        </div>
+      )}
 
       {/* ── Conteúdo ───────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
@@ -1441,6 +1513,7 @@ export default function GridAlocacao() {
                         projNome={p.nome}
                         saldo={linha.saldo}
                         isHighlighted={isHighlight}
+                        readonly={mesFechado}
                       />
                     ))}
                   </tr>
@@ -1490,8 +1563,80 @@ export default function GridAlocacao() {
         </div>
       )}
 
+      {/* Modal de confirmação: fechar mês */}
+      {confirmFechaAbre === 'fechar' && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => { if (!fechandoMes) setConfirmFechaAbre(null); }}
+        >
+          <div
+            style={{ background: 'var(--surface-1)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: '20px 24px', width: 340, maxWidth: '90vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: '0 0 10px' }}>
+              Fechar {MESES[mes - 1]} {ano}?
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 16px', lineHeight: 1.55 }}>
+              As alocações deste mês ficam somente leitura para todos. Nenhum dado é apagado — o mês pode ser reaberto a qualquer momento.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setConfirmFechaAbre(null)}
+                disabled={fechandoMes}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleFecharMes}
+                disabled={fechandoMes}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 600, cursor: fechandoMes ? 'not-allowed' : 'pointer', opacity: fechandoMes ? 0.6 : 1 }}
+              >
+                {fechandoMes ? 'Fechando…' : 'Fechar mês'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação: reabrir mês */}
+      {confirmFechaAbre === 'reabrir' && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => { if (!fechandoMes) setConfirmFechaAbre(null); }}
+        >
+          <div
+            style={{ background: 'var(--surface-1)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: '20px 24px', width: 340, maxWidth: '90vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: '0 0 10px' }}>
+              Reabrir {MESES[mes - 1]} {ano}?
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 16px', lineHeight: 1.55 }}>
+              As alocações deste mês voltam a ser editáveis.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setConfirmFechaAbre(null)}
+                disabled={fechandoMes}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleReabrirMes}
+                disabled={fechandoMes}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--brand-500)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: fechandoMes ? 'not-allowed' : 'pointer', opacity: fechandoMes ? 0.6 : 1 }}
+              >
+                {fechandoMes ? 'Reabrindo…' : 'Reabrir'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Drawer lateral de detalhamento */}
-      {drawer && <Drawer info={drawer} token={token!} onClose={() => setDrawer(null)} onSaved={() => fetchGrid(true)} />}
+      {drawer && <Drawer info={drawer} token={token!} onClose={() => setDrawer(null)} onSaved={() => fetchGrid(true)} readonly={mesFechado} />}
     </div>
   );
 }

@@ -15,6 +15,7 @@ import projetosRoutes from './routes/projetos.js';
 import macrosRoutes from './routes/macros.js';
 import alocacoesRoutes from './routes/alocacoes.js';
 import fechamentosRoutes from './routes/fechamentos.js';
+import remanejamentoRoutes from './routes/remanejamento.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -34,6 +35,7 @@ app.use('/api/projetos', projetosRoutes);
 app.use('/api/projetos/:projetoId/macros', macrosRoutes);
 app.use('/api/alocacoes', alocacoesRoutes);
 app.use('/api/fechamentos', fechamentosRoutes);
+app.use('/api/remanejamento', remanejamentoRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', ambiente: process.env.NODE_ENV });

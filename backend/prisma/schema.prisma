@@ -24,8 +24,11 @@ model User {
   colaboradoresCriados Colaborador[]
   alocacoesCriadas     Alocacao[]         @relation("AlocacaoCreatedBy")
   alocacoesAtualizadas Alocacao[]         @relation("AlocacaoUpdatedBy")
-  fechamentosMensais   FechamentoMensal[] @relation("FechamentoMensalFechadoPor")
-  alocacaoLogs         AlocacaoLog[]      @relation("AlocacaoLogUsuario")
+  fechamentosMensais                  FechamentoMensal[]          @relation("FechamentoMensalFechadoPor")
+  alocacaoLogs                        AlocacaoLog[]               @relation("AlocacaoLogUsuario")
+  solicitacoesRemanejamentoFeitas     SolicitacaoRemanejamento[]  @relation("SolicitacaoRemanejamentoSolicitante")
+  solicitacoesRemanejamentoEncerradas SolicitacaoRemanejamento[]  @relation("SolicitacaoRemanejamentoFechadoPor")
+  cessoesCedidas                      CessaoRemanejamento[]       @relation("CessaoRemanejamentoGestorCedente")
 
   @@map("users")
 }
@@ -85,8 +88,9 @@ model Colaborador {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  createdBy User      @relation(fields: [createdById], references: [id])
-  alocacoes Alocacao[]
+  createdBy                 User                       @relation(fields: [createdById], references: [id])
+  alocacoes                 Alocacao[]
+  solicitacoesRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoColaborador")
 
   @@map("colaboradores")
 }
@@ -100,10 +104,11 @@ model Projeto {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  gestor           User              @relation(fields: [gestorId], references: [id])
-  macroEntregas    MacroEntrega[]
-  prestacoesContas PrestacaoContas[]
-  alocacoes        Alocacao[]
+  gestor                           User                       @relation(fields: [gestorId], references: [id])
+  macroEntregas                    MacroEntrega[]
+  prestacoesContas                 PrestacaoContas[]
+  alocacoes                        Alocacao[]
+  solicitacoesDestinoRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoProjetoDestino")
 
   @@map("projetos")
 }
@@ -129,9 +134,10 @@ model MacroEntrega {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  projeto       Projeto        @relation(fields: [projetoId], references: [id])
-  microEntregas MicroEntrega[]
-  alocacoes     Alocacao[]
+  projeto                          Projeto                    @relation(fields: [projetoId], references: [id])
+  microEntregas                    MicroEntrega[]
+  alocacoes                        Alocacao[]
+  solicitacoesDestinoRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoMacroDestino")
 
   @@map("macro_entregas")
 }
@@ -146,8 +152,9 @@ model MicroEntrega {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  macroEntrega MacroEntrega @relation(fields: [macroEntregaId], references: [id])
-  alocacoes    Alocacao[]
+  macroEntrega                     MacroEntrega               @relation(fields: [macroEntregaId], references: [id])
+  alocacoes                        Alocacao[]
+  solicitacoesDestinoRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoMicroDestino")
 
   @@map("micro_entregas")
 }
@@ -211,10 +218,60 @@ model AlocacaoLog {
   horasAnteriores Decimal? @map("horas_anteriores") @db.Decimal(6, 2)
   horasNovas      Decimal? @map("horas_novas") @db.Decimal(6, 2)
   usuarioId       String   @map("usuario_id") @db.VarChar(191)
+  cessaoId        String?  @map("cessao_id") @db.VarChar(191)
   criadoEm        DateTime @default(now()) @map("criado_em")
 
   usuario User @relation("AlocacaoLogUsuario", fields: [usuarioId], references: [id])
 
   @@index([alocacaoId])
   @@map("alocacao_logs")
+}
+
+// ─── Fase 4: Remanejamento broadcast ──────────────────────────────
+
+model SolicitacaoRemanejamento {
+  id                    String    @id @db.VarChar(191)
+  solicitanteId         String    @map("solicitante_id") @db.VarChar(191)
+  colaboradorId         String    @map("colaborador_id") @db.VarChar(191)
+  projetoDestinoId      String    @map("projeto_destino_id") @db.VarChar(191)
+  macroEntregaDestinoId String    @map("macro_entrega_destino_id") @db.VarChar(191)
+  microEntregaDestinoId String    @map("micro_entrega_destino_id") @db.VarChar(191)
+  ano                   Int
+  mes                   Int
+  horasSolicitadas      Decimal   @map("horas_solicitadas") @db.Decimal(6, 2)
+  status                String    @db.VarChar(20)
+  fechadoEm             DateTime? @map("fechado_em")
+  fechadoPorId          String?   @map("fechado_por_id") @db.VarChar(191)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  solicitante         User         @relation("SolicitacaoRemanejamentoSolicitante",   fields: [solicitanteId],         references: [id])
+  colaborador         Colaborador  @relation("SolicitacaoRemanejamentoColaborador",   fields: [colaboradorId],         references: [id])
+  projetoDestino      Projeto      @relation("SolicitacaoRemanejamentoProjetoDestino", fields: [projetoDestinoId],     references: [id])
+  macroEntregaDestino MacroEntrega @relation("SolicitacaoRemanejamentoMacroDestino",  fields: [macroEntregaDestinoId], references: [id])
+  microEntregaDestino MicroEntrega @relation("SolicitacaoRemanejamentoMicroDestino",  fields: [microEntregaDestinoId], references: [id])
+  fechadoPor          User?        @relation("SolicitacaoRemanejamentoFechadoPor",    fields: [fechadoPorId],          references: [id], onDelete: Restrict)
+  cessoes             CessaoRemanejamento[]
+
+  @@index([colaboradorId, ano, mes, status])
+  @@map("solicitacoes_remanejamento")
+}
+
+model CessaoRemanejamento {
+  id                   String   @id @db.VarChar(191)
+  solicitacaoId        String   @map("solicitacao_id") @db.VarChar(191)
+  gestorCedenteId      String   @map("gestor_cedente_id") @db.VarChar(191)
+  horasCedidas         Decimal  @map("horas_cedidas") @db.Decimal(6, 2)
+  idempotencia         String   @unique @db.VarChar(191)
+  alocacaoOrigemId     String   @map("alocacao_origem_id") @db.VarChar(191)
+  origemProjetoId      String   @map("origem_projeto_id") @db.VarChar(191)
+  origemMacroEntregaId String   @map("origem_macro_entrega_id") @db.VarChar(191)
+  origemMicroEntregaId String   @map("origem_micro_entrega_id") @db.VarChar(191)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  solicitacao   SolicitacaoRemanejamento @relation(fields: [solicitacaoId],   references: [id])
+  gestorCedente User                     @relation("CessaoRemanejamentoGestorCedente", fields: [gestorCedenteId], references: [id])
+
+  @@map("cessoes_remanejamento")
 }

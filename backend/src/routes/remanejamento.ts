@@ -46,6 +46,13 @@ async function comCessoes<T extends { id: string; horasSolicitadas: Prisma.Decim
   });
 }
 
+class CessaoError extends Error {
+  constructor(
+    public readonly httpStatus: number,
+    public readonly body: Record<string, unknown>,
+  ) { super(body.error as string); this.name = 'CessaoError'; }
+}
+
 // ── POST /solicitacoes — criar solicitação de remanejamento ───────────────
 router.post('/solicitacoes', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
@@ -174,6 +181,233 @@ router.get('/solicitacoes', authenticate, requireRole('admin', 'gestor'), async 
     return res.json({ minhas, recebidas });
   } catch (error) {
     console.error('Listar solicitações error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /solicitacoes/:id/cessoes — transferir horas (net-zero) ──────────
+router.post('/solicitacoes/:id/cessoes', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  const solicitacaoId = req.params.id;
+  const userId        = req.user!.id;
+  const role          = req.user!.role;
+  const { alocacaoOrigemId, horasCedidas, idempotencia } = req.body;
+
+  if (!alocacaoOrigemId || !idempotencia) {
+    return res.status(400).json({ error: 'alocacaoOrigemId e idempotencia são obrigatórios' });
+  }
+  let horasReq: Prisma.Decimal;
+  try {
+    horasReq = new Prisma.Decimal(horasCedidas);
+    if (horasReq.lessThanOrEqualTo(0)) throw new Error();
+  } catch {
+    return res.status(400).json({ error: 'horasCedidas deve ser um número positivo' });
+  }
+
+  // Passo 1 — idempotência ANTES da transação
+  const existingCessao = await prisma.cessaoRemanejamento.findUnique({ where: { idempotencia } });
+  if (existingCessao) return res.status(200).json({ cessao: existingCessao, idempotente: true });
+
+  try {
+    // READ COMMITTED: cada leitura vê a última versão committed, sem snapshot MVCC.
+    // Necessário para que B2 (que começou antes de B1 commitar) veja cessões e
+    // alocação de destino criados por B1 — sem ER_CHECKREAD (MariaDB 1020).
+    // O FOR UPDATE no colaborador ainda é o ponto de serialização entre cessões concorrentes.
+    const result = await prisma.$transaction(async (tx) => {
+      // a. Lê a solicitação
+      const sol = await tx.solicitacaoRemanejamento.findUnique({ where: { id: solicitacaoId } });
+      if (!sol) throw new CessaoError(404, { error: 'Solicitação não encontrada' });
+
+      // b. Lock pessimista no colaborador — serializa com alocações normais e outras cessões
+      await tx.$queryRaw`SELECT id FROM colaboradores WHERE id = ${sol.colaboradorId} FOR UPDATE`;
+
+      // c. Sob o lock: relê status (READ COMMITTED → vê status committed por tx paralela)
+      const solAtual = await tx.solicitacaoRemanejamento.findUnique({
+        where:  { id: solicitacaoId },
+        select: { status: true },
+      });
+      if (!solAtual || solAtual.status !== 'aberta') {
+        throw new CessaoError(409, { error: 'Solicitação não está aberta' });
+      }
+
+      // d. Mês fechado?
+      const fechadoRec = await tx.fechamentoMensal.findUnique({
+        where: { ano_mes: { ano: sol.ano, mes: sol.mes } },
+        select: { id: true },
+      });
+      if (fechadoRec) throw new CessaoError(409, { error: 'Mês fechado', mesFechado: true });
+
+      // e. Lê e valida a alocação de origem
+      const origem = await tx.alocacao.findUnique({ where: { id: alocacaoOrigemId } });
+      if (!origem) throw new CessaoError(404, { error: 'Alocação de origem não encontrada' });
+
+      const origemProjeto = await tx.projeto.findUnique({ where: { id: origem.projetoId }, select: { gestorId: true } });
+      if (role !== 'admin' && origemProjeto!.gestorId !== userId) {
+        throw new CessaoError(403, { error: 'Origem não é sua' });
+      }
+      if (origem.colaboradorId !== sol.colaboradorId) {
+        throw new CessaoError(400, { error: 'Origem é de outro colaborador' });
+      }
+      if (origem.ano !== sol.ano || origem.mes !== sol.mes) {
+        throw new CessaoError(400, { error: 'Origem é de outro mês/ano' });
+      }
+
+      // f. Origem == destino?
+      if (
+        origem.projetoId      === sol.projetoDestinoId &&
+        origem.macroEntregaId === sol.macroEntregaDestinoId &&
+        origem.microEntregaId === sol.microEntregaDestinoId
+      ) {
+        throw new CessaoError(400, { error: 'Origem e destino não podem ser a mesma alocação' });
+      }
+
+      // g. Soma cessões existentes (READ COMMITTED → vê cessões committed por tx paralela)
+      const [{ total: totalCedidoRaw }] = await tx.$queryRaw<{ total: string }[]>`
+        SELECT COALESCE(SUM(horas_cedidas), 0) AS total
+        FROM cessoes_remanejamento
+        WHERE solicitacao_id = ${solicitacaoId}
+      `;
+      const jasCedidas = new Prisma.Decimal(totalCedidoRaw ?? '0');
+      const restante   = new Prisma.Decimal(sol.horasSolicitadas).minus(jasCedidas);
+      if (restante.lessThanOrEqualTo(0)) {
+        throw new CessaoError(409, { error: 'Solicitação já atendida' });
+      }
+
+      // h. Yreq = min(horasReq, restante); falta na origem é erro do cedente
+      const Yreq    = Prisma.Decimal.min(horasReq, restante);
+      const ajustado = !Yreq.equals(horasReq);
+      if (origem.horasPlanejadas.lessThan(Yreq)) {
+        throw new CessaoError(400, { error: `Origem não tem horas suficientes: tem ${origem.horasPlanejadas}` });
+      }
+
+      // i. Move horas NO BANCO via decrement/increment (nunca JS)
+      const horasOrigemAntes = origem.horasPlanejadas;
+      const origemAtualizada = await tx.alocacao.update({
+        where: { id: alocacaoOrigemId },
+        data:  { horasPlanejadas: { decrement: Yreq }, updatedById: userId },
+      });
+
+      // Lê destino (READ COMMITTED → vê alocação criada por cessão paralela que já commitou)
+      const destinoExistente = await tx.alocacao.findUnique({
+        where: {
+          colaboradorId_projetoId_macroEntregaId_microEntregaId_ano_mes: {
+            colaboradorId:  sol.colaboradorId,
+            projetoId:      sol.projetoDestinoId,
+            macroEntregaId: sol.macroEntregaDestinoId,
+            microEntregaId: sol.microEntregaDestinoId,
+            ano:            sol.ano,
+            mes:            sol.mes,
+          },
+        },
+        select: { id: true, horasPlanejadas: true },
+      });
+      const horasDestinoAntes = destinoExistente?.horasPlanejadas ?? null;
+
+      let destinoId:        string;
+      let horasDestinoDepois: Prisma.Decimal;
+
+      if (destinoExistente) {
+        const d = await tx.alocacao.update({
+          where: { id: destinoExistente.id },
+          data:  { horasPlanejadas: { increment: Yreq }, updatedById: userId },
+        });
+        destinoId          = destinoExistente.id;
+        horasDestinoDepois = d.horasPlanejadas;
+      } else {
+        const d = await tx.alocacao.create({
+          data: {
+            id:              generateId(),
+            colaboradorId:   sol.colaboradorId,
+            projetoId:       sol.projetoDestinoId,
+            macroEntregaId:  sol.macroEntregaDestinoId,
+            microEntregaId:  sol.microEntregaDestinoId,
+            ano:             sol.ano,
+            mes:             sol.mes,
+            horasPlanejadas: Yreq,
+            createdById:     sol.solicitanteId,
+            updatedById:     userId,
+          },
+        });
+        destinoId          = d.id;
+        horasDestinoDepois = d.horasPlanejadas;
+      }
+
+      // j. Insere CessaoRemanejamento
+      const cessaoId = generateId();
+      const cessao = await tx.cessaoRemanejamento.create({
+        data: {
+          id:                   cessaoId,
+          solicitacaoId,
+          gestorCedenteId:      userId,
+          horasCedidas:         Yreq,
+          idempotencia,
+          alocacaoOrigemId,
+          origemProjetoId:      origem.projetoId,
+          origemMacroEntregaId: origem.macroEntregaId,
+          origemMicroEntregaId: origem.microEntregaId,
+        },
+      });
+
+      // k. Auditoria dos dois lados com cessaoId
+      await tx.alocacaoLog.create({
+        data: {
+          id:              generateId(),
+          alocacaoId:      alocacaoOrigemId,
+          colaboradorId:   origem.colaboradorId,
+          projetoId:       origem.projetoId,
+          macroEntregaId:  origem.macroEntregaId,
+          microEntregaId:  origem.microEntregaId,
+          ano:             origem.ano,
+          mes:             origem.mes,
+          acao:            'alterou',
+          horasAnteriores: horasOrigemAntes,
+          horasNovas:      origemAtualizada.horasPlanejadas,
+          usuarioId:       userId,
+          cessaoId,
+        },
+      });
+      await tx.alocacaoLog.create({
+        data: {
+          id:              generateId(),
+          alocacaoId:      destinoId,
+          colaboradorId:   sol.colaboradorId,
+          projetoId:       sol.projetoDestinoId,
+          macroEntregaId:  sol.macroEntregaDestinoId,
+          microEntregaId:  sol.microEntregaDestinoId,
+          ano:             sol.ano,
+          mes:             sol.mes,
+          acao:            destinoExistente ? 'alterou' : 'criou',
+          horasAnteriores: horasDestinoAntes,
+          horasNovas:      horasDestinoDepois,
+          usuarioId:       userId,
+          cessaoId,
+        },
+      });
+
+      // l. Auto-fechar se solicitação atendida
+      const totalCedido = jasCedidas.plus(Yreq);
+      const atendida    = totalCedido.equals(new Prisma.Decimal(sol.horasSolicitadas));
+      if (atendida) {
+        await tx.solicitacaoRemanejamento.update({
+          where: { id: solicitacaoId },
+          data:  { status: 'atendida', fechadoEm: new Date(), fechadoPorId: null },
+        });
+      }
+
+      return { cessao, atendida, ajustado, horasCedidasEfetivas: Yreq.toString() };
+    }, { timeout: 15_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+
+    return res.status(201).json(result);
+  } catch (err: unknown) {
+    if (err instanceof CessaoError) {
+      return res.status(err.httpStatus).json(err.body);
+    }
+    // Guarda final de idempotência: unique constraint bateu dentro da tx (corrida rara)
+    const pe = err as { code?: string };
+    if (pe?.code === 'P2002') {
+      const existente = await prisma.cessaoRemanejamento.findUnique({ where: { idempotencia } });
+      if (existente) return res.status(200).json({ cessao: existente, idempotente: true });
+    }
+    console.error('Cessão error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -354,6 +354,52 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// ── GET /minhas-do-colaborador — alocações DO PRÓPRIO GESTOR para um colaborador/mês ──
+// Usado no seletor de origem do modal de cessão.
+// Admin: lista vazia (cessão pela UI é ação de gestor).
+router.get('/minhas-do-colaborador', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+    const { colaboradorId, ano, mes } = req.query as Record<string, string | undefined>;
+
+    if (!colaboradorId) return res.status(400).json({ error: 'colaboradorId é obrigatório' });
+    const anoN = parseInt(ano ?? '');
+    const mesN = parseInt(mes ?? '');
+    if (!anoN || anoN < 2020 || anoN > 2100) return res.status(400).json({ error: 'ano inválido' });
+    if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
+
+    if (role !== 'gestor') return res.json([]);
+
+    const alocs = await prisma.alocacao.findMany({
+      where: {
+        colaboradorId,
+        ano: anoN,
+        mes: mesN,
+        projeto: { gestorId: userId },
+      },
+      include: {
+        projeto:      { select: { codigo: true, nome: true } },
+        macroEntrega: { select: { nome: true } },
+        microEntrega: { select: { nome: true } },
+      },
+      orderBy: [{ projeto: { codigo: 'asc' } }, { macroEntrega: { createdAt: 'asc' } }],
+    });
+
+    res.json(alocs.map(a => ({
+      alocacaoId:      a.id,
+      projetoCodigo:   a.projeto.codigo,
+      projetoNome:     a.projeto.nome,
+      macroNome:       a.macroEntrega.nome,
+      microNome:       a.microEntrega.nome,
+      horasPlanejadas: a.horasPlanejadas.toString(),
+    })));
+  } catch (error) {
+    console.error('minhas-do-colaborador error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── GET / — lista alocações ───────────────────────────────────────────────
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {

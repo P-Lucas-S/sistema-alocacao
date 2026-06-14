@@ -106,9 +106,22 @@ function CardGrid({ children }: { children: React.ReactNode }) {
   );
 }
 
-function MeuCard({ s }: { s: Solicitacao }) {
+function MeuCard({ s, onCancelar, onEncerrar }: {
+  s: Solicitacao;
+  onCancelar: (s: Solicitacao) => void;
+  onEncerrar: (s: Solicitacao) => void;
+}) {
   const cedido     = parseFloat(s.horasJaCedidas);
   const solicitado = parseFloat(s.horasSolicitadas);
+
+  const showCancelar = s.status === 'aberta' && cedido === 0;
+  const showEncerrar = s.status === 'aberta' && cedido > 0;
+
+  const btnBase: React.CSSProperties = {
+    marginTop: 12, width: '100%', padding: '7px 0', borderRadius: 8,
+    fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+  };
+
   return (
     <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
@@ -129,6 +142,27 @@ function MeuCard({ s }: { s: Solicitacao }) {
         {MESES[s.mes - 1]}/{s.ano}
       </p>
       <ProgressBar cedido={cedido} solicitado={solicitado} />
+
+      {showCancelar && (
+        <button
+          onClick={() => onCancelar(s)}
+          style={{ ...btnBase, background: 'hsl(0 85% 60% / 0.10)', color: '#f87171', border: '1px solid hsl(0 85% 60% / 0.25)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 60% / 0.18)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'hsl(0 85% 60% / 0.10)'; }}
+        >
+          Cancelar
+        </button>
+      )}
+      {showEncerrar && (
+        <button
+          onClick={() => onEncerrar(s)}
+          style={{ ...btnBase, background: 'hsl(38 92% 50% / 0.10)', color: '#fb923c', border: '1px solid hsl(38 92% 50% / 0.28)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'hsl(38 92% 50% / 0.18)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'hsl(38 92% 50% / 0.10)'; }}
+        >
+          Encerrar
+        </button>
+      )}
     </div>
   );
 }
@@ -422,15 +456,134 @@ function ModalCeder({ sol, token, onClose, onSuccess }: {
   );
 }
 
+function ModalConfirm({ acao, token, onClose, onSuccess }: {
+  acao: { tipo: 'cancelar' | 'encerrar'; sol: Solicitacao };
+  token: string;
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+}) {
+  const [executando, setExecutando] = useState(false);
+  const [erro, setErro]             = useState('');
+
+  const { tipo, sol } = acao;
+  const isCancelar    = tipo === 'cancelar';
+  const cedido        = parseFloat(sol.horasJaCedidas);
+  const restantes     = parseFloat(sol.horasRestantes);
+
+  async function handleConfirm() {
+    setExecutando(true);
+    setErro('');
+    try {
+      const res = await fetch(`/api/remanejamento/solicitacoes/${sol.id}/${tipo}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        onSuccess(isCancelar ? 'Solicitação cancelada.' : 'Solicitação encerrada parcialmente.');
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setErro((d as { error?: string }).error ?? 'Erro ao processar.');
+      }
+    } catch {
+      setErro('Erro de rede.');
+    } finally {
+      setExecutando(false);
+    }
+  }
+
+  const descricao = isCancelar
+    ? 'Nada foi cedido ainda — ela é encerrada sem efeito.'
+    : `As ${cedido}h já cedidas continuam no destino; você só para de esperar as ${restantes}h restantes.`;
+
+  const btnAcaoStyle: React.CSSProperties = {
+    flex: 1, padding: '9px 0', borderRadius: 8, border: 'none',
+    fontSize: 13, fontWeight: 600,
+    cursor: executando ? 'not-allowed' : 'pointer',
+    opacity: executando ? 0.6 : 1,
+    background: isCancelar ? '#ef4444' : '#f59e0b',
+    color: '#fff',
+  };
+
+  return (
+    <>
+      <div
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.38)', zIndex: 200 }}
+        onMouseDown={() => { if (!executando) onClose(); }}
+      />
+      <div
+        style={{
+          position: 'fixed', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 201, width: 400, maxWidth: 'calc(100vw - 32px)',
+          background: 'var(--surface-1)', borderRadius: 14,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.32)',
+          padding: '22px 24px',
+        }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: 0 }}>
+            {isCancelar ? 'Cancelar solicitação?' : 'Encerrar solicitação?'}
+          </h3>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', padding: 4, borderRadius: 6 }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Contexto */}
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '10px 12px', marginBottom: 14 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', margin: '0 0 2px' }}>
+            {sol.colaborador.nome}
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0 }}>
+            {sol.projetoDestino.codigo} · {MESES[sol.mes - 1]}/{sol.ano}
+          </p>
+        </div>
+
+        {/* Descrição */}
+        <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 16px', lineHeight: 1.6 }}>
+          {descricao}
+        </p>
+
+        {erro && (
+          <div style={{ padding: '8px 10px', background: 'hsl(0 85% 60% / 0.08)', border: '1px solid hsl(0 85% 60% / 0.25)', borderRadius: 8, fontSize: 12, color: '#f87171', marginBottom: 12 }}>
+            {erro}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={onClose}
+            disabled={executando}
+            style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: executando ? 0.6 : 1 }}
+          >
+            Voltar
+          </button>
+          <button onClick={handleConfirm} disabled={executando} style={btnAcaoStyle}>
+            {executando ? '…' : isCancelar ? 'Cancelar solicitação' : 'Encerrar'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function Remanejamento() {
   const { token } = useAuth();
   const [minhas, setMinhas]         = useState<Solicitacao[]>([]);
   const [recebidas, setRecebidas]   = useState<Solicitacao[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
-  const [modalCeder, setModalCeder] = useState<Solicitacao | null>(null);
-  const [feedback, setFeedback]     = useState('');
-  const [fetchKey, setFetchKey]     = useState(0);
+  const [modalCeder, setModalCeder]       = useState<Solicitacao | null>(null);
+  const [confirmacao, setConfirmacao]     = useState<{ tipo: 'cancelar' | 'encerrar'; sol: Solicitacao } | null>(null);
+  const [feedback, setFeedback]           = useState('');
+  const [fetchKey, setFetchKey]           = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -459,6 +612,12 @@ export default function Remanejamento() {
 
   function handleCederSuccess(msg: string) {
     setModalCeder(null);
+    setFeedback(msg);
+    setFetchKey(k => k + 1);
+  }
+
+  function handleAcaoSuccess(msg: string) {
+    setConfirmacao(null);
     setFeedback(msg);
     setFetchKey(k => k + 1);
   }
@@ -498,7 +657,14 @@ export default function Remanejamento() {
       <Section title="Minhas solicitações" icon={<Send size={14} />}>
         {minhas.length === 0
           ? <Empty text="Nenhuma solicitação criada ainda." />
-          : <CardGrid>{minhas.map(s => <MeuCard key={s.id} s={s} />)}</CardGrid>
+          : <CardGrid>{minhas.map(s => (
+              <MeuCard
+                key={s.id}
+                s={s}
+                onCancelar={s => setConfirmacao({ tipo: 'cancelar', sol: s })}
+                onEncerrar={s => setConfirmacao({ tipo: 'encerrar', sol: s })}
+              />
+            ))}</CardGrid>
         }
       </Section>
 
@@ -515,6 +681,15 @@ export default function Remanejamento() {
           token={token!}
           onClose={() => setModalCeder(null)}
           onSuccess={handleCederSuccess}
+        />
+      )}
+
+      {confirmacao && (
+        <ModalConfirm
+          acao={confirmacao}
+          token={token!}
+          onClose={() => setConfirmacao(null)}
+          onSuccess={handleAcaoSuccess}
         />
       )}
     </div>

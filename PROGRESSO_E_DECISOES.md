@@ -2,7 +2,7 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** fim da **Fase 3 inteira** (fechamento mensal + log de auditoria do planejado). Fases 0 a 3 completas. Próximo passo: Fase 4 (remanejamento broadcast). A telinha de histórico do log (E2-b) ficou como extra deferido — ver §7.
+> **Última atualização:** fim do **backend inteiro da Fase 4** (remanejamento broadcast: criar/listar solicitações, ceder, cancelar/encerrar — tudo com concorrência provada). Fases 0 a 3 completas; **o backend da Fase 4 está completo, falta o frontend** (telas de solicitar/ceder). Próximo passo: frontend do remanejamento — ver §7. A telinha de histórico do log (E2-b) segue como extra deferido.
 
 ---
 
@@ -25,8 +25,8 @@ O objetivo central é **comunicação entre gestores e documentação da equipe*
 
 ### Branches
 - **`feat/alocacao-fase-1`** — Fases 0, 1 e o C1 da Fase 2 (até o commit `65aea36`).
-- **`feat/alocacao-fase-2`** — Fase 2 (C2/C3) **e toda a Fase 3** (fechamento + auditoria). Todo o trabalho recente vive aqui.
-- **Backup externo no GitHub privado** (`origin` → `P-Lucas-S/sistema-alocacao`) — as 4 branches estão lá. Daqui pra frente, `git push` após cada commit mantém o backup atualizado.
+- **`feat/alocacao-fase-2`** — Fase 2 (C2/C3), **toda a Fase 3** (fechamento + auditoria) **e todo o backend da Fase 4** (remanejamento). Todo o trabalho recente vive aqui.
+- **Backup externo no GitHub privado** (`origin` → `P-Lucas-S/sistema-alocacao`) — as 4 branches estão lá. **Workflow em vigor:** `git push` após **cada** commit mantém o backup em dia (upstream já setado; `git push` sozinho resolve).
 
 ---
 
@@ -45,7 +45,7 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 - **Planejado E realizado:** ambos digitados pelo gestor (colaborador não acessa nada). O teto é sobre o **planejado**; o **realizado fica FORA do teto e do lock** (ver C3). O realizado só pode ser lançado onde já existe uma alocação (não há realizado "solto").
 - **Fechamento mensal (Fase 3) — explícito e por mês inteiro.** Um mês é fechado/reaberto **explicitamente pelo admin** — não automático por data de prestação (isso deixaria o grid "meio-travado", confuso). Mês fechado = **somente leitura para TODOS, inclusive admin**: bloqueia os **quatro** caminhos de escrita de alocação (criar/alterar planejado, lançar realizado, deletar, copiar-realizado). Só uma **reabertura explícita** destrava. Coordenação continua só-leitura (não fecha nem reabre).
 - **Log de auditoria (Fase 3) — só do planejado, ciclo completo, imutável.** Toda vez que o **planejado** de uma alocação nasce / muda / some, grava-se uma linha de log (`criou` / `alterou` / `removeu`) com **quem** e **quando**, **dentro da mesma transação** da escrita (atômico: nunca muda sem log, nunca log sem mudança). O realizado fica de fora. O log guarda o **contexto denormalizado** (colaborador/projeto/macro/micro/mês) **sem FK** nesses campos, justamente pra **sobreviver à deleção** da alocação; só o `usuarioId` é FK real.
-- **Remanejamento (Fase 4) — modelo broadcast:** o gestor sinaliza interesse num colaborador lotado e solicita uma parcela de horas; a pendência vai a todos os gestores que têm esse colaborador; cada um pode ceder uma parcela. Prioridade por data de prestação é só visual (ordena a fila, não dá direito automático). Cessão nunca ultrapassa o pedido.
+- **Remanejamento (Fase 4) — modelo broadcast, transferência net-zero:** o gestor sinaliza interesse num colaborador lotado e solicita uma parcela de horas com **destino** concreto (projeto+macro+micro+mês); a pendência vai a todos os gestores que têm esse colaborador **naquele mês**; cada um pode **ceder uma parcela** indicando a **alocação de origem** dele. A cessão é uma **transferência net-zero**: X sai da origem (do cedente) e entra no destino (do solicitante), do **mesmo colaborador no mesmo mês** — então o **teto é preservado por construção** (o total do colaborador não muda), sem precisar checá-lo na cessão. Cessão **nunca ultrapassa o pedido** (ajusta pro saldo e avisa); ao completar, a solicitação **fecha atomicamente** (`atendida`). Prioridade por data de prestação é só visual. **Concorrência:** tudo serializado pelo **mesmo lock pessimista do colaborador** que protege o teto (sem lock novo) — ele serializa cessões, alocações e os cancelamentos/encerramentos. As transações da Fase 4 usam **`isolationLevel: ReadCommitted`** (ver a história do `ER_CHECKREAD` no §4). **Ciclo de vida da solicitação:** `aberta` → `atendida` (auto, ao completar) / `cancelada` (só sem cessões) / `encerrada_parcial` (encerrada à mão depois de ceder algo; horas cedidas ficam definitivas). Hora cedida é definitiva, não reverte o passado.
 
 ### Riscos aceitos conscientemente
 - Coordenação só-leitura pode "travar" o broadcast se os gestores não cederem horas — é uma aposta na transparência, não um bug.
@@ -63,11 +63,11 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 2 — C2** | Grid de alocação (interface rica) | ✅ Completa (`7cf45bb`, `62675cf`, `d4429b3`, `07c3096`, `bd5f631`) |
 | **Fase 2 — C3** | Horas realizadas + comparação planejado vs. realizado | ✅ Completa (`8ec779f`, `0f8469e`, `a1886f8`) |
 | **Fase 3** | Fechamento mensal (read-only) + log de auditoria do planejado | ✅ Completa (`5aa52c4`, `0529b8d`, `af473ac`, `adc477b`) |
-| **Fase 4** | Remanejamento broadcast entre gestores | ⬜ **Próximo passo** |
+| **Fase 4** | Remanejamento broadcast entre gestores | 🟡 **Backend completo** (`393596f`, `6e87355`, `1b5594a`) — **frontend pendente** |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
 | Transversal | Identidade visual geral | ⬜ Pendente |
 
-> **Fases 0–3 fechadas.** Já dá pra planejar com teto protegido, operar o grid rico, lançar e comparar o realizado, **fechar/reabrir meses** e **auditar toda mudança no planejado**. Falta a colaboração entre gestores (Fase 4) e os relatórios/escala da coordenação (Fase 5).
+> **Fases 0–3 fechadas e o backend da Fase 4 também.** Já dá pra planejar com teto protegido, operar o grid rico, lançar e comparar o realizado, **fechar/reabrir meses**, **auditar toda mudança no planejado** e — via API — **solicitar, ceder, cancelar e encerrar** remanejamentos entre gestores. Falta o **frontend do remanejamento** (Fase 4, próximo passo) e os relatórios/escala da coordenação (Fase 5).
 
 ### Credenciais de teste (do seed)
 | Papel | E-mail | Senha |
@@ -218,6 +218,44 @@ Adiciona as garantias temporais e de rastreabilidade. Dividida em **E1 (fechamen
 
 ---
 
+### Fase 4 — Remanejamento broadcast (backend) (branch `feat/alocacao-fase-2`)
+
+A peça de **colaboração entre gestores**: destravar horas de um colaborador lotado movendo-as de um projeto para outro, sem aprovação vertical. É a parte mais concorrente do sistema depois do teto. **Backend completo**, validado por API + testes de concorrência dedicados; **o frontend (telas de solicitar/ceder) é o próximo passo** (ver §7). Schema e migration revisados antes de aplicar, no ritmo de sempre.
+
+**Princípio central — transferência net-zero.** Uma cessão move X horas da alocação de **origem** (do cedente) para a alocação de **destino** (do solicitante), do **mesmo colaborador no mesmo mês**. Como X sai de um lado e entra no outro, o total do colaborador no mês **não muda** → o teto é preservado **por construção**, sem precisar checá-lo na cessão. As contas de horas são feitas **no banco** (`decrement`/`increment`), nunca subtraindo `Decimal` em JS.
+
+**Schema (migration `20260613015114_fase4_remanejamento`)**
+- **`solicitacoes_remanejamento`**: `solicitanteId` (FK User), `colaboradorId` (FK), destino `projetoDestinoId`/`macroEntregaDestinoId`/`microEntregaDestinoId` (FK), `ano`, `mes`, `horasSolicitadas` (`Decimal(6,2)`), `status` (`VARCHAR(20)`: 'aberta'|'atendida'|'encerrada_parcial'|'cancelada'), `fechadoEm`, `fechadoPorId` (FK User?, **null** no auto-fecho), timestamps. Índice `(colaboradorId, ano, mes, status)`. **`horasJaCedidas` é derivado** (SUM das cessões), não coluna.
+- **`cessoes_remanejamento`**: `solicitacaoId` (FK), `gestorCedenteId` (FK User), `horasCedidas` (`Decimal(6,2)`), `idempotencia` (`@unique`), `alocacaoOrigemId` **sem FK** + retrato da origem `origemProjetoId`/`origemMacroEntregaId`/`origemMicroEntregaId` **sem FK** (sobrevive à deleção, padrão do log).
+- **`alocacao_logs`** ganhou **`cessaoId`** (`VARCHAR`, nullable, **sem FK**) — liga os dois lados de uma transferência (o log da origem e o do destino compartilham o mesmo `cessaoId`).
+- **CHECK manual** (Prisma não modela): `alocacoes.horas_planejadas >= 0` (a cessão pode **zerar** uma origem, mas nunca negativá-la).
+- Todas as FKs `ON DELETE RESTRICT`. Back-references nomeadas em `User` (×3: solicitante, fechadoPor, cedente), `Colaborador`, `Projeto`, `MacroEntrega`, `MicroEntrega`.
+- **Seed (`db.ts`):** a ordem de limpeza do reseed apaga `cessoes_remanejamento` e `solicitacoes_remanejamento` **antes** de `users`/`colaboradores`/`projetos`/`macros`/`micros`. **Lição reforçada:** toda FK nova pra `users` (ou pras entidades de domínio) exige ajustar a ordem de deleção do seed.
+
+**F-a — criar e listar solicitações** (`393596f`)
+- `backend/src/routes/remanejamento.ts` (montado em `/api/remanejamento`).
+- `POST /solicitacoes` (admin/gestor): valida obrigatórios, ano/mes, `horasSolicitadas > 0`, **mês não fechado**, colaborador existe+ativo, projeto destino **existe, é do solicitante e está ativo** (rejeita arquivado), e a cadeia projeto→macro→micro. Cria 'aberta'. **Não checa teto** (deliberado — quem garante o teto é a cessão, e ela é net-zero).
+- `GET /solicitacoes` (admin/gestor): `{ minhas, recebidas }`. **minhas** = onde sou solicitante (todos os status). **recebidas** = solicitações 'aberta', não-minhas, **onde eu tenho o colaborador alocado no mesmo (ano,mes)** — é o **broadcast** (admin vê todas as abertas). Cada item traz `horasJaCedidas`/`horasRestantes` (derivados via SUM) + nomes (colaborador, projeto destino, solicitante).
+- Teste `backend/test-f-a.mjs` → **13/13** (acessos, validações, broadcast: solicitante vê em "minhas", quem tem o colaborador vê em "recebidas", quem não tem não vê).
+
+**F-b — cessão (o coração concorrente)** (`6e87355`)
+- `POST /solicitacoes/:id/cessoes` (admin/gestor), body `{ alocacaoOrigemId, horasCedidas, idempotencia }`.
+- **Transação com o lock pessimista do colaborador** (o **mesmo** lock do teto: `SELECT id FROM colaboradores WHERE id=? FOR UPDATE`) — serializa cessões concorrentes, alocações normais e os cancelamentos/encerramentos. **Não** toca o `alocarComLock`. Decisão de concorrência: **um só lock, o do colaborador** — como toda cessão de um pedido é do mesmo colaborador, ele já serializa tudo; não foi preciso um segundo lock na solicitação.
+- Ordem dentro do lock: lê a solicitação → trava o colaborador → revalida status 'aberta' → mês fechado? → valida a origem (existe, é do cedente, mesmo colaborador, mesmo ano/mês) → rejeita **origem == destino** → `restante = solicitadas − SUM(cessões)` → `Yefetivo = min(pedido, restante)` (rejeita se a origem não tem `Yefetivo`) → move (origem `−Y`; destino `+Y` via upsert, **destino pertence ao solicitante**) → grava a cessão → **audita os dois lados com o mesmo `cessaoId`** (origem 'alterou', destino 'criou'/'alterou') → **auto-fecha** ('atendida', `fechadoEm`, `fechadoPorId=null`) se `SUM+Y == solicitadas`. Regra de ouro: **validar/ler tudo antes de mover; mover antes de fechar.** O `min(pedido, restante)` garante que nunca passa do pedido, então o `==` do auto-fecho é exato (nunca "pula" o fecho).
+- **Idempotência:** pré-checagem por `idempotencia` antes da transação (devolve a cessão existente, 200); guarda final de `P2002` no catch (corrida rara) que também devolve a existente.
+- **⚠️ Bug real encontrado e o aprendizado mais importante da fase — `ER_CHECKREAD` (1020):** sob a isolação padrão (`REPEATABLE READ`), quando a 2ª transação (B2) tenta uma **leitura com lock** (`FOR UPDATE`/`LOCK IN SHARE MODE`) em linhas que a 1ª (B1) **inseriu e commitou depois do snapshot de B2** (as cessões e a alocação de destino), o MariaDB lança `ER_CHECKREAD 1020` ("Record has changed since last read") em vez de ler a versão nova → **erro 500**. E pior: uma leitura **sem** lock veria o snapshot velho (restante desatualizado) → risco de ceder **além** do pedido. **A correção é `isolationLevel: ReadCommitted` na transação:** cada statement lê o último *committed*, sem snapshot preso, sem `ER_CHECKREAD`; e o **lock do colaborador continua serializando** (B2 espera B1 commitar e então lê o trabalho dele corretamente). O teto (`alocarComLock`) **não** sofre disso porque as linhas que ele soma já existiam no snapshot das duas transações; **só a cessão**, que **insere** linhas novas sob concorrência, precisava do `ReadCommitted`. **Regra geral pro futuro:** transação que **insere linhas sob concorrência e depois faz leitura com lock** → use `ReadCommitted`.
+- Testes: `backend/test-f-b.mjs` → **12/12** (válida; 403/400/409; origem==destino; ajuste pro restante + auto-fecho; ceder mais que a origem; já-atendida; mês fechado; idempotência aplica 1×; auditoria nos 2 lados com o mesmo `cessaoId`; net-zero). **Concorrência dedicada** `backend/test-concorrencia-cessao.mjs` → **8/8 rodadas**: pedido de 30h, B1+B2 cedendo 20h cada em paralelo → total cedido **exatamente 30** (uma ajusta pra 10), 'atendida', **nenhuma origem negativa**, total do colaborador **inalterado** (net-zero).
+
+**F-c — cancelar e encerrar parcial** (`1b5594a`)
+- `POST /solicitacoes/:id/cancelar` (solicitante/admin): só com **zero cessões** (senão **409** 'use encerrar'); status 'cancelada'.
+- `POST /solicitacoes/:id/encerrar` (solicitante/admin): exige **ao menos uma cessão** (senão **409** 'use cancelar'); status 'encerrada_parcial'; as horas já cedidas **ficam** (definitivas). É o "já cederam algo, mas eu decido parar de esperar o resto".
+- Os dois no **mesmo padrão da cessão**: `isolationLevel: ReadCommitted` + `FOR UPDATE` no colaborador, com a **revalidação de status sob o lock**. **Não** movem horas → **não** auditam e **não** checam mês fechado (o gate de mês fechado protege **horas**; aqui é só ciclo de vida do pedido). `fechadoPorId` = quem encerrou à mão (o `null` fica só pro auto-fecho 'atendida'). É o lock que faz cancelar e uma cessão simultânea **não se atropelarem**: quem pega o cadeado primeiro decide, o outro revalida o status e recusa — **nunca fica 'cancelada' com cessão**.
+- Teste `backend/test-f-c.mjs` → **9/9** funcionais + **4 rodadas** de corrida cancelar×cessão (invariante "nunca cancelada com cessão" mantido em todas).
+
+**Estado da Fase 4:** backend completo (criar, listar, ceder, cancelar, encerrar), com a concorrência provada. **Falta o frontend** — telas de solicitar/ceder/cancelar/encerrar (ver §7).
+
+---
+
 ## 5. Sobre alocar "no nível da macro" (sem descer até micro)
 
 Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem escolher uma micro?*
@@ -247,26 +285,28 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 - Avisos `LF will be replaced by CRLF` no git — inofensivos (Windows).
 - "Código já em uso" / código não liberado ao arquivar em testes repetidos — é o teste reusando um código já criado, não um bug.
 - Acento corrompido (`EFBFBD`/`U+FFFD`) vindo de teste via **PowerShell 5.1**: o PS5 manda o corpo HTTP em Latin-1, não UTF-8. O navegador sempre manda UTF-8, então **não afeta o sistema real**, e o dado sujo some no próximo restart do seed.
-- Os testes de fechamento/log registram o usuário de coordenação como `role: 'coordenador'` (o nome real do perfil é `coordenacao`). O 403 vale assim mesmo porque vem de "não é admin/gestor", mas é um desalinhe de nome a corrigir nos testes quando der (mesmo deslize do `test-c3a`/`test-c3c`).
+- Os testes de fechamento/log/remanejamento registram o usuário de coordenação como `role: 'coordenador'` (o nome real do perfil é `coordenacao`). O 403 vale assim mesmo porque vem de "não é admin/gestor", mas é um desalinhe de nome a corrigir nos testes quando der (mesmo deslize do `test-c3a`/`test-c3c` e agora dos `test-f-a/-b/-c`).
 
 ### Gotchas de ferramenta (Claude Code / ambiente)
 - **Claude Code travando com "Usage credits required for 1M context"** mesmo com a cota do plano sobrando: NÃO é limite real, é um **portão de cobrança da feature de contexto 1M**. Dispara muito na **compactação**. Saídas, do mais barato pro mais caro: fixar contexto padrão (`/model` → Sonnet 4.6, ou `--model claude-sonnet-4-6`, ou `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`); `/clear` se travar na compactação; atualizar o Claude Code; e, por último, ligar os créditos de uso (pay-as-you-go) em `claude.ai/settings/usage`.
 - **`prisma generate` / `migrate dev` falhando com `EPERM: ... rename query_engine-windows.dll.node`:** o backend em execução está segurando o DLL do Prisma. Mate os processos node (`Get-Process -Name node | Stop-Process -Force`), rode `npx prisma generate`, e só então suba de novo. Aconteceu ao aplicar a migration da Fase 3 com o servidor no ar.
 - **Editar strings acentuadas:** edite direto no arquivo (UTF-8) ou via `str_replace` buscando o texto SEM acento (ASCII puro). **NÃO escrever strings acentuadas via heredoc do PowerShell** (come os acentos).
 - **O Vite não faz type-check** (o esbuild só transpila), então erros de TypeScript **não quebram o runtime** — passam despercebidos rodando a app. Rode `node_modules/.bin/tsc --noEmit` pra pegá-los; foi assim que apareceram o erro latente do tipo `Celula` (corrigido no C3-b) e os erros de `shrink` no `ProjetoDetalhe` (corrigidos em `af473ac`).
+- **MariaDB `ER_CHECKREAD` (1020) em transação concorrente que insere linhas (Fase 4):** sob a isolação padrão `REPEATABLE READ`, uma **leitura com lock** (`FOR UPDATE` / `LOCK IN SHARE MODE`) sobre linhas que **outra transação inseriu e commitou depois** do snapshot atual lança `1020` ("Record has changed since last read") → 500. A correção é `isolationLevel: ReadCommitted` na `prisma.$transaction` (cada statement lê o último *committed*; o lock pessimista segue serializando). **Quando aplicar:** transação que **insere linhas sob concorrência e depois lê com lock** (foi o caso da cessão; o teto **não** precisa, porque só soma linhas que já existiam). Detalhes no §4 (Fase 4 → F-b).
 
 ---
 
-## 7. Próximo passo: Fase 4 (Remanejamento broadcast entre gestores)
+## 7. Próximo passo: Frontend do remanejamento (Fase 4)
 
-Com a Fase 3 fechada (fechamento + auditoria), a Fase 4 entrega a peça de **colaboração entre gestores** — o destravamento das horas, quando alguém está lotado, sem aprovação vertical. É a parte mais concorrente do sistema depois do teto.
+O **backend** da Fase 4 está completo e provado (criar/listar solicitações, ceder, cancelar/encerrar — ver §4). O que falta é o **frontend**: as telas pra gestores **solicitarem** horas de um colaborador lotado e **cederem** parcelas, além de acompanhar/cancelar/encerrar as próprias solicitações. É decisão de **UI**, barata de iterar — não pede brainstorm externo —, mas o **fluxo** (onde moram as entradas) merece um desenho rápido antes de codar, porque encosta no grid já existente.
 
-- **Solicitação broadcast:** o gestor interessado sinaliza interesse num colaborador lotado e pede uma **parcela** de horas, com **destino** concreto (projeto + macro + micro + mês). A pendência aparece para **todos** os gestores que têm esse colaborador. Fila ordenada por data de prestação de contas — **só visual** (não dá direito automático).
-- **Cessão parcial atômica:** cada cedente pode ceder uma parcela, indicando a **alocação de origem**. Dentro de transação com lock: se a soma das cessões + a nova exceder o solicitado, ajusta para o saldo e avisa; ao atingir o pedido, a solicitação **fecha atomicamente** (`atendida`).
-- **Cancelamento** só enquanto `horasJaCedidas == 0`; havendo qualquer cessão, o estado final é `atendida` (mesmo parcial). Hora cedida é definitiva (não reverte o passado).
-- **Tabelas novas** (ver `PLANO_FINAL.md`): `SolicitacaoRemanejamento` e `CessaoRemanejamento`.
-- **Atenção:** o remanejamento mexe nas horas de alocações reais → tem de respeitar o teto, o lock **e** o fechamento mensal (não ceder/mover em mês fechado). E provavelmente deve gerar log de auditoria também.
-- **Aceite:** três gestores cedendo simultâneo não estouram o pedido; as horas movem atomicamente; o cedente que tenta ceder horas já movidas falha graciosamente. (Exige teste de concorrência dedicado, como o teto.)
+**A definir no desenho do fluxo (antes do primeiro prompt):**
+- **Onde nasce "solicitar":** provavelmente a partir do grid, quando um colaborador aparece lotado (a barra de saldo já mostra a lotação) — um gesto na linha do colaborador abre "solicitar horas" com o destino concreto (projeto+macro+micro+mês do solicitante) e a quantidade.
+- **Onde aparecem "minhas / recebidas":** uma **tela nova** de remanejamentos. *Minhas* = o que pedi, com o progresso (`horasJaCedidas`/`horasRestantes`) e os botões cancelar/encerrar. *Recebidas* = o broadcast (solicitações de colegas sobre colaboradores que eu tenho no mês) — de onde eu **cedo**.
+- **Onde nasce "ceder":** a partir de uma solicitação recebida → escolher **qual alocação minha** é a origem + a parcela.
+- **Endpoints já prontos pra consumir:** `POST`/`GET /api/remanejamento/solicitacoes`, `POST /solicitacoes/:id/cessoes`, `POST /solicitacoes/:id/cancelar`, `POST /solicitacoes/:id/encerrar`. Os erros já vêm com status claros (403/400/404/409) e mensagens.
+- **Quebrar em pedaços pequenos**, como o backend: ex. (1) a tela de listagem minhas/recebidas em leitura, (2) o fluxo de solicitar, (3) o fluxo de ceder, (4) os botões cancelar/encerrar — cada um testado no navegador antes do commit.
+- **Atenção de UX:** o popover de bloqueio do teto hoje espera o formato com distribuição; quando o remanejamento entrar na tela, alinhar as mensagens de 409 (mês fechado, já-atendida, origem sem horas) pra não caírem no formato errado (é a mesma borda anotada na Fase 3).
 
 ### Extra deferido da Fase 3 — Tela de histórico do log (E2-b)
 A captura do log (E2) está pronta; falta a **tela** pra visualizar o histórico de uma célula (quem alterou o planejado, quando, de quanto pra quanto). Já existe o `GET /api/alocacoes/:id/log`. Ideia: um "histórico" no painel lateral da célula. Ao montar, **decidir o acesso da coordenação ao log** (hoje o endpoint é admin/gestor → 403 pra coordenação; como transparência/relatório é o papel dela, faz sentido reavaliar). Também avaliar buscar o histórico **por contexto** (colaborador+projeto+micro+mês), não só por `alocacaoId`, pra cobrir o caso de uma alocação deletada e recriada (id novo).
@@ -277,6 +317,9 @@ Apareceu no C2 e foi adiado. Com muitas colunas/projetos: (a) é difícil perceb
 ### Dívida técnica anotada (não urgente)
 1. ~~No C3, reavaliar se o lock precisa cobrir atualizações de realizado.~~ **RESOLVIDA:** o realizado ficou FORA do lock (PATCH `/:id/realizado` e o `copiar-realizado` via `$executeRaw` não tocam o `alocarComLock`); o `test-concorrencia` seguiu 8/8 durante C3 e Fase 3.
 2. A busca de similaridade de nome (B1) carrega todos os colaboradores e compara um a um. Para 200–300 está ótimo; só seria um problema em escala de milhares.
+3. **Corrida do fechamento (TOCTOU) — adiada.** O check de "mês fechado" roda no **início** de cada caminho de escrita, mas há uma janela mínima entre o check e a escrita em que o admin poderia fechar o mês (existe nos 4 caminhos da Fase 3 e nos da cessão/Fase 4). Risco baixo e dano baixo numa ferramenta de **planejamento**. O conserto à prova de bala é um **lock de mês** em todos os caminhos de escrita — **tarefa transversal dedicada**, não pra fazer de passagem. Anotada para quando valer a pena.
+4. **Otimizações de escala do remanejamento (Fase 5, se a contenção doer):** (a) trocar o lock do **colaborador** por um lock de **(colaborador, mês)** — reduz contenção, mas mexe no mecanismo já provado do teto, então só com motivo forte; (b) **denormalizar `horasJaCedidas`** numa coluna em vez de SUM derivado — hoje o SUM sob lock + índice está ótimo na escala atual.
+5. A lista de **"recebidas"** (`GET /solicitacoes`) carrega as alocações do gestor e as solicitações abertas e filtra em JS — ok na escala atual, candidato a query mais enxuta na Fase 5 (mesma natureza do item 2). Há também `mesEstaFechado`/`generateId` duplicados por arquivo — vira helper compartilhado um dia (cosmético).
 
 ### Parking-lot (anotado, fora de fase — tratar quando der / antes de implantar)
 - ~~**`ProjetoDetalhe.tsx`: `shrink` → `flexShrink`.**~~ **RESOLVIDO** em `af473ac`.

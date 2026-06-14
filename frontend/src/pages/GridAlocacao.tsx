@@ -219,6 +219,12 @@ function CelulaEditavel(props: CelulaEditavelProps) {
   const [modeReal, setModeReal]         = useState<'idle' | 'editing' | 'saving'>('idle');
   const [editValueReal, setEditValueReal] = useState('');
 
+  const [modalSolicitar, setModalSolicitar] = useState(false);
+  const [horasSolicitar, setHorasSolicitar] = useState('');
+  const [solicitando, setSolicitando]       = useState(false);
+  const [solicitarErro, setSolicitarErro]   = useState('');
+  const [feedbackOk, setFeedbackOk]         = useState(false);
+
   const tdRef       = useRef<HTMLTableCellElement>(null);
   const inputRef    = useRef<HTMLInputElement>(null);
   const activeRef   = useRef(false);
@@ -351,6 +357,40 @@ function CelulaEditavel(props: CelulaEditavelProps) {
     setMode('idle');
   }
 
+  async function handleSolicitar() {
+    if (!defaultMacroId || !defaultMicroId) return;
+    const h = parseFloat(horasSolicitar);
+    if (isNaN(h) || h <= 0) { setSolicitarErro('Informe uma quantidade válida de horas.'); return; }
+    setSolicitando(true);
+    setSolicitarErro('');
+    try {
+      const res = await fetch('/api/remanejamento/solicitacoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          colaboradorId,
+          projetoDestinoId: projetoId,
+          macroEntregaDestinoId: defaultMacroId,
+          microEntregaDestinoId: defaultMicroId,
+          ano, mes,
+          horasSolicitadas: h,
+        }),
+      });
+      const d = await res.json();
+      if (res.status === 201) {
+        setModalSolicitar(false);
+        setBloqueio(null);
+        setFeedbackOk(true);
+        setTimeout(() => setFeedbackOk(false), 2500);
+      } else {
+        setSolicitarErro(d.error ?? 'Erro ao criar solicitação.');
+      }
+    } catch {
+      setSolicitarErro('Erro de rede.');
+    }
+    setSolicitando(false);
+  }
+
   function cancel() {
     activeRef.current = false;
     setBloqueio(null);
@@ -448,6 +488,11 @@ function CelulaEditavel(props: CelulaEditavelProps) {
             </>
           ) : (
             <span style={{ color: 'var(--text-3)', fontSize: 20, lineHeight: 1 }}>+</span>
+          )}
+          {feedbackOk && (
+            <div style={{ fontSize: 10, color: '#22c55e', fontWeight: 600, marginTop: 2, textAlign: 'center' }}>
+              ✓ Solicitação criada
+            </div>
           )}
           {/* Ícone de drawer — sempre montado (evita loop mount/unmount no hover),
               discreto por padrão, nítido no hover via opacity.
@@ -579,8 +624,134 @@ function CelulaEditavel(props: CelulaEditavelProps) {
             ))}
           </div>
 
-          {/* Máximo já aparece no cabeçalho do popover — nada extra aqui */}
+          {/* Botão de solicitar remanejamento */}
+          {!readonly && defaultMacroId && defaultMicroId && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+              <button
+                onClick={e => {
+                  e.stopPropagation();
+                  const tentou = parseFloat(bloqueio.horasSolicitadas);
+                  const incremento = Math.max(1, tentou - geralHoras);
+                  setHorasSolicitar(String(incremento));
+                  setSolicitarErro('');
+                  setModalSolicitar(true);
+                }}
+                style={{
+                  width: '100%', padding: '7px 10px', borderRadius: 8,
+                  border: '1px solid var(--brand-500)',
+                  background: 'hsl(221 83% 53% / 0.08)',
+                  color: 'var(--brand-500)', fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'hsl(221 83% 53% / 0.15)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'hsl(221 83% 53% / 0.08)'; }}
+              >
+                Solicitar horas via remanejamento
+              </button>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Modal de solicitação de remanejamento */}
+      {modalSolicitar && (
+        <>
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 10000 }}
+            onClick={e => { e.stopPropagation(); if (!solicitando) { setModalSolicitar(false); setBloqueio(null); } }}
+            onMouseDown={e => e.stopPropagation()}
+          />
+          <div
+            style={{
+              position: 'fixed', top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 10001, width: 400, maxWidth: 'calc(100vw - 32px)',
+              background: 'var(--surface-1)', borderRadius: 14,
+              boxShadow: '0 16px 48px rgba(0,0,0,0.28)',
+              padding: '22px 24px',
+            }}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: 0 }}>
+                Solicitar horas via remanejamento
+              </h3>
+              <button
+                onClick={() => { setModalSolicitar(false); setSolicitarErro(''); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', padding: 4, borderRadius: 6, fontSize: 18, lineHeight: 1 }}
+              >×</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>
+                  Colaborador
+                </label>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  {colaboradorNome}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>
+                  Destino
+                </label>
+                <div style={{ fontSize: 13, color: 'var(--text-1)', padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)', lineHeight: 1.55 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--brand-500)', fontSize: 12 }}>{projCodigo}</span>
+                  {' — '}{projNome}
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                    {geralDetalhe ? `${geralDetalhe.macroNome} › ${geralDetalhe.microNome}` : 'Micro Geral'}
+                    {' · '}{MESES[mes - 1]}/{ano}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>
+                  Horas a solicitar
+                </label>
+                <input
+                  type="number"
+                  value={horasSolicitar}
+                  min={0.5} step={0.5}
+                  autoFocus
+                  onChange={e => { setHorasSolicitar(e.target.value); setSolicitarErro(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSolicitar(); } if (e.key === 'Escape') { e.preventDefault(); setModalSolicitar(false); } }}
+                  style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', color: 'var(--text-1)', fontSize: 14, fontWeight: 600, outline: 'none' }}
+                />
+              </div>
+
+              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, lineHeight: 1.55 }}>
+                A solicitação vai para todos os gestores que têm <strong style={{ color: 'var(--text-2)' }}>{colaboradorNome.split(' ')[0]}</strong> em <strong style={{ color: 'var(--text-2)' }}>{MESES[mes - 1]}</strong>; eles poderão ceder horas.
+              </div>
+
+              {solicitarErro && (
+                <div style={{ padding: '8px 10px', background: 'hsl(0 85% 60% / 0.08)', border: '1px solid hsl(0 85% 60% / 0.25)', borderRadius: 8, fontSize: 12, color: '#f87171' }}>
+                  {solicitarErro}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                <button
+                  onClick={() => { setModalSolicitar(false); setSolicitarErro(''); }}
+                  disabled={solicitando}
+                  style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: solicitando ? 0.6 : 1 }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSolicitar}
+                  disabled={solicitando}
+                  style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'var(--brand-500)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: solicitando ? 'not-allowed' : 'pointer', opacity: solicitando ? 0.6 : 1 }}
+                >
+                  {solicitando ? 'Solicitando…' : 'Solicitar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </td>
   );

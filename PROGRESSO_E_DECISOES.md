@@ -2,7 +2,7 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** fim do **backend inteiro da Fase 4** (remanejamento broadcast: criar/listar solicitações, ceder, cancelar/encerrar — tudo com concorrência provada). Fases 0 a 3 completas; **o backend da Fase 4 está completo, falta o frontend** (telas de solicitar/ceder). Próximo passo: frontend do remanejamento — ver §7. A telinha de histórico do log (E2-b) segue como extra deferido.
+> **Última atualização:** **Fase 4 completa (backend + frontend)** — remanejamento broadcast inteiro: criar/listar solicitações, ceder, cancelar/encerrar, com a concorrência provada no backend e as telas (solicitar/ceder/cancelar/encerrar + barra de progresso) validadas no navegador. **Fases 0 a 4 completas.** Próximo passo: **Fase 5** (relatórios e visão consolidada da coordenação + escala: virtualização e navegabilidade do grid) — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
 
 ---
 
@@ -25,7 +25,7 @@ O objetivo central é **comunicação entre gestores e documentação da equipe*
 
 ### Branches
 - **`feat/alocacao-fase-1`** — Fases 0, 1 e o C1 da Fase 2 (até o commit `65aea36`).
-- **`feat/alocacao-fase-2`** — Fase 2 (C2/C3), **toda a Fase 3** (fechamento + auditoria) **e todo o backend da Fase 4** (remanejamento). Todo o trabalho recente vive aqui.
+- **`feat/alocacao-fase-2`** — Fase 2 (C2/C3), **toda a Fase 3** (fechamento + auditoria) **e toda a Fase 4** (remanejamento — backend + frontend). Todo o trabalho recente vive aqui.
 - **Backup externo no GitHub privado** (`origin` → `P-Lucas-S/sistema-alocacao`) — as 4 branches estão lá. **Workflow em vigor:** `git push` após **cada** commit mantém o backup em dia (upstream já setado; `git push` sozinho resolve).
 
 ---
@@ -63,11 +63,11 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 2 — C2** | Grid de alocação (interface rica) | ✅ Completa (`7cf45bb`, `62675cf`, `d4429b3`, `07c3096`, `bd5f631`) |
 | **Fase 2 — C3** | Horas realizadas + comparação planejado vs. realizado | ✅ Completa (`8ec779f`, `0f8469e`, `a1886f8`) |
 | **Fase 3** | Fechamento mensal (read-only) + log de auditoria do planejado | ✅ Completa (`5aa52c4`, `0529b8d`, `af473ac`, `adc477b`) |
-| **Fase 4** | Remanejamento broadcast entre gestores | 🟡 **Backend completo** (`393596f`, `6e87355`, `1b5594a`) — **frontend pendente** |
+| **Fase 4** | Remanejamento broadcast entre gestores | ✅ Completa — backend (`393596f`, `6e87355`, `1b5594a`) + frontend (`02e46fa`, `27ad941`, `bcce21b`, `aae171c`, `18964ed`) |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
 | Transversal | Identidade visual geral | ⬜ Pendente |
 
-> **Fases 0–3 fechadas e o backend da Fase 4 também.** Já dá pra planejar com teto protegido, operar o grid rico, lançar e comparar o realizado, **fechar/reabrir meses**, **auditar toda mudança no planejado** e — via API — **solicitar, ceder, cancelar e encerrar** remanejamentos entre gestores. Falta o **frontend do remanejamento** (Fase 4, próximo passo) e os relatórios/escala da coordenação (Fase 5).
+> **Fases 0–4 fechadas.** Já dá pra planejar com teto protegido, operar o grid rico, lançar e comparar o realizado, **fechar/reabrir meses**, **auditar toda mudança no planejado** e — agora **pela tela** — **solicitar, ceder, cancelar e encerrar** remanejamentos entre gestores. O que falta é a **Fase 5**: relatórios e visão consolidada da coordenação + escala (virtualização e navegabilidade do grid).
 
 ### Credenciais de teste (do seed)
 | Papel | E-mail | Senha |
@@ -220,7 +220,7 @@ Adiciona as garantias temporais e de rastreabilidade. Dividida em **E1 (fechamen
 
 ### Fase 4 — Remanejamento broadcast (backend) (branch `feat/alocacao-fase-2`)
 
-A peça de **colaboração entre gestores**: destravar horas de um colaborador lotado movendo-as de um projeto para outro, sem aprovação vertical. É a parte mais concorrente do sistema depois do teto. **Backend completo**, validado por API + testes de concorrência dedicados; **o frontend (telas de solicitar/ceder) é o próximo passo** (ver §7). Schema e migration revisados antes de aplicar, no ritmo de sempre.
+A peça de **colaboração entre gestores**: destravar horas de um colaborador lotado movendo-as de um projeto para outro, sem aprovação vertical. É a parte mais concorrente do sistema depois do teto. **Backend completo**, validado por API + testes de concorrência dedicados; **o frontend está logo abaixo** (subseção "frontend"). Schema e migration revisados antes de aplicar, no ritmo de sempre.
 
 **Princípio central — transferência net-zero.** Uma cessão move X horas da alocação de **origem** (do cedente) para a alocação de **destino** (do solicitante), do **mesmo colaborador no mesmo mês**. Como X sai de um lado e entra no outro, o total do colaborador no mês **não muda** → o teto é preservado **por construção**, sem precisar checá-lo na cessão. As contas de horas são feitas **no banco** (`decrement`/`increment`), nunca subtraindo `Decimal` em JS.
 
@@ -252,7 +252,33 @@ A peça de **colaboração entre gestores**: destravar horas de um colaborador l
 - Os dois no **mesmo padrão da cessão**: `isolationLevel: ReadCommitted` + `FOR UPDATE` no colaborador, com a **revalidação de status sob o lock**. **Não** movem horas → **não** auditam e **não** checam mês fechado (o gate de mês fechado protege **horas**; aqui é só ciclo de vida do pedido). `fechadoPorId` = quem encerrou à mão (o `null` fica só pro auto-fecho 'atendida'). É o lock que faz cancelar e uma cessão simultânea **não se atropelarem**: quem pega o cadeado primeiro decide, o outro revalida o status e recusa — **nunca fica 'cancelada' com cessão**.
 - Teste `backend/test-f-c.mjs` → **9/9** funcionais + **4 rodadas** de corrida cancelar×cessão (invariante "nunca cancelada com cessão" mantido em todas).
 
-**Estado da Fase 4:** backend completo (criar, listar, ceder, cancelar, encerrar), com a concorrência provada. **Falta o frontend** — telas de solicitar/ceder/cancelar/encerrar (ver §7).
+**Estado do backend da Fase 4:** completo (criar, listar, ceder, cancelar, encerrar), com a concorrência provada.
+
+---
+
+### Fase 4 — Remanejamento broadcast (frontend) (branch `feat/alocacao-fase-2`)
+
+As telas que põem o remanejamento na mão dos gestores, consumindo os endpoints prontos do backend. Tudo em `frontend/src/pages/Remanejamento.tsx` (rota `/remanejamento`, item no menu com ícone `ArrowLeftRight`, **visível só para gestor/admin** — coordenação recebe 403 e nem vê o item), mais o gancho de "solicitar" dentro do grid. Construído em pedaços pequenos (G1→G4 + a barra), cada um validado no navegador antes do commit. Sem brainstorm externo (decisão de UI, barata de iterar), mas com o fluxo desenhado antes de codar.
+
+**G1 — página em leitura + seed** (`02e46fa`)
+- Página com duas seções: **"Minhas solicitações"** (o que eu pedi, todos os status) e **"Recebidas (posso ceder)"** (o broadcast — pedidos de colegas sobre colaboradores que eu tenho no mês). Cards com selo de status colorido (aberta=azul, atendida=verde, encerrada_parcial=âmbar, cancelada=cinza) e barra de progresso. Sem seletor de mês — cada solicitação carrega o seu.
+- Seed (`db.ts`) ganhou 3 solicitações abertas cross-gestor (`ssol-001/002/003`) pra dar o que ver na tela: G3 quer Leonardo Alves (jul); G1 quer Nicolas Barbosa (jul); G2 quer Ulisses Ribeiro (ago). O `include` da solicitação passou a trazer macro/micro de destino. **Pegadinha do Prisma:** `UncheckedCreateInput` exige `status` explícito no seed mesmo havendo `default` no schema.
+
+**G2 — solicitar a partir do bloqueio do teto** (`27ad941`)
+- No `GridAlocacao.tsx`, o popover de bloqueio (409 do teto) ganhou o botão **"Solicitar horas via remanejamento"**. Abre um modal pré-preenchido: colaborador e destino (a célula, em leitura) fixos; o campo de horas sugere o **incremento bloqueado** (o que a pessoa digitou **menos** o que a célula já tem), não o valor cheio. `POST /solicitacoes`; ao dar certo, fecha modal + popover e mostra feedback — a célula **não** muda (a alocação só acontece quando alguém ceder). Não toca teto nem lock.
+
+**G3 — ceder a partir de uma recebida** (`bcce21b`)
+- **Backend (leitura auxiliar):** `GET /api/alocacoes/minhas-do-colaborador?colaboradorId=&ano=&mes=` (admin/gestor) devolve as alocações **do próprio gestor** daquele colaborador no mês — é o que alimenta o seletor de origem da cessão. Read puro; admin recebe vazio (ceder é ação de gestor).
+- **Frontend:** botão **Ceder** nos cards de Recebidas → modal com o contexto do pedido, seletor da **alocação de origem** (via o endpoint acima), campo de horas (default = `min(restantes, saldo da origem)`, recalcula ao trocar a origem), aviso de net-zero, e idempotência por `crypto.randomUUID()` a cada abertura. `POST /cessoes`; trata `ajustado`/`horasCedidasEfetivas` no sucesso; erros do backend exibidos.
+- **Dois bugs achados no navegador e corrigidos:** (1) "sem alocações" falso — o servidor rodava **código velho** (a rota nova não tinha sido carregada → 404); **reiniciar o backend** resolveu (lembrete reforçado: o backend não tem hot-reload, toda mudança nele exige restart). (2) botão/barras **invisíveis** por usar `var(--brand)`, que **não existe** no tema — trocado pela classe `btn-brand` / `var(--brand-500)`.
+
+**G4 — cancelar e encerrar** (`aae171c`)
+- No card de Minhas, o botão certo por estado: **"Cancelar"** (vermelho) pra solicitação aberta **sem** cessões; **"Encerrar"** (âmbar) pra aberta **com** ao menos uma cessão; nenhum botão em estado terminal. `ModalConfirm` novo com o contexto do pedido e descrição contextual (cancelar = encerra sem efeito; encerrar = as horas já cedidas permanecem). `POST /cancelar` ou `/encerrar`, com refetch e feedback.
+
+**Barra de progresso nas Recebidas** (`18964ed`)
+- O `ProgressBar` ganhou um `labelRight` opcional (o `MeuCard` ficou inalterado). O `RecebidaCard` passou a mostrar a **mesma barra** do card de Minhas (`horasJaCedidas`/`horasSolicitadas`), com "Xh cedidas" à esquerda e "Faltam Yh" à direita — assim o cedente vê de relance o quão cheio o pedido está (o quanto outros gestores já cederam). A caixinha redundante "Faltam Xh de Yh" saiu; o botão Ceder foi pra baixo da barra.
+
+**Estado da Fase 4:** **completa** — backend (concorrência provada) + frontend (todas as telas validadas no navegador). O remanejamento funciona de ponta a ponta pela interface: solicitar (a partir do bloqueio do teto), ceder (de uma recebida, com origem e parcela), acompanhar o progresso (barra) e cancelar/encerrar o próprio pedido.
 
 ---
 
@@ -293,20 +319,21 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 - **Editar strings acentuadas:** edite direto no arquivo (UTF-8) ou via `str_replace` buscando o texto SEM acento (ASCII puro). **NÃO escrever strings acentuadas via heredoc do PowerShell** (come os acentos).
 - **O Vite não faz type-check** (o esbuild só transpila), então erros de TypeScript **não quebram o runtime** — passam despercebidos rodando a app. Rode `node_modules/.bin/tsc --noEmit` pra pegá-los; foi assim que apareceram o erro latente do tipo `Celula` (corrigido no C3-b) e os erros de `shrink` no `ProjetoDetalhe` (corrigidos em `af473ac`).
 - **MariaDB `ER_CHECKREAD` (1020) em transação concorrente que insere linhas (Fase 4):** sob a isolação padrão `REPEATABLE READ`, uma **leitura com lock** (`FOR UPDATE` / `LOCK IN SHARE MODE`) sobre linhas que **outra transação inseriu e commitou depois** do snapshot atual lança `1020` ("Record has changed since last read") → 500. A correção é `isolationLevel: ReadCommitted` na `prisma.$transaction` (cada statement lê o último *committed*; o lock pessimista segue serializando). **Quando aplicar:** transação que **insere linhas sob concorrência e depois lê com lock** (foi o caso da cessão; o teto **não** precisa, porque só soma linhas que já existiam). Detalhes no §4 (Fase 4 → F-b).
+- **`git commit -m @'...'@` no PowerShell quebra se a mensagem tiver aspas duplas.** O PowerShell re-divide o argumento nas aspas duplas ao passar pro `git`, e a mensagem vira vários "pathspec" (erro). O commit do G4 (`aae171c`) passou — sem aspas duplas; o da barra das Recebidas (`18964ed`) quebrou — tinha `"Yh solicitadas"` etc. **Regra:** em `git commit -m @'...'@`, **nada de aspas duplas** dentro da mensagem (use aspas simples ou nenhuma) — aí acento passa normal e sem BOM. O atalho de cair pra arquivo via `Out-File -Encoding utf8` resolve a quebra, mas o PowerShell 5.1 escreve UTF-8 **com BOM**, que entra como um caractere invisível no começo da mensagem (foi o que aconteceu no `18964ed` — cosmético, deixado como está).
 
 ---
 
-## 7. Próximo passo: Frontend do remanejamento (Fase 4)
+## 7. Próximo passo: Fase 5 (relatórios da coordenação + escala)
 
-O **backend** da Fase 4 está completo e provado (criar/listar solicitações, ceder, cancelar/encerrar — ver §4). O que falta é o **frontend**: as telas pra gestores **solicitarem** horas de um colaborador lotado e **cederem** parcelas, além de acompanhar/cancelar/encerrar as próprias solicitações. É decisão de **UI**, barata de iterar — não pede brainstorm externo —, mas o **fluxo** (onde moram as entradas) merece um desenho rápido antes de codar, porque encosta no grid já existente.
+Com a Fase 4 fechada, **as Fases 0 a 4 estão completas** — o núcleo do sistema (cadastro, planejamento com teto, realizado, fechamento, auditoria e remanejamento) está todo no ar e validado. O que resta é a **Fase 5**, voltada à **coordenação** e à **escala**:
 
-**A definir no desenho do fluxo (antes do primeiro prompt):**
-- **Onde nasce "solicitar":** provavelmente a partir do grid, quando um colaborador aparece lotado (a barra de saldo já mostra a lotação) — um gesto na linha do colaborador abre "solicitar horas" com o destino concreto (projeto+macro+micro+mês do solicitante) e a quantidade.
-- **Onde aparecem "minhas / recebidas":** uma **tela nova** de remanejamentos. *Minhas* = o que pedi, com o progresso (`horasJaCedidas`/`horasRestantes`) e os botões cancelar/encerrar. *Recebidas* = o broadcast (solicitações de colegas sobre colaboradores que eu tenho no mês) — de onde eu **cedo**.
-- **Onde nasce "ceder":** a partir de uma solicitação recebida → escolher **qual alocação minha** é a origem + a parcela.
-- **Endpoints já prontos pra consumir:** `POST`/`GET /api/remanejamento/solicitacoes`, `POST /solicitacoes/:id/cessoes`, `POST /solicitacoes/:id/cancelar`, `POST /solicitacoes/:id/encerrar`. Os erros já vêm com status claros (403/400/404/409) e mensagens.
-- **Quebrar em pedaços pequenos**, como o backend: ex. (1) a tela de listagem minhas/recebidas em leitura, (2) o fluxo de solicitar, (3) o fluxo de ceder, (4) os botões cancelar/encerrar — cada um testado no navegador antes do commit.
-- **Atenção de UX:** o popover de bloqueio do teto hoje espera o formato com distribuição; quando o remanejamento entrar na tela, alinhar as mensagens de 409 (mês fechado, já-atendida, origem sem horas) pra não caírem no formato errado (é a mesma borda anotada na Fase 3).
+- **Visão de capacidade global da coordenação:** agregada por padrão, com drill-down sob demanda e filtros obrigatórios. A coordenação é só-leitura e hoje abre o grid vazio (não é dona de projetos) — a visão dela mora aqui.
+- **Relatórios:** planejado vs. realizado, ociosidade e sobrecarga; exportação CSV; cópia de planejamento mês a mês.
+- **Virtualização + navegabilidade do grid:** a escala de 200+ colaboradores × 200+ projetos exige virtualização; junto dela, resolver a navegabilidade anotada logo abaixo (rolar na horizontal, achar um projeto, achar as células com alocação).
+
+É a fase mais "de produto" depois do núcleo — vale um desenho com calma antes do primeiro prompt, e dá pra quebrar em pedaços pequenos como sempre (ex.: a visão da coordenação primeiro, depois cada relatório, depois a virtualização). Os endpoints de leitura já existentes (grid, log) são a base; alguns vão precisar de variantes agregadas/paginadas.
+
+> **Antes de implantar (independe da Fase 5):** fechar o `/auth/register` público — ver o parking-lot ao fim desta seção. É a única pendência de **segurança** e tem prioridade alta na pré-implantação.
 
 ### Extra deferido da Fase 3 — Tela de histórico do log (E2-b)
 A captura do log (E2) está pronta; falta a **tela** pra visualizar o histórico de uma célula (quem alterou o planejado, quando, de quanto pra quanto). Já existe o `GET /api/alocacoes/:id/log`. Ideia: um "histórico" no painel lateral da célula. Ao montar, **decidir o acesso da coordenação ao log** (hoje o endpoint é admin/gestor → 403 pra coordenação; como transparência/relatório é o papel dela, faz sentido reavaliar). Também avaliar buscar o histórico **por contexto** (colaborador+projeto+micro+mês), não só por `alocacaoId`, pra cobrir o caso de uma alocação deletada e recriada (id novo).

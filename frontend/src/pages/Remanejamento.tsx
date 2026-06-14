@@ -52,7 +52,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function ProgressBar({ cedido, solicitado }: { cedido: number; solicitado: number }) {
+function ProgressBar({ cedido, solicitado, labelRight }: { cedido: number; solicitado: number; labelRight?: string }) {
   const pct  = solicitado > 0 ? Math.min(100, (cedido / solicitado) * 100) : 0;
   const done = pct >= 100;
   return (
@@ -66,7 +66,7 @@ function ProgressBar({ cedido, solicitado }: { cedido: number; solicitado: numbe
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--text-3)' }}>
         <span>{cedido}h cedidas</span>
-        <span>{solicitado}h solicitadas</span>
+        <span>{labelRight ?? `${solicitado}h solicitadas`}</span>
       </div>
     </div>
   );
@@ -168,8 +168,9 @@ function MeuCard({ s, onCancelar, onEncerrar }: {
 }
 
 function RecebidaCard({ s, onCeder }: { s: Solicitacao; onCeder: (s: Solicitacao) => void }) {
-  const restantes  = parseFloat(s.horasRestantes);
+  const cedido     = parseFloat(s.horasJaCedidas);
   const solicitado = parseFloat(s.horasSolicitadas);
+  const restantes  = parseFloat(s.horasRestantes);
   return (
     <div style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
@@ -189,20 +190,12 @@ function RecebidaCard({ s, onCeder }: { s: Solicitacao; onCeder: (s: Solicitacao
       <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0, marginBottom: 12 }}>
         {s.macroEntregaDestino.nome} › {s.microEntregaDestino.nome} · {MESES[s.mes - 1]}/{s.ano}
       </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{
-          background: 'var(--surface-2)', borderRadius: 8, padding: '6px 12px',
-          display: 'flex', gap: 8, alignItems: 'center', flex: 1,
-        }}>
-          <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
-            Faltam <strong style={{ color: 'var(--text-1)' }}>{restantes}h</strong>
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>de {solicitado}h</span>
-        </div>
+      <ProgressBar cedido={cedido} solicitado={solicitado} labelRight={`Faltam ${restantes}h`} />
+      <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
         <button
           className="btn-brand"
           onClick={() => onCeder(s)}
-          style={{ padding: '5px 14px', fontSize: 12, flexShrink: 0 }}
+          style={{ padding: '5px 14px', fontSize: 12 }}
         >
           Ceder
         </button>

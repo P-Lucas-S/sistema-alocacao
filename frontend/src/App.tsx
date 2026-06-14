@@ -12,6 +12,7 @@ import Projetos from './pages/Projetos';
 import ProjetoDetalhe from './pages/ProjetoDetalhe';
 import Alocacoes from './pages/Alocacoes';
 import GridAlocacao from './pages/GridAlocacao';
+import Remanejamento from './pages/Remanejamento';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) => {
@@ -78,6 +79,11 @@ export default function App() {
               <Route path="/projetos/:id" element={
                 <ProtectedRoute>
                   <Layout><ProjetoDetalhe /></Layout>
+                </ProtectedRoute>
+              } />
+              <Route path="/remanejamento" element={
+                <ProtectedRoute>
+                  <Layout><Remanejamento /></Layout>
                 </ProtectedRoute>
               } />
               <Route path="/profile" element={

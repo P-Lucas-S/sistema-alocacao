@@ -261,6 +261,36 @@ export async function initDb() {
     });
   }
 
+  // ── Solicitações de remanejamento (abertas, sem cessões) ─────────────────
+  // Cada uma usa um colaborador cross-gestor para que outros gestores vejam em "recebidas".
+  //
+  // Sol 1: G3 quer Leonardo Alves (sc-11) para sp-09 — Jul/2026
+  //   → G1 (sc-11 em sp-01/Jul) e G2 (sc-11 em sp-06/Jul) veem em recebidas
+  // Sol 2: G1 quer Nicolas Barbosa (sc-13) para sp-03 — Jul/2026
+  //   → G2 (sc-13 em sp-07/Jul) e G3 (sc-13 em sp-09/Jul) veem em recebidas
+  // Sol 3: G2 quer Ulisses Ribeiro (sc-19) para sp-07 — Ago/2026
+  //   → G1 (sc-19 em sp-01/Ago) e G3 (sc-19 em sp-08/Ago) veem em recebidas
+  const SOLICITACOES = [
+    {
+      id: 'ssol-001', status: 'aberta', solicitanteId: G3, colaboradorId: 'sc-11',
+      projetoDestinoId: 'sp-09', macroEntregaDestinoId: 'sm-sp-09-0', microEntregaDestinoId: 'smi-sp-09-0',
+      ano: 2026, mes: 7, horasSolicitadas: new Prisma.Decimal(30),
+    },
+    {
+      id: 'ssol-002', status: 'aberta', solicitanteId: G1, colaboradorId: 'sc-13',
+      projetoDestinoId: 'sp-03', macroEntregaDestinoId: 'sm-sp-03-0', microEntregaDestinoId: 'smi-sp-03-0',
+      ano: 2026, mes: 7, horasSolicitadas: new Prisma.Decimal(20),
+    },
+    {
+      id: 'ssol-003', status: 'aberta', solicitanteId: G2, colaboradorId: 'sc-19',
+      projetoDestinoId: 'sp-07', macroEntregaDestinoId: 'sm-sp-07-0', microEntregaDestinoId: 'smi-sp-07-0',
+      ano: 2026, mes: 8, horasSolicitadas: new Prisma.Decimal(40),
+    },
+  ];
+  for (const s of SOLICITACOES) {
+    await prisma.solicitacaoRemanejamento.create({ data: s });
+  }
+
   // ── Relatório ──────────────────────────────────────────────────────────
   const totalColabs  = COLABORADORES.length;
   const totalProjs   = PROJETOS.length;
@@ -274,6 +304,10 @@ export async function initDb() {
   console.log(`   Colaboradores: ${totalColabs}`);
   console.log(`   Projetos: ${totalProjs} (G1=${g1Projs} · G2=${g2Projs} · G3=${g3Projs})`);
   console.log(`   Alocações: ${totalAlocs} entradas em Jun/Jul/Ago 2026`);
+  console.log(`   Solicitações de remanejamento: 3 abertas (ssol-001..003)`);
+  console.log(`     → ssol-001: G3 quer Leonardo Alves Jul/26 → Site Institucional (G1+G2 podem ceder)`);
+  console.log(`     → ssol-002: G1 quer Nicolas Barbosa Jul/26 → Projeto Social (G2+G3 podem ceder)`);
+  console.log(`     → ssol-003: G2 quer Ulisses Ribeiro Ago/26 → Redes Sociais B2B (G1+G3 podem ceder)`);
   console.log(`   Casos especiais:`);
   console.log(`     → Daniela Rocha    Jun: G1=120+G2=80 = 200h (perto do teto)`);
   console.log(`     → Enzo Carvalho    Jun: G1=140+G2=80 = 220h (teto cheio ✦)`);

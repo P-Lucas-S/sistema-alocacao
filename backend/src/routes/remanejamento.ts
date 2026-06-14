@@ -15,9 +15,11 @@ async function mesEstaFechado(ano: number, mes: number): Promise<boolean> {
 }
 
 const solicitacaoInclude = {
-  colaborador:    { select: { nome: true } },
-  projetoDestino: { select: { codigo: true, nome: true } },
-  solicitante:    { select: { name: true } },
+  colaborador:          { select: { nome: true } },
+  projetoDestino:       { select: { codigo: true, nome: true } },
+  macroEntregaDestino:  { select: { nome: true } },
+  microEntregaDestino:  { select: { nome: true } },
+  solicitante:          { select: { name: true } },
 } as const;
 
 // Agrega cessões e adiciona horasJaCedidas/horasRestantes a cada solicitação

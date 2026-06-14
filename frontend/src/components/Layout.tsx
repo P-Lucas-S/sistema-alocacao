@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, Clock, LayoutGrid, Moon, Sun } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, Clock, LayoutGrid, Moon, Sun, ArrowLeftRight } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 
@@ -11,6 +11,7 @@ interface NavItem {
   icon: React.ElementType;
   end?: boolean;
   adminOnly?: boolean;
+  gestorOrAdmin?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -19,6 +20,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/grid', label: 'Grid de Alocação', icon: LayoutGrid },
   { to: '/alocacoes', label: 'Alocações', icon: Clock },
   { to: '/colaboradores', label: 'Colaboradores', icon: UserCheck },
+  { to: '/remanejamento', label: 'Remanejamento', icon: ArrowLeftRight, gestorOrAdmin: true },
   { to: '/team', label: 'Equipe (Usuários)', icon: Users, adminOnly: true },
 ];
 
@@ -27,7 +29,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const initial = user?.name?.charAt(0).toUpperCase() ?? '?';
 
-  const visibleItems = NAV_ITEMS.filter(item => !item.adminOnly || user?.role === 'admin');
+  const visibleItems = NAV_ITEMS.filter(item => {
+    if (item.adminOnly)    return user?.role === 'admin';
+    if (item.gestorOrAdmin) return user?.role === 'admin' || user?.role === 'gestor';
+    return true;
+  });
 
   return (
     <div className="flex h-screen overflow-hidden relative" style={{ background: 'var(--surface-2)', color: 'var(--text-1)' }}>

@@ -412,4 +412,118 @@ router.post('/solicitacoes/:id/cessoes', authenticate, requireRole('admin', 'ges
   }
 });
 
+// ── POST /solicitacoes/:id/cancelar ──────────────────────────────────────
+// Só o solicitante ou admin. Requer SEM cessões (se houver, use encerrar).
+// Não checa mês fechado — não move horas.
+router.post('/solicitacoes/:id/cancelar', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  const solicitacaoId = req.params.id;
+  const userId        = req.user!.id;
+  const role          = req.user!.role;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // a. Lê a solicitação
+      const sol = await tx.solicitacaoRemanejamento.findUnique({ where: { id: solicitacaoId } });
+      if (!sol) throw new CessaoError(404, { error: 'Solicitação não encontrada' });
+
+      // b. Ownership
+      if (role !== 'admin' && sol.solicitanteId !== userId) {
+        throw new CessaoError(403, { error: 'Apenas o solicitante ou admin pode cancelar' });
+      }
+
+      // c. Lock do colaborador — serializa com cessões concorrentes
+      await tx.$queryRaw`SELECT id FROM colaboradores WHERE id = ${sol.colaboradorId} FOR UPDATE`;
+
+      // d. Sob o lock: status deve ser 'aberta' (RC vê último committed)
+      const solAtual = await tx.solicitacaoRemanejamento.findUnique({
+        where:  { id: solicitacaoId },
+        select: { status: true },
+      });
+      if (!solAtual || solAtual.status !== 'aberta') {
+        throw new CessaoError(409, { error: 'Solicitação não está aberta' });
+      }
+
+      // e. Nenhuma cessão pode ter passado
+      const [{ total: totalCedidoRaw }] = await tx.$queryRaw<{ total: string }[]>`
+        SELECT COALESCE(SUM(horas_cedidas), 0) AS total
+        FROM cessoes_remanejamento
+        WHERE solicitacao_id = ${solicitacaoId}
+      `;
+      if (new Prisma.Decimal(totalCedidoRaw ?? '0').greaterThan(0)) {
+        throw new CessaoError(409, { error: 'Solicitação já tem cessões; use encerrar' });
+      }
+
+      // f. Fecha como 'cancelada'
+      return tx.solicitacaoRemanejamento.update({
+        where:   { id: solicitacaoId },
+        data:    { status: 'cancelada', fechadoEm: new Date(), fechadoPorId: userId },
+        include: solicitacaoInclude,
+      });
+    }, { timeout: 15_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+
+    return res.json({ solicitacao: result });
+  } catch (err: unknown) {
+    if (err instanceof CessaoError) return res.status(err.httpStatus).json(err.body);
+    console.error('Cancelar error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /solicitacoes/:id/encerrar ──────────────────────────────────────
+// Só o solicitante ou admin. Requer COM cessões (se não houver, use cancelar).
+// As horas já cedidas ficam. Não checa mês fechado — não move horas.
+router.post('/solicitacoes/:id/encerrar', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  const solicitacaoId = req.params.id;
+  const userId        = req.user!.id;
+  const role          = req.user!.role;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // a. Lê a solicitação
+      const sol = await tx.solicitacaoRemanejamento.findUnique({ where: { id: solicitacaoId } });
+      if (!sol) throw new CessaoError(404, { error: 'Solicitação não encontrada' });
+
+      // b. Ownership
+      if (role !== 'admin' && sol.solicitanteId !== userId) {
+        throw new CessaoError(403, { error: 'Apenas o solicitante ou admin pode encerrar' });
+      }
+
+      // c. Lock do colaborador — serializa com cessões concorrentes
+      await tx.$queryRaw`SELECT id FROM colaboradores WHERE id = ${sol.colaboradorId} FOR UPDATE`;
+
+      // d. Sob o lock: status deve ser 'aberta'
+      const solAtual = await tx.solicitacaoRemanejamento.findUnique({
+        where:  { id: solicitacaoId },
+        select: { status: true },
+      });
+      if (!solAtual || solAtual.status !== 'aberta') {
+        throw new CessaoError(409, { error: 'Solicitação não está aberta' });
+      }
+
+      // e. Exige ao menos uma cessão (se não houver, use cancelar)
+      const [{ total: totalCedidoRaw }] = await tx.$queryRaw<{ total: string }[]>`
+        SELECT COALESCE(SUM(horas_cedidas), 0) AS total
+        FROM cessoes_remanejamento
+        WHERE solicitacao_id = ${solicitacaoId}
+      `;
+      if (new Prisma.Decimal(totalCedidoRaw ?? '0').lessThanOrEqualTo(0)) {
+        throw new CessaoError(409, { error: 'Nenhuma cessão ainda; use cancelar' });
+      }
+
+      // f. Fecha como 'encerrada_parcial' — horas cedidas ficam definitivas
+      return tx.solicitacaoRemanejamento.update({
+        where:   { id: solicitacaoId },
+        data:    { status: 'encerrada_parcial', fechadoEm: new Date(), fechadoPorId: userId },
+        include: solicitacaoInclude,
+      });
+    }, { timeout: 15_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+
+    return res.json({ solicitacao: result });
+  } catch (err: unknown) {
+    if (err instanceof CessaoError) return res.status(err.httpStatus).json(err.body);
+    console.error('Encerrar error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

@@ -19,6 +19,7 @@ export default defineConfig(({mode}) => {
       include: ['motion/react'],
     },
     server: {
+      allowedHosts: true,
       port: 5173,
       hmr: process.env.DISABLE_HMR !== 'true',
       proxy: {

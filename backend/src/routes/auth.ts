@@ -9,36 +9,8 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod';
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
-router.post('/register', async (req, res) => {
-  try {
-    const { name, email, password, role = 'user', position = 'Member' } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Name, email and password are required' });
-    }
-
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ error: 'Email already exists' });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const id = generateId();
-
-    await prisma.user.create({
-      data: { id, name, email, passwordHash, role, position },
-    });
-
-    const token = jwt.sign({ id, role }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.status(201).json({
-      token,
-      user: { id, name, email, role, position, avatarUrl: null },
-    });
-  } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+router.post('/register', (_req, res) => {
+  res.status(403).json({ error: 'Registro desabilitado' });
 });
 
 router.post('/login', async (req, res) => {

@@ -18,17 +18,17 @@ router.post('/login', async (req, res) => {
     const { email, password, rememberMe = false } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Email ou senha incorretos.' });
     }
 
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Email ou senha incorretos.' });
     }
 
     const expiresIn = rememberMe ? '30d' : '1d';
@@ -47,7 +47,7 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -58,11 +58,11 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
       select: { id: true, name: true, email: true, role: true, position: true, avatarUrl: true },
     });
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -72,7 +72,7 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
+      return res.status(400).json({ error: 'O email é obrigatório.' });
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
@@ -111,7 +111,7 @@ router.post('/forgot-password', async (req, res) => {
     });
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 
@@ -164,7 +164,7 @@ router.post('/reset-password', async (req, res) => {
     res.json({ message: 'Senha redefinida com sucesso!' });
   } catch (error) {
     console.error('Reset password error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   }
 });
 

@@ -50,6 +50,7 @@ interface GridData {
   projetos: ProjetoCol[];
   linhas:   Linha[];
   fechado:  boolean;
+  custoPorProjeto: Record<string, string | null>;
 }
 
 // Info passada para o drawer ao abrir
@@ -1702,6 +1703,42 @@ export default function GridAlocacao() {
                 );
               })}
             </tbody>
+
+            <tfoot>
+              <tr>
+                {/* Colaborador (sticky esquerda + base) */}
+                <td style={{
+                  ...stickyColabStyle, position: 'sticky', bottom: 0, zIndex: 15,
+                  background: 'var(--surface-2)', borderTop: '2px solid var(--border)',
+                  fontSize: 12, fontWeight: 700, color: 'var(--text-1)',
+                }}>
+                  Total do projeto
+                </td>
+
+                {/* Saldo (sticky esquerda + base) — sem conteúdo, mantém alinhamento */}
+                <td style={{
+                  ...stickySaldoStyle, position: 'sticky', bottom: 0, zIndex: 15,
+                  left: COL_COLAB_W, background: 'var(--surface-2)',
+                  borderTop: '2px solid var(--border)', borderRight: '2px solid var(--border)',
+                }} />
+
+                {/* Custo total por projeto (sticky base) */}
+                {data.projetos.map(p => {
+                  const custo = data.custoPorProjeto[p.id] ?? null;
+                  return (
+                    <td key={p.id} style={{
+                      position: 'sticky', bottom: 0, zIndex: 12,
+                      background: 'var(--surface-2)', textAlign: 'center',
+                      padding: '8px 6px', borderTop: '2px solid var(--border)',
+                      borderRight: '1px solid var(--border)',
+                      fontSize: 12, fontWeight: 700, color: 'var(--text-1)',
+                    }}>
+                      {custo != null ? fmtMoeda(custo) : '—'}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>

@@ -233,7 +233,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       defaultMicroId: p.macroEntregas[0]?.microEntregas[0]?.id ?? null,
     }));
 
-    if (projetos.length === 0) return res.json({ projetos: [], linhas: [], fechado });
+    if (projetos.length === 0) return res.json({ projetos: [], linhas: [], fechado, custoPorProjeto: {} });
 
     const meusProjIds = new Set(projetos.map(p => p.id));
 
@@ -248,7 +248,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       },
     });
 
-    if (minhasAlocs.length === 0) return res.json({ projetos, linhas: [], fechado });
+    if (minhasAlocs.length === 0) return res.json({ projetos, linhas: [], fechado, custoPorProjeto: {} });
 
     const colabIds = [...new Set(minhasAlocs.map(a => a.colaboradorId))];
 
@@ -354,7 +354,25 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     // Ordenar por nome do colaborador
     linhas.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'));
 
-    res.json({ projetos, linhas, fechado });
+    // ── Custo total por projeto (coluna) ──────────────────────────────────
+    // Soma, sobre os colaboradores da grade, de (horas planejadas no projeto × valorHora).
+    // Colaborador sem valorHora não contribui (não zera o projeto, só é pulado).
+    // Sem distinção gestor/admin — é o custo da coluna inteira.
+    const custoPorProjeto: Record<string, string | null> = {};
+    for (const proj of projetos) {
+      let soma: Prisma.Decimal | null = null;
+      for (const colabId of colabIds) {
+        const entry = celulasByColabProj.get(`${colabId}::${proj.id}`);
+        if (!entry) continue;
+        const valorHora = colabInfo.get(colabId)?.valorHora;
+        if (valorHora == null) continue;
+        const custoColab = entry.totalHoras.times(valorHora);
+        soma = soma == null ? custoColab : soma.plus(custoColab);
+      }
+      custoPorProjeto[proj.id] = soma != null ? soma.toFixed(2) : null;
+    }
+
+    res.json({ projetos, linhas, fechado, custoPorProjeto });
   } catch (error) {
     console.error('Grid error:', error);
     res.status(500).json({ error: 'Internal server error' });

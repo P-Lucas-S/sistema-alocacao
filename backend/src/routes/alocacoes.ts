@@ -242,7 +242,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     const minhasAlocs = await prisma.alocacao.findMany({
       where: { projetoId: { in: [...meusProjIds] }, ano: anoN, mes: mesN },
       include: {
-        colaborador:  { select: { id: true, nome: true, funcao: true } },
+        colaborador:  { select: { id: true, nome: true, funcao: true, valorHora: true } },
         macroEntrega: { select: { nome: true } },
         microEntrega: { select: { nome: true } },
       },
@@ -332,13 +332,20 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
           : null;
       }
 
+      const { valorHora, ...colaboradorOut } = colabInfo.get(colabId)!;
+      // Custo no escopo desta grade: gestor vê só as próprias colunas (totalMeusProj);
+      // admin vê todas as colunas, então usa totalGeral (evita custo R$0 por falta de escopo).
+      const horasParaCusto = role === 'admin' ? totalGeral : totalMeusProj;
+      const custo = valorHora != null ? horasParaCusto.times(valorHora).toFixed(2) : null;
+
       return {
-        colaborador: colabInfo.get(colabId)!,
+        colaborador: colaboradorOut,
         saldo: {
           totalMeusProj: totalMeusProj.toString(),
           totalOutros:   totalOutros.toString(),
           totalGeral:    totalGeral.toString(),
           disponivel:    disponivel.toString(),
+          custo,
         },
         celulas,
       };

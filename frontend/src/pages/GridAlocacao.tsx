@@ -37,6 +37,7 @@ interface Saldo {
   totalOutros:   string;
   totalGeral:    string;
   disponivel:    string;
+  custo:         string | null;
 }
 
 interface Linha {
@@ -113,6 +114,10 @@ function corSaldo(pct: number): string {
 function fmtHoras(h: string | number): string {
   const n = parseFloat(String(h));
   return Number.isInteger(n) ? `${n}` : n.toFixed(1);
+}
+
+function fmtMoeda(v: string): string {
+  return parseFloat(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 // ── Barra de saldo ────────────────────────────────────────────────────────────
@@ -1172,6 +1177,7 @@ function BuscaColaborador({
         totalOutros:   String(totalOutros),
         totalGeral:    String(totalGeral),
         disponivel:    String(disponivel),
+        custo:         null,
       },
     });
   }
@@ -1659,6 +1665,11 @@ export default function GridAlocacao() {
                       {(
                         <div style={{ fontSize: 9, marginTop: 3, color: cor, fontWeight: 600 }}>
                           {pctTotal >= 100 ? 'Capacidade esgotada' : `${fmtHoras(TETO - totalG)}h disponíveis`}
+                        </div>
+                      )}
+                      {linha.saldo.custo != null && (
+                        <div style={{ fontSize: 9, marginTop: 1, color: 'var(--text-3)', fontWeight: 400 }}>
+                          {fmtMoeda(linha.saldo.custo)} <span style={{ opacity: 0.7 }}>({isAdmin ? 'total' : 'seus projetos'})</span>
                         </div>
                       )}
                     </td>

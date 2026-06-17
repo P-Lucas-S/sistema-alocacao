@@ -46,37 +46,40 @@ const SEED_USERS = [
 
 // ── Colaboradores ──────────────────────────────────────────────────────────
 // Nomes bem distintos entre si para não acionar a verificação de similaridade.
+// valorHora fixo por colaborador (determinístico) — faixas de referência por função:
+//   Desenvolvedor R$140–180 · Motion/Designer R$100–130 · Redatora(or) R$70–100
+//   Social Media R$60–90 · Editor de Vídeo R$90–120
 const COLABORADORES = [
-  { id: 'sc-01', nome: 'Adriana Lima',        email: 'adriana.lima@equipe.dev',       funcao: 'Designer'          },
-  { id: 'sc-02', nome: 'Beatriz Cardoso',     email: 'beatriz.cardoso@equipe.dev',    funcao: 'Redatora'          },
-  { id: 'sc-03', nome: 'Caio Henrique',       email: 'caio.henrique@equipe.dev',      funcao: 'Desenvolvedor'     },
-  { id: 'sc-04', nome: 'Daniela Rocha',       email: 'daniela.rocha@equipe.dev',      funcao: 'Motion Designer'   },
-  { id: 'sc-05', nome: 'Enzo Carvalho',       email: 'enzo.carvalho@equipe.dev',      funcao: 'Designer'          },
-  { id: 'sc-06', nome: 'Fabiana Costa',       email: 'fabiana.costa@equipe.dev',      funcao: 'Redatora'          },
-  { id: 'sc-07', nome: 'Gustavo Pires',       email: 'gustavo.pires@equipe.dev',      funcao: 'Desenvolvedor'     },
-  { id: 'sc-08', nome: 'Heloisa Borges',      email: 'heloisa.borges@equipe.dev',     funcao: 'Social Media'      },
-  { id: 'sc-09', nome: 'Ivan Monteiro',       email: 'ivan.monteiro@equipe.dev',      funcao: 'Editor de Vídeo'   },
-  { id: 'sc-10', nome: 'Juliana Ferreira',    email: 'juliana.ferreira@equipe.dev',   funcao: 'Designer'          },
-  { id: 'sc-11', nome: 'Leonardo Alves',      email: 'leonardo.alves@equipe.dev',     funcao: 'Desenvolvedor'     },
-  { id: 'sc-12', nome: 'Marina Souza',        email: 'marina.souza@equipe.dev',       funcao: 'Redatora'          },
-  { id: 'sc-13', nome: 'Nicolas Barbosa',     email: 'nicolas.barbosa@equipe.dev',    funcao: 'Motion Designer'   },
-  { id: 'sc-14', nome: 'Olivia Teixeira',     email: 'olivia.teixeira@equipe.dev',    funcao: 'Designer'          },
-  { id: 'sc-15', nome: 'Paulo Nunes',         email: 'paulo.nunes@equipe.dev',        funcao: 'Desenvolvedor'     },
-  { id: 'sc-16', nome: 'Renata Pinto',        email: 'renata.pinto@equipe.dev',       funcao: 'Redatora'          },
-  { id: 'sc-17', nome: 'Samuel Gomes',        email: 'samuel.gomes@equipe.dev',       funcao: 'Editor de Vídeo'   },
-  { id: 'sc-18', nome: 'Tamires Campos',      email: 'tamires.campos@equipe.dev',     funcao: 'Designer'          },
-  { id: 'sc-19', nome: 'Ulisses Ribeiro',     email: 'ulisses.ribeiro@equipe.dev',    funcao: 'Desenvolvedor'     },
-  { id: 'sc-20', nome: 'Vanessa Torres',      email: 'vanessa.torres@equipe.dev',     funcao: 'Motion Designer'   },
-  { id: 'sc-21', nome: 'Wagner Cunha',        email: 'wagner.cunha@equipe.dev',       funcao: 'Redator'           },
-  { id: 'sc-22', nome: 'Xiomara Fonseca',     email: 'xiomara.fonseca@equipe.dev',    funcao: 'Social Media'      },
-  { id: 'sc-23', nome: 'Yago Cavalcanti',     email: 'yago.cavalcanti@equipe.dev',    funcao: 'Designer'          },
-  { id: 'sc-24', nome: 'Zara Martins',        email: 'zara.martins@equipe.dev',       funcao: 'Redatora'          },
-  { id: 'sc-25', nome: 'Abel Cruz',           email: 'abel.cruz@equipe.dev',          funcao: 'Desenvolvedor'     },
-  { id: 'sc-26', nome: 'Brenda Vieira',       email: 'brenda.vieira@equipe.dev',      funcao: 'Motion Designer'   },
-  { id: 'sc-27', nome: 'Celso Rodrigues',     email: 'celso.rodrigues@equipe.dev',    funcao: 'Editor de Vídeo'   },
-  { id: 'sc-28', nome: 'Debora Andrade',      email: 'debora.andrade@equipe.dev',     funcao: 'Designer'          },
-  { id: 'sc-29', nome: 'Emerson Lopes',       email: 'emerson.lopes@equipe.dev',      funcao: 'Desenvolvedor'     },
-  { id: 'sc-30', nome: 'Flora Nascimento',    email: 'flora.nascimento@equipe.dev',   funcao: 'Redatora'          },
+  { id: 'sc-01', nome: 'Adriana Lima',        email: 'adriana.lima@equipe.dev',       funcao: 'Designer',          valorHora: 110 },
+  { id: 'sc-02', nome: 'Beatriz Cardoso',     email: 'beatriz.cardoso@equipe.dev',    funcao: 'Redatora',          valorHora: 80  },
+  { id: 'sc-03', nome: 'Caio Henrique',       email: 'caio.henrique@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 150 },
+  { id: 'sc-04', nome: 'Daniela Rocha',       email: 'daniela.rocha@equipe.dev',      funcao: 'Motion Designer',   valorHora: 120 },
+  { id: 'sc-05', nome: 'Enzo Carvalho',       email: 'enzo.carvalho@equipe.dev',      funcao: 'Designer',          valorHora: 105 },
+  { id: 'sc-06', nome: 'Fabiana Costa',       email: 'fabiana.costa@equipe.dev',      funcao: 'Redatora',          valorHora: 75  },
+  { id: 'sc-07', nome: 'Gustavo Pires',       email: 'gustavo.pires@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 165 },
+  { id: 'sc-08', nome: 'Heloisa Borges',      email: 'heloisa.borges@equipe.dev',     funcao: 'Social Media',      valorHora: 65  },
+  { id: 'sc-09', nome: 'Ivan Monteiro',       email: 'ivan.monteiro@equipe.dev',      funcao: 'Editor de Vídeo',   valorHora: 95  },
+  { id: 'sc-10', nome: 'Juliana Ferreira',    email: 'juliana.ferreira@equipe.dev',   funcao: 'Designer',          valorHora: 115 },
+  { id: 'sc-11', nome: 'Leonardo Alves',      email: 'leonardo.alves@equipe.dev',     funcao: 'Desenvolvedor',     valorHora: 145 },
+  { id: 'sc-12', nome: 'Marina Souza',        email: 'marina.souza@equipe.dev',       funcao: 'Redatora',          valorHora: 90  },
+  { id: 'sc-13', nome: 'Nicolas Barbosa',     email: 'nicolas.barbosa@equipe.dev',    funcao: 'Motion Designer',   valorHora: 125 },
+  { id: 'sc-14', nome: 'Olivia Teixeira',     email: 'olivia.teixeira@equipe.dev',    funcao: 'Designer',          valorHora: 108 },
+  { id: 'sc-15', nome: 'Paulo Nunes',         email: 'paulo.nunes@equipe.dev',        funcao: 'Desenvolvedor',     valorHora: 175 },
+  { id: 'sc-16', nome: 'Renata Pinto',        email: 'renata.pinto@equipe.dev',       funcao: 'Redatora',          valorHora: 85  },
+  { id: 'sc-17', nome: 'Samuel Gomes',        email: 'samuel.gomes@equipe.dev',       funcao: 'Editor de Vídeo',   valorHora: 110 },
+  { id: 'sc-18', nome: 'Tamires Campos',      email: 'tamires.campos@equipe.dev',     funcao: 'Designer',          valorHora: 118 },
+  { id: 'sc-19', nome: 'Ulisses Ribeiro',     email: 'ulisses.ribeiro@equipe.dev',    funcao: 'Desenvolvedor',     valorHora: 155 },
+  { id: 'sc-20', nome: 'Vanessa Torres',      email: 'vanessa.torres@equipe.dev',     funcao: 'Motion Designer',   valorHora: 130 },
+  { id: 'sc-21', nome: 'Wagner Cunha',        email: 'wagner.cunha@equipe.dev',       funcao: 'Redator',           valorHora: 95  },
+  { id: 'sc-22', nome: 'Xiomara Fonseca',     email: 'xiomara.fonseca@equipe.dev',    funcao: 'Social Media',      valorHora: 85  },
+  { id: 'sc-23', nome: 'Yago Cavalcanti',     email: 'yago.cavalcanti@equipe.dev',    funcao: 'Designer',          valorHora: 112 },
+  { id: 'sc-24', nome: 'Zara Martins',        email: 'zara.martins@equipe.dev',       funcao: 'Redatora',          valorHora: 70  },
+  { id: 'sc-25', nome: 'Abel Cruz',           email: 'abel.cruz@equipe.dev',          funcao: 'Desenvolvedor',     valorHora: 180 },
+  { id: 'sc-26', nome: 'Brenda Vieira',       email: 'brenda.vieira@equipe.dev',      funcao: 'Motion Designer',   valorHora: 122 },
+  { id: 'sc-27', nome: 'Celso Rodrigues',     email: 'celso.rodrigues@equipe.dev',    funcao: 'Editor de Vídeo',   valorHora: 120 },
+  { id: 'sc-28', nome: 'Debora Andrade',      email: 'debora.andrade@equipe.dev',     funcao: 'Designer',          valorHora: 100 },
+  { id: 'sc-29', nome: 'Emerson Lopes',       email: 'emerson.lopes@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 160 },
+  { id: 'sc-30', nome: 'Flora Nascimento',    email: 'flora.nascimento@equipe.dev',   funcao: 'Redatora',          valorHora: 100 },
 ];
 
 // ── Projetos (com macros e micro Geral por macro) ───────────────────────────
@@ -212,7 +215,7 @@ export async function initDb() {
   // ── Colaboradores ──────────────────────────────────────────────────────
   for (const c of COLABORADORES) {
     await prisma.colaborador.create({
-      data: { id: c.id, nome: c.nome, email: c.email, funcao: c.funcao, createdById: G1 },
+      data: { id: c.id, nome: c.nome, email: c.email, funcao: c.funcao, valorHora: c.valorHora, createdById: G1 },
     });
   }
 

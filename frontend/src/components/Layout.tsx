@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, Clock, LayoutGrid, Moon, Sun, ArrowLeftRight } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, Clock, LayoutGrid, Moon, Sun, ArrowLeftRight, DollarSign } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 
@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/alocacoes', label: 'Alocações', icon: Clock },
   { to: '/colaboradores', label: 'Colaboradores', icon: UserCheck },
   { to: '/remanejamento', label: 'Remanejamento', icon: ArrowLeftRight, gestorOrAdmin: true },
+  { to: '/custos', label: 'Custos', icon: DollarSign, gestorOrAdmin: true },
   { to: '/team', label: 'Equipe (Usuários)', icon: Users, adminOnly: true },
 ];
 

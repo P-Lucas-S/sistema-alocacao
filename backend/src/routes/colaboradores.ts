@@ -56,7 +56,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       orderBy: { nome: 'asc' },
       select: {
         id: true, nome: true, email: true, funcao: true,
-        ativo: true, createdAt: true,
+        valorHora: true, ativo: true, createdAt: true,
         createdBy: { select: { name: true } },
       },
     });
@@ -75,11 +75,20 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // E-mail duplicado é SEMPRE 409, o flag confirmarSimilar não o contorna.
 router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
-    const { nome, email, funcao, confirmarSimilar } = req.body;
+    const { nome, email, funcao, valorHora, confirmarSimilar } = req.body;
     const createdById = req.user!.id;
 
     if (!nome?.trim()) return res.status(400).json({ error: 'nome é obrigatório' });
     if (!email?.trim()) return res.status(400).json({ error: 'email é obrigatório' });
+
+    let valorHoraVal: number | null = null;
+    if (valorHora !== undefined && valorHora !== null && valorHora !== '') {
+      const parsed = Number(valorHora);
+      if (isNaN(parsed) || parsed < 0) {
+        return res.status(400).json({ error: 'valorHora deve ser um número maior ou igual a zero.' });
+      }
+      valorHoraVal = parsed;
+    }
 
     const emailNorm = email.trim().toLowerCase();
 
@@ -108,8 +117,8 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     // Cria o colaborador
     const id = generateId();
     const colaborador = await prisma.colaborador.create({
-      data: { id, nome: nome.trim(), email: emailNorm, funcao: funcao?.trim() || null, createdById },
-      select: { id: true, nome: true, email: true, funcao: true, ativo: true, createdAt: true },
+      data: { id, nome: nome.trim(), email: emailNorm, funcao: funcao?.trim() || null, valorHora: valorHoraVal, createdById },
+      select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
     });
 
     res.status(201).json({ colaborador });
@@ -123,10 +132,19 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { nome, email, funcao } = req.body;
+    const { nome, email, funcao, valorHora } = req.body;
 
     const current = await prisma.colaborador.findUnique({ where: { id } });
     if (!current) return res.status(404).json({ error: 'Colaborador não encontrado' });
+
+    let valorHoraVal: number | null = null;
+    if (valorHora !== undefined && valorHora !== null && valorHora !== '') {
+      const parsed = Number(valorHora);
+      if (isNaN(parsed) || parsed < 0) {
+        return res.status(400).json({ error: 'valorHora deve ser um número maior ou igual a zero.' });
+      }
+      valorHoraVal = parsed;
+    }
 
     const emailNorm = email?.trim().toLowerCase();
     if (emailNorm && emailNorm !== current.email) {
@@ -140,8 +158,9 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
         ...(nome?.trim() ? { nome: nome.trim() } : {}),
         ...(emailNorm ? { email: emailNorm } : {}),
         ...(funcao !== undefined ? { funcao: funcao?.trim() || null } : {}),
+        ...(valorHora !== undefined ? { valorHora: valorHoraVal } : {}),
       },
-      select: { id: true, nome: true, email: true, funcao: true, ativo: true, createdAt: true },
+      select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
     });
 
     res.json(updated);

@@ -7,6 +7,7 @@ interface Colaborador {
   nome: string;
   email: string;
   funcao: string | null;
+  valorHora: string | null;
   ativo: boolean;
   createdAt: string;
   createdBy?: { name: string };
@@ -23,6 +24,7 @@ interface PendingCreate {
   nome: string;
   email: string;
   funcao: string | null;
+  valorHora: number | null;
   similares: Similar[];
 }
 
@@ -72,6 +74,7 @@ export default function Colaboradores() {
   const [email, setEmail]     = useState('');
   const [funcao, setFuncao]   = useState('');
   const [customFuncao, setCustomFuncao] = useState('');
+  const [valorHora, setValorHora] = useState('');
 
   // Confirmation flow (stage 2)
   const [pending, setPending]   = useState<PendingCreate | null>(null);
@@ -107,7 +110,7 @@ export default function Colaboradores() {
 
   function openCreate() {
     setEditTarget(null);
-    setNome(''); setEmail(''); setFuncao(''); setCustomFuncao('');
+    setNome(''); setEmail(''); setFuncao(''); setCustomFuncao(''); setValorHora('');
     setError(''); setPending(null);
     setIsModalOpen(true);
   }
@@ -119,6 +122,7 @@ export default function Colaboradores() {
     const isPredefined = FUNCOES_COMUNS.includes(c.funcao ?? '');
     setFuncao(isPredefined ? (c.funcao ?? '') : (c.funcao ? '__custom__' : ''));
     setCustomFuncao(isPredefined ? '' : (c.funcao ?? ''));
+    setValorHora(c.valorHora != null ? c.valorHora : '');
     setError(''); setPending(null);
     setIsModalOpen(true);
   }
@@ -144,10 +148,11 @@ export default function Colaboradores() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setError(''); setSaving(true);
+    const valorHoraNum = valorHora.trim() !== '' ? parseFloat(valorHora) : null;
     try {
       if (editTarget) {
         // Edição não tem fluxo de confirmação
-        const body = { nome: nome.trim(), funcao: effectiveFuncao() || null };
+        const body = { nome: nome.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum };
         const res  = await fetch(`/api/colaboradores/${editTarget.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -161,7 +166,7 @@ export default function Colaboradores() {
       }
 
       // Criação — estágio 1
-      const body = { nome: nome.trim(), email: email.trim(), funcao: effectiveFuncao() || null };
+      const body = { nome: nome.trim(), email: email.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum };
       const res = await fetch('/api/colaboradores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -316,6 +321,11 @@ export default function Colaboradores() {
                   </div>
                   <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>{c.email}</p>
                   {c.funcao && <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--brand-500)' }}>{c.funcao}</p>}
+                  {c.valorHora != null && (
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
+                      R$ {parseFloat(c.valorHora).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/h
+                    </p>
+                  )}
                   {canWrite && (
                     <div className="flex items-center gap-1.5 mt-2.5">
                       <button onClick={() => openEdit(c)} className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg" style={{ color: 'var(--text-3)', border: '1px solid var(--border)' }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'; }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
@@ -452,6 +462,14 @@ export default function Colaboradores() {
                   {funcao === '__custom__' && (
                     <Input type="text" placeholder="Ex: Analista de Mídia" value={customFuncao} onChange={e => setCustomFuncao(e.target.value)} style={{ marginTop: 6 }} disabled={saving} />
                   )}
+                </Field>
+
+                <Field label="Valor/hora — R$ (opcional)">
+                  <Input
+                    type="number" min="0" step="0.01" placeholder="Ex: 120.00"
+                    value={valorHora} onChange={e => setValorHora(e.target.value)}
+                    disabled={saving}
+                  />
                 </Field>
 
                 <div className="flex gap-3 pt-1">

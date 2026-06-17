@@ -83,6 +83,7 @@ model Colaborador {
   nome        String   @db.VarChar(255)
   email       String   @unique @db.VarChar(255)
   funcao      String?  @db.VarChar(100)
+  valorHora   Decimal? @map("valor_hora") @db.Decimal(10, 2)
   ativo       Boolean  @default(true)
   createdById String   @map("created_by_id") @db.VarChar(191)
   createdAt   DateTime @default(now()) @map("created_at")

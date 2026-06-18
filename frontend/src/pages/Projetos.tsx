@@ -13,6 +13,12 @@ interface ProximaPrestacao {
   vencida: boolean;
 }
 
+interface Categoria {
+  id: string;
+  nome: string;
+  ativo: boolean;
+}
+
 interface Projeto {
   id: string;
   codigo: string;
@@ -21,6 +27,7 @@ interface Projeto {
   status: string;
   createdAt: string;
   gestor: { id: string; name: string };
+  categoria: Categoria | null;
   prestacoesContas: PrestacaoContas[];
   proximaPrestacao: ProximaPrestacao | null;
 }
@@ -44,6 +51,10 @@ const inputStyle: React.CSSProperties = {
 
 const Input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
   <input {...props} style={{ ...inputStyle, ...props.style }} />
+);
+
+const Select = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
+  <select {...props} style={{ ...inputStyle, ...props.style }} />
 );
 
 const Field = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
@@ -77,6 +88,13 @@ export default function Projetos() {
   const [novaData, setNovaData] = useState('');
   const [datasError, setDatasError] = useState('');
 
+  // Programa (categoria) — obrigatório
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [categoriaId, setCategoriaId] = useState('');
+  const [categoriaIdOriginal, setCategoriaIdOriginal] = useState('');
+  // Caso especial: o programa atual do projeto editado foi desativado depois — mostra mesmo assim
+  const [categoriaInativaExtra, setCategoriaInativaExtra] = useState<{ id: string; nome: string } | null>(null);
+
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -97,6 +115,15 @@ export default function Projetos() {
   }, [token, filterStatus]);
 
   useEffect(() => { setLoading(true); fetchProjetos(); }, [fetchProjetos]);
+
+  const fetchCategorias = useCallback(async () => {
+    const res = await fetch('/api/categorias?ativo=true', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) setCategorias(await res.json());
+  }, [token]);
+
+  useEffect(() => { fetchCategorias(); }, [fetchCategorias]);
 
   // ── Datas helpers ──────────────────────────────────────────────────────
 
@@ -120,6 +147,7 @@ export default function Projetos() {
   function openCreate() {
     setEditTarget(null);
     setCodigo(''); setNome(''); setDatas([]); setNovaData('');
+    setCategoriaId(''); setCategoriaIdOriginal(''); setCategoriaInativaExtra(null);
     setError(''); setDatasError('');
     setIsModalOpen(true);
   }
@@ -131,6 +159,17 @@ export default function Projetos() {
     setNome(p.nome);
     setDatas(p.prestacoesContas.map(pc => toInputDate(pc.data)).sort());
     setNovaData('');
+
+    const catId = p.categoria?.id ?? '';
+    setCategoriaId(catId);
+    setCategoriaIdOriginal(catId);
+    // Programa do projeto não está entre os ativos (foi desativado depois) — mostra mesmo assim
+    if (p.categoria && !categorias.some(c => c.id === p.categoria!.id)) {
+      setCategoriaInativaExtra({ id: p.categoria.id, nome: p.categoria.nome });
+    } else {
+      setCategoriaInativaExtra(null);
+    }
+
     setError(''); setDatasError('');
     setIsModalOpen(true);
   }
@@ -151,9 +190,15 @@ export default function Projetos() {
     }
     setError(''); setDatasError(''); setSaving(true);
     try {
-      const body = editTarget
+      const body: Record<string, unknown> = editTarget
         ? { nome: nome.trim(), prestacoesContas: datas }
-        : { codigo: codigo.trim(), nome: nome.trim(), prestacoesContas: datas };
+        : { codigo: codigo.trim(), nome: nome.trim(), prestacoesContas: datas, categoriaId };
+
+      // Edição: só manda categoriaId se o usuário de fato mudou a seleção —
+      // senão um projeto com programa inativo (não alterado) seria barrado pelo backend.
+      if (editTarget && categoriaId !== categoriaIdOriginal) {
+        body.categoriaId = categoriaId;
+      }
 
       const res = await fetch(editTarget ? `/api/projetos/${editTarget.id}` : '/api/projetos', {
         method: editTarget ? 'PUT' : 'POST',
@@ -261,14 +306,24 @@ export default function Projetos() {
                   boxShadow: 'var(--shadow-sm)', opacity: p.status === 'arquivado' ? 0.6 : 1,
                 }}
               >
-                {/* Código + status */}
+                {/* Código + programa + status */}
                 <div className="flex items-center justify-between gap-2">
-                  <span
-                    className="text-xs font-bold px-2.5 py-1 rounded-lg font-mono tracking-wider"
-                    style={{ background: 'var(--brand-500)20', color: 'var(--brand-500)', border: '1px solid var(--brand-500)30' }}
-                  >
-                    {p.codigo}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className="text-xs font-bold px-2.5 py-1 rounded-lg font-mono tracking-wider"
+                      style={{ background: 'var(--brand-500)20', color: 'var(--brand-500)', border: '1px solid var(--brand-500)30' }}
+                    >
+                      {p.codigo}
+                    </span>
+                    {p.categoria && (
+                      <span
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{ background: 'var(--accent-500)15', color: 'var(--accent-600)' }}
+                      >
+                        {p.categoria.nome}
+                      </span>
+                    )}
+                  </div>
                   <span
                     className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
                     style={{ background: ss.bg, color: ss.color }}
@@ -412,6 +467,17 @@ export default function Projetos() {
               {/* Nome */}
               <Field label="Nome do Projeto">
                 <Input type="text" required placeholder="Ex: Campanha Verão 2026" value={nome} onChange={e => setNome(e.target.value)} disabled={saving} />
+              </Field>
+
+              {/* Programa — obrigatório */}
+              <Field label="Programa">
+                <Select required value={categoriaId} onChange={e => setCategoriaId(e.target.value)} disabled={saving}>
+                  <option value="">Selecione um programa</option>
+                  {categoriaInativaExtra && (
+                    <option value={categoriaInativaExtra.id}>{categoriaInativaExtra.nome} (inativo)</option>
+                  )}
+                  {categorias.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </Select>
               </Field>
 
               {/* Datas de prestação — multi */}

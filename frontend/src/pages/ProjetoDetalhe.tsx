@@ -11,10 +11,13 @@ import {
 interface ProximaPrestacao { data: string; vencida: boolean }
 interface PrestacaoContas  { id: string; data: string }
 
+interface Categoria { id: string; nome: string; ativo: boolean }
+
 interface Projeto {
   id: string; codigo: string; nome: string;
   gestorId: string; status: string;
   gestor: { id: string; name: string };
+  categoria: Categoria | null;
   prestacoesContas: PrestacaoContas[];
   proximaPrestacao: ProximaPrestacao | null;
 }
@@ -239,6 +242,14 @@ export default function ProjetoDetalhe() {
               >
                 {projeto.status === 'ativo' ? 'Ativo' : 'Arquivado'}
               </span>
+              {projeto.categoria && (
+                <span
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                  style={{ background: 'var(--accent-500)15', color: 'var(--accent-600)' }}
+                >
+                  {projeto.categoria.nome}
+                </span>
+              )}
             </div>
             <h1 className="text-xl font-bold mt-1" style={{ color: 'var(--text-1)' }}>{projeto.nome}</h1>
             <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>

@@ -42,6 +42,7 @@ function serializeProjeto(p: any) {
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     gestor: p.gestor,
+    categoria: p.categoria ? { id: p.categoria.id, nome: p.categoria.nome, ativo: p.categoria.ativo } : null,
     prestacoesContas: prestacoes,
     proximaPrestacao: computeProxima(
       (p.prestacoesContas ?? []).map((pc: any) => ({ id: pc.id, data: pc.data }))
@@ -81,6 +82,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       where: { id },
       include: {
         gestor: { select: { id: true, name: true } },
+        categoria: { select: { id: true, nome: true, ativo: true } },
         prestacoesContas: { orderBy: { data: 'asc' } },
       },
     });
@@ -113,6 +115,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       where,
       include: {
         gestor: { select: { id: true, name: true } },
+        categoria: { select: { id: true, nome: true, ativo: true } },
         prestacoesContas: { orderBy: { data: 'asc' } },
       },
     });
@@ -127,7 +130,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // ── POST / ────────────────────────────────────────────────────────────────
 router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
-    const { codigo, nome, prestacoesContas } = req.body;
+    const { codigo, nome, prestacoesContas, categoriaId } = req.body;
     const gestorId = req.user!.id;
 
     if (!codigo?.trim()) return res.status(400).json({ error: 'codigo é obrigatório' });
@@ -137,6 +140,11 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     if (!datas) {
       return res.status(400).json({ error: 'Pelo menos uma data de prestação de contas é obrigatória' });
     }
+
+    if (!categoriaId) return res.status(400).json({ error: 'Programa é obrigatório' });
+    const categoria = await prisma.categoriaProjeto.findUnique({ where: { id: categoriaId } });
+    if (!categoria)        return res.status(400).json({ error: 'Programa não encontrado' });
+    if (!categoria.ativo)  return res.status(400).json({ error: 'Programa inativo' });
 
     const codigoNorm = codigo.trim().toUpperCase();
     const conflict = await prisma.projeto.findUnique({ where: { codigo: codigoNorm } });
@@ -148,7 +156,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 
     const projeto = await prisma.$transaction(async (tx) => {
       await tx.projeto.create({
-        data: { id: projetoId, codigo: codigoNorm, nome: nome.trim(), gestorId, status: 'ativo' },
+        data: { id: projetoId, codigo: codigoNorm, nome: nome.trim(), gestorId, categoriaId, status: 'ativo' },
       });
       await tx.prestacaoContas.createMany({
         data: datas.map(d => ({ id: generateId(), projetoId, data: d })),
@@ -157,6 +165,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
         where: { id: projetoId },
         include: {
           gestor: { select: { id: true, name: true } },
+          categoria: { select: { id: true, nome: true, ativo: true } },
           prestacoesContas: { orderBy: { data: 'asc' } },
         },
       });
@@ -175,7 +184,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { nome, prestacoesContas } = req.body;
+    const { nome, prestacoesContas, categoriaId } = req.body;
     const userId = req.user!.id;
     const role   = req.user!.role;
 
@@ -195,10 +204,21 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
       }
     }
 
+    // Se categoriaId foi enviado, não pode ficar sem programa
+    if (categoriaId !== undefined) {
+      if (!categoriaId) return res.status(400).json({ error: 'Programa é obrigatório' });
+      const categoria = await prisma.categoriaProjeto.findUnique({ where: { id: categoriaId } });
+      if (!categoria)        return res.status(400).json({ error: 'Programa não encontrado' });
+      if (!categoria.ativo)  return res.status(400).json({ error: 'Programa inativo' });
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       await tx.projeto.update({
         where: { id },
-        data: { ...(nome?.trim() ? { nome: nome.trim() } : {}) },
+        data: {
+          ...(nome?.trim() ? { nome: nome.trim() } : {}),
+          ...(categoriaId !== undefined ? { categoriaId } : {}),
+        },
       });
 
       if (datas) {
@@ -212,6 +232,7 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
         where: { id },
         include: {
           gestor: { select: { id: true, name: true } },
+          categoria: { select: { id: true, nome: true, ativo: true } },
           prestacoesContas: { orderBy: { data: 'asc' } },
         },
       });

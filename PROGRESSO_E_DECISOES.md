@@ -2,7 +2,7 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** **Fase 4 completa (backend + frontend)** — remanejamento broadcast inteiro: criar/listar solicitações, ceder, cancelar/encerrar, com a concorrência provada no backend e as telas (solicitar/ceder/cancelar/encerrar + barra de progresso) validadas no navegador. **Fases 0 a 4 completas.** Próximo passo: **Fase 5** (relatórios e visão consolidada da coordenação + escala: virtualização e navegabilidade do grid) — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
+> **Última atualização:** **Programas de fomento (categoria do projeto) completos.** Desde a Fase 4 entrou uma leva de **pedidos da cliente pós-demo** (ver §4-bis): o **preparo do demo remoto** (fix de segurança no `/auth/register`, reforma visual clara, ngrok), o **bloco de custos** (valor-hora do colaborador, custo no grid, total por projeto, relatório de custos por projeto), e a feature de **programas de fomento** (categoria obrigatória no projeto, lista compartilhada administrável, selos). A **regra de priorização** está sintetizada e aprovada (`Regra_Priorizacao.md`), aguardando implementação. **Fases 0 a 4 completas.** Próximos passos: **implementar a priorização**, depois o **dashboard**, e a **Fase 5** (coordenação + escala) — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
 
 ---
 
@@ -65,9 +65,10 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 3** | Fechamento mensal (read-only) + log de auditoria do planejado | ✅ Completa (`5aa52c4`, `0529b8d`, `af473ac`, `adc477b`) |
 | **Fase 4** | Remanejamento broadcast entre gestores | ✅ Completa — backend (`393596f`, `6e87355`, `1b5594a`) + frontend (`02e46fa`, `27ad941`, `bcce21b`, `aae171c`, `18964ed`) |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
-| Transversal | Identidade visual geral | ⬜ Pendente |
+| **Pós-demo — pedidos da cliente** | Preparo do demo, custos (valor-hora/grid/relatório), programas de fomento, regra de priorização — ver §4-bis | 🟡 Em andamento (custos + programas ✅; priorização aprovada, falta implementar; dashboard pendente) |
+| Transversal | Identidade visual geral | ✅ Reforma clara aplicada no preparo do demo (`c378876`, `db44f99`) |
 
-> **Fases 0–4 fechadas.** Já dá pra planejar com teto protegido, operar o grid rico, lançar e comparar o realizado, **fechar/reabrir meses**, **auditar toda mudança no planejado** e — agora **pela tela** — **solicitar, ceder, cancelar e encerrar** remanejamentos entre gestores. O que falta é a **Fase 5**: relatórios e visão consolidada da coordenação + escala (virtualização e navegabilidade do grid).
+> **Fases 0–4 fechadas**, e desde então uma **leva de pedidos da cliente pós-demo** (ver §4-bis): o sistema já planeja com teto protegido, opera o grid rico, lança/compara o realizado, **fecha/reabre meses**, **audita o planejado**, **remaneja entre gestores pela tela**, mostra **custo por colaborador/projeto** (grid + relatório), e marca cada projeto com um **programa de fomento**. O que falta: **implementar a priorização** (regra fechada), o **dashboard**, e a **Fase 5** (coordenação + escala).
 
 ### Credenciais de teste (do seed)
 | Papel | E-mail | Senha |
@@ -282,6 +283,50 @@ As telas que põem o remanejamento na mão dos gestores, consumindo os endpoints
 
 ---
 
+## 4-bis. Pós-demo — pedidos da cliente (branch `feat/alocacao-fase-2`)
+
+Depois da Fase 4 o sistema foi **demonstrado para a cliente**, que trouxe cinco pedidos. Em ordem de implementação: (1) prestação de contas — **já existia**; (2) **categoria/programa do projeto**; (3) **valor-hora do colaborador**; (4) **priorização automática**; (5) **dashboard**. Além deles, o demo remoto exigiu um preparo. Esta seção registra o que já foi construído dessa leva. Tudo nesta branch, no mesmo método (pedaços pequenos testados/aprovados um a um, commit + push a cada um, migration mostrada antes de aplicar, validação no navegador antes do commit).
+
+### Preparo do demo remoto
+- **Segurança — `/auth/register` fechado** (`777b37f`): o endpoint era **público e aceitava `role` do cliente** (qualquer um se cadastrava como `admin`). Passou a responder **403 `Registro desabilitado`**. **Resolve a pendência de segurança que estava no parking-lot** (era a única de pré-implantação).
+- **Reforma visual** (`c378876`, `db44f99`): tema **claro/sóbrio com acento índigo** (fonte Inter). Login reescrito (identidade legada LOGAME/RunTask removida); `ThemeContext` padrão claro; telas ForgotPassword/ResetPassword reescritas no mesmo estilo (fluxo por **código de 6 dígitos**, não token na URL); cor de erro padronizada em **`#b42318`** (o `#f87171` claro some no fundo branco).
+- **Mensagens de erro do auth em PT** (`efd0a1a`): "Invalid credentials" → "Email ou senha incorretos" (genérico nos dois casos do 401, por segurança).
+- **ngrok** (`b3e5b20`): `allowedHosts: true` no `vite.config`. O demo rodou no ar (passos de terminal da gestora, fora do CC: `npm run dev` → `ngrok config add-authtoken …` → `ngrok http 5173`). Cuidado: dados são DEMO e reseedam no restart — **não reiniciar mid-demo**.
+- **Lição reforçada:** `tsc` limpo **não** prova cor certa. O `#f87171` sumindo no branco e o `var(--brand)` inexistente foram pegos **só no navegador**. Print é gate.
+
+### Bloco de custos (pedido #3 — valor-hora — que cresceu)
+- **Valor-hora do colaborador** (`c3fc0bc`): campo `valorHora Decimal(10,2)?` **opcional** no Colaborador; validado ≥ 0 / null no criar+editar; form com "Valor/hora (R$)". Migration `add_valor_hora_colaborador`. **Gotcha aprendido:** `prisma migrate dev` **mesmo com `--create-only` APLICA migrations pendentes** — conferir se o arquivo foi criado antes de re-rodar.
+- **Custo no saldo do grid** (`785f296`): `GET /grid` calcula `saldo.custo` = horas × valorHora (gestor vê **a fatia dele** = totalMeusProj; admin vê o total; `null` sem rate). Seed ganhou valor-hora realista por função nos 30 colaboradores.
+- **Total por projeto no rodapé do grid** (`ac7d119`): `custoPorProjeto` por coluna, num `<tfoot>` sticky "Total do projeto".
+- **Relatório de custos por projeto** (`d642643`): tela **"Custos"** + `GET /api/relatorios/custos` (requireRole('admin','gestor'); gestor vê seus projetos ativos, admin todos). Por projeto: **custo total somando TODOS os meses** + quebra por colaborador (horas, valor-hora, custo). Somas em **Decimal** (reconcilia ao centavo — arredonda por colaborador e soma os arredondados); colaborador sem valor-hora aparece marcado e **não soma**.
+- **Nota:** o custo no grid é **display** (arredondado); o relatório usa **Decimal de verdade**. Coordenação no relatório → **403 hoje** (reavaliar na Fase 5 — é papel de leitura dela). Categoria no relatório + export CSV → futuro.
+
+### Programas de fomento — categoria do projeto (pedido #2 — **COMPLETO**)
+Cada projeto pertence a um **programa de fomento** (BNDES, EMBRAPII, FINEP, SENAI, SEBRAE… e "entre outros" → lista **administrável**, não enum fixo).
+
+**Decisões travadas:**
+- Programa **obrigatório em todo projeto** (criar/editar exigem; todos os projetos do seed nascem com um). A obrigatoriedade é garantida **no app + seed**; a coluna `categoriaId` no banco é **nullable** (jeito seguro de aditivar sem quebrar projetos existentes — na ida pra produção dá pra apertar pra NOT NULL num passo único).
+- Lista **compartilhada** (sem dono — BNDES é BNDES pra todos) e **gestor + admin** cadastram.
+- Duplicação no **padrão do colaborador**: nome **idêntico** (ignorando caixa/acento, via collation `utf8mb4_unicode_ci` + check no app + `P2002`) **bloqueia** (409); nome só **parecido** **avisa** e só cria com `confirmarSimilar` (mesma similaridade de `colaboradores.ts`, Levenshtein ≤ 30%).
+
+**Construído:**
+- **Backend** (`0a4361a`): entidade `CategoriaProjeto` (`nome` unique, `ativo`), rotas `/api/categorias` (GET admin/gestor/coordenacao; POST/PATCH admin/gestor com o fluxo exato-bloqueia / parecido-avisa). Seed cria os 5 programas e atribui um a cada projeto (**ordem do reseed ajustada**: categorias são PAI de projetos → apagar projetos antes, criar categorias antes). Migration `add_categoria_projeto` (FK **nullable, ON DELETE RESTRICT**). Teste `test-categorias.mjs` **19/19**.
+- **Projeto exige programa** (`0497ac6`): POST/PUT validam `categoriaId` (presente, existe, **ativo**); PUT **não deixa apagar** (null → 400) e **preserva o atual** quando não vem no corpo; GET devolve a `categoria`. Teste `test-projeto-categoria.mjs` **19/19**.
+- **Tela "Programas"** (`4a2da8a`): admin/gestor listam/criam/renomeiam/ativam-desativam, com o aviso de "parecido". Rota `/programas` + item no menu (gestor+admin).
+- **Seletor + selo** (`4f189d3`): seletor de programa **obrigatório** no form do projeto (ao editar, mostra o programa atual **mesmo se inativo** via opção "(inativo)" e **só reenvia `categoriaId` se mudou** — evita travar ao salvar só o nome de um projeto cujo programa foi desativado); **selo** do programa no card e no detalhe.
+
+**Contrato a lembrar (respostas não-uniformes):** `POST /api/categorias` devolve `{ categoria }` (embrulhado); `PATCH` devolve o objeto **direto**; **`needsConfirmation` volta com status 200** → no frontend, checar `data.needsConfirmation` **antes** de `res.ok`.
+
+### Regra de priorização — **FECHADA, implementação pendente** (pedido #4)
+Sintetizada a partir de **brainstorm de 4 IAs externas** (decisão estrutural, cara de refazer → entrou na régua do brainstorm). Documento: **`Regra_Priorizacao.md`** (aprovado pela gestora).
+
+- **Regra:** determinística e **auditável** (não caixa-preta). **Categoria pela faixa de prazo** da próxima prestação de contas (vencido ou ≤ 7 dias → **Alta**; 8–30 → **Média**; > 30 → **Baixa**; sem prazo → fila separada). **Dentro da categoria, ordena por horas pendentes desc** (`horas_pendentes = planejado − realizado`; degrada bem com realizado vazio → usa o planejado inteiro). **Capacidade/gargalo é só SINAL exibido** (🔴 quando ≥ 95% do teto), **não entra na ordenação**. **Override manual** (fixar/pausar). Recálculo em **batch diário**. Todos os limiares numa **tabela de config**.
+- **3 decisões da cliente resolvidas:** escalonamento por capacidade **desligado** (só alerta, não reordena) na v1; ordem intra-categoria por **horas pendentes**; cultura de apontamento de realizado vira **pergunta pra cliente** (a precisão degrada — não catastroficamente — sem o realizado).
+- **Saída pro usuário:** sempre **categoria + ordenação + um texto curto do "porquê"** (nunca um número solto).
+- **Implementação:** **fase futura** (estruturalmente pesada). Os endpoints de leitura existentes são base; vai precisar do cálculo + uma tela.
+
+---
+
 ## 5. Sobre alocar "no nível da macro" (sem descer até micro)
 
 Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem escolher uma micro?*
@@ -323,9 +368,14 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 
 ---
 
-## 7. Próximo passo: Fase 5 (relatórios da coordenação + escala)
+## 7. Próximos passos (priorização → dashboard → Fase 5)
 
-Com a Fase 4 fechada, **as Fases 0 a 4 estão completas** — o núcleo do sistema (cadastro, planejamento com teto, realizado, fechamento, auditoria e remanejamento) está todo no ar e validado. O que resta é a **Fase 5**, voltada à **coordenação** e à **escala**:
+Com as **Fases 0 a 4 completas** e a leva pós-demo já com **custos** e **programas** entregues (ver §4-bis), o que está na frente é:
+
+1. **Implementar a priorização** — a regra já está fechada e aprovada (`Regra_Priorizacao.md`, resumo no §4-bis). Falta o cálculo (faixa de prazo → categoria; ordenação por horas pendentes; capacidade como sinal; override; batch diário; tabela de config) e uma tela. É estruturalmente pesada, mas a decisão difícil (a regra) já passou pelo brainstorm — a implementação segue como spec.
+2. **Dashboard** (pedido #5 da cliente) — junta tudo (custos, priorização, capacidade). É o mais "de produto" e o mais caro de refazer → **merece o brainstorm de IAs externas ao escopá-lo**, antes do primeiro prompt.
+
+E, em paralelo ou depois, a **Fase 5**, voltada à **coordenação** e à **escala**:
 
 - **Visão de capacidade global da coordenação:** agregada por padrão, com drill-down sob demanda e filtros obrigatórios. A coordenação é só-leitura e hoje abre o grid vazio (não é dona de projetos) — a visão dela mora aqui.
 - **Relatórios:** planejado vs. realizado, ociosidade e sobrecarga; exportação CSV; cópia de planejamento mês a mês.
@@ -333,7 +383,7 @@ Com a Fase 4 fechada, **as Fases 0 a 4 estão completas** — o núcleo do siste
 
 É a fase mais "de produto" depois do núcleo — vale um desenho com calma antes do primeiro prompt, e dá pra quebrar em pedaços pequenos como sempre (ex.: a visão da coordenação primeiro, depois cada relatório, depois a virtualização). Os endpoints de leitura já existentes (grid, log) são a base; alguns vão precisar de variantes agregadas/paginadas.
 
-> **Antes de implantar (independe da Fase 5):** fechar o `/auth/register` público — ver o parking-lot ao fim desta seção. É a única pendência de **segurança** e tem prioridade alta na pré-implantação.
+> **Pré-implantação (segurança):** o `/auth/register` público **já foi fechado** (`777b37f`, ver §4-bis) — era a única pendência de **segurança** de pré-implantação, agora resolvida.
 
 ### Extra deferido da Fase 3 — Tela de histórico do log (E2-b)
 A captura do log (E2) está pronta; falta a **tela** pra visualizar o histórico de uma célula (quem alterou o planejado, quando, de quanto pra quanto). Já existe o `GET /api/alocacoes/:id/log`. Ideia: um "histórico" no painel lateral da célula. Ao montar, **decidir o acesso da coordenação ao log** (hoje o endpoint é admin/gestor → 403 pra coordenação; como transparência/relatório é o papel dela, faz sentido reavaliar). Também avaliar buscar o histórico **por contexto** (colaborador+projeto+micro+mês), não só por `alocacaoId`, pra cobrir o caso de uma alocação deletada e recriada (id novo).
@@ -350,7 +400,7 @@ Apareceu no C2 e foi adiado. Com muitas colunas/projetos: (a) é difícil perceb
 
 ### Parking-lot (anotado, fora de fase — tratar quando der / antes de implantar)
 - ~~**`ProjetoDetalhe.tsx`: `shrink` → `flexShrink`.**~~ **RESOLVIDO** em `af473ac`.
-- **Fechar o `/auth/register` público antes de implantar.** Hoje o endpoint de registro é público e aceita o `role` vindo do cliente (é o que permite os testes se registrarem como gestor/coordenador/admin). Em produção isso é um buraco: qualquer um se cadastra como `admin`. Travar antes do deploy (só admin cria usuário, ou role não-setável pelo cliente). **Prioridade alta na pré-implantação.**
+- ~~**Fechar o `/auth/register` público antes de implantar.**~~ **RESOLVIDO** em `777b37f`: o endpoint agora responde 403 `Registro desabilitado` (não aceita mais `role` do cliente). Era a única pendência de segurança de pré-implantação.
 
 ---
 
@@ -359,4 +409,5 @@ Apareceu no C2 e foi adiado. Com muitas colunas/projetos: (a) é difícil perceb
 - **`PLANO_FINAL.md`** — o plano consolidado (o "o quê" e "por quê" de todas as fases). (Obs.: o `PLANO_FINAL` rotula o realizado/comparação como "Fase 3"; aqui isso é o "C3 da Fase 2" — só diferença de rótulo. A "Fase 3" **deste** documento = fechamento mensal + auditoria, que o `PLANO_FINAL` também descreve dentro da sua "Fase 3".)
 - **`ANALISE_ADAPTACAO_OBSOLETO.md`** — análise antiga, superada. **Ignorar** (premissas abandonadas: aprovação vertical, TimeEntry, projeto-gestor M:N).
 - **`CRITICA_DESIGN_v2.md`** — o prompt de crítica que foi levado às IAs externas (registro do brainstorm de design do grid).
+- **`Regra_Priorizacao.md`** — a regra de priorização sintetizada e aprovada (spec da implementação futura; resumo no §4-bis). Saiu do brainstorm de 4 IAs.
 - **`PROGRESSO_E_DECISOES.md`** — este documento.

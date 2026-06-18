@@ -78,6 +78,18 @@ model PasswordReset {
 
 // ─── Fase 1: Domínio de Alocação ──────────────────────────────────
 
+model CategoriaProjeto {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projetos  Projeto[]
+
+  @@map("categorias_projeto")
+}
+
 model Colaborador {
   id          String   @id @db.VarChar(191)
   nome        String   @db.VarChar(255)
@@ -97,15 +109,17 @@ model Colaborador {
 }
 
 model Projeto {
-  id        String   @id @db.VarChar(191)
-  codigo    String   @unique @db.VarChar(50)
-  nome      String   @db.VarChar(255)
-  gestorId  String   @map("gestor_id") @db.VarChar(191)
-  status    String   @default("ativo") @db.VarChar(50)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @db.VarChar(191)
+  codigo      String   @unique @db.VarChar(50)
+  nome        String   @db.VarChar(255)
+  gestorId    String   @map("gestor_id") @db.VarChar(191)
+  categoriaId String?
+  status      String   @default("ativo") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   gestor                           User                       @relation(fields: [gestorId], references: [id])
+  categoria                        CategoriaProjeto?          @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
   macroEntregas                    MacroEntrega[]
   prestacoesContas                 PrestacaoContas[]
   alocacoes                        Alocacao[]

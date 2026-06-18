@@ -82,22 +82,33 @@ const COLABORADORES = [
   { id: 'sc-30', nome: 'Flora Nascimento',    email: 'flora.nascimento@equipe.dev',   funcao: 'Redatora',          valorHora: 100 },
 ];
 
+// ── Programas/categorias de projeto ─────────────────────────────────────────
+// Globais, sem dono — compartilhados entre todos os gestores.
+const CATEGORIAS_PROJETO = [
+  { id: 'cat-bndes',    nome: 'BNDES'    },
+  { id: 'cat-embrapii', nome: 'EMBRAPII' },
+  { id: 'cat-finep',    nome: 'FINEP'    },
+  { id: 'cat-senai',    nome: 'SENAI'    },
+  { id: 'cat-sebrae',   nome: 'SEBRAE'   },
+];
+
 // ── Projetos (com macros e micro Geral por macro) ───────────────────────────
 // macros: array de nomes → cada um vira uma MacroEntrega com MicroEntrega 'Geral'
+// categoriaId: SEED01–04 mapeados explicitamente; demais ciclam pela lista de programas.
 const PROJETOS = [
   // gestor1 — 4 projetos
-  { id: 'sp-01', codigo: 'SEED01', nome: 'Campanha Verão',      gestorId: G1, macros: ['Design', 'Conteúdo'], dataPC: '2026-12-31' },
-  { id: 'sp-02', codigo: 'SEED02', nome: 'Rebranding Digital',  gestorId: G1, macros: ['Visual'],             dataPC: '2026-11-30' },
-  { id: 'sp-03', codigo: 'SEED03', nome: 'Projeto Social',      gestorId: G1, macros: ['Produção'],           dataPC: '2026-09-30' },
-  { id: 'sp-04', codigo: 'SEED04', nome: 'Lançamento Produto',  gestorId: G1, macros: ['Mídia Paga'],         dataPC: '2026-10-31' },
+  { id: 'sp-01', codigo: 'SEED01', nome: 'Campanha Verão',      gestorId: G1, macros: ['Design', 'Conteúdo'], dataPC: '2026-12-31', categoriaId: 'cat-bndes'    },
+  { id: 'sp-02', codigo: 'SEED02', nome: 'Rebranding Digital',  gestorId: G1, macros: ['Visual'],             dataPC: '2026-11-30', categoriaId: 'cat-embrapii' },
+  { id: 'sp-03', codigo: 'SEED03', nome: 'Projeto Social',      gestorId: G1, macros: ['Produção'],           dataPC: '2026-09-30', categoriaId: 'cat-finep'    },
+  { id: 'sp-04', codigo: 'SEED04', nome: 'Lançamento Produto',  gestorId: G1, macros: ['Mídia Paga'],         dataPC: '2026-10-31', categoriaId: 'cat-senai'    },
   // gestor2 — 3 projetos
-  { id: 'sp-05', codigo: 'SEED05', nome: 'Newsletter Mensal',   gestorId: G2, macros: ['Copywriting'],        dataPC: '2026-12-31' },
-  { id: 'sp-06', codigo: 'SEED06', nome: 'Blog Corporativo',    gestorId: G2, macros: ['SEO', 'Design'],      dataPC: '2026-11-15' },
-  { id: 'sp-07', codigo: 'SEED07', nome: 'Redes Sociais B2B',   gestorId: G2, macros: ['Estratégia'],         dataPC: '2026-10-31' },
+  { id: 'sp-05', codigo: 'SEED05', nome: 'Newsletter Mensal',   gestorId: G2, macros: ['Copywriting'],        dataPC: '2026-12-31', categoriaId: 'cat-sebrae'   },
+  { id: 'sp-06', codigo: 'SEED06', nome: 'Blog Corporativo',    gestorId: G2, macros: ['SEO', 'Design'],      dataPC: '2026-11-15', categoriaId: 'cat-bndes'    },
+  { id: 'sp-07', codigo: 'SEED07', nome: 'Redes Sociais B2B',   gestorId: G2, macros: ['Estratégia'],         dataPC: '2026-10-31', categoriaId: 'cat-embrapii' },
   // gestor3 — 3 projetos
-  { id: 'sp-08', codigo: 'SEED08', nome: 'Identidade Visual',   gestorId: G3, macros: ['Branding', 'Aplicações'], dataPC: '2026-09-30' },
-  { id: 'sp-09', codigo: 'SEED09', nome: 'Site Institucional',  gestorId: G3, macros: ['Frontend'],           dataPC: '2026-12-31' },
-  { id: 'sp-10', codigo: 'SEED10', nome: 'Vídeo Institucional', gestorId: G3, macros: ['Roteiro', 'Edição'],  dataPC: '2026-11-30' },
+  { id: 'sp-08', codigo: 'SEED08', nome: 'Identidade Visual',   gestorId: G3, macros: ['Branding', 'Aplicações'], dataPC: '2026-09-30', categoriaId: 'cat-finep'  },
+  { id: 'sp-09', codigo: 'SEED09', nome: 'Site Institucional',  gestorId: G3, macros: ['Frontend'],           dataPC: '2026-12-31', categoriaId: 'cat-senai'    },
+  { id: 'sp-10', codigo: 'SEED10', nome: 'Vídeo Institucional', gestorId: G3, macros: ['Roteiro', 'Edição'],  dataPC: '2026-11-30', categoriaId: 'cat-sebrae'   },
 ];
 
 // ── Alocações ─────────────────────────────────────────────────────────────
@@ -198,6 +209,7 @@ export async function initDb() {
   await prisma.macroEntrega.deleteMany();
   await prisma.prestacaoContas.deleteMany();
   await prisma.projeto.deleteMany();
+  await prisma.categoriaProjeto.deleteMany(); // pai de projetos (RESTRICT) — apaga depois dos projetos
   await prisma.colaborador.deleteMany();
   await prisma.pushSubscription.deleteMany();
   await prisma.notification.deleteMany();
@@ -219,13 +231,20 @@ export async function initDb() {
     });
   }
 
+  // ── Programas/categorias de projeto — pai de Projeto (RESTRICT), cria antes ──
+  for (const cat of CATEGORIAS_PROJETO) {
+    await prisma.categoriaProjeto.create({
+      data: { id: cat.id, nome: cat.nome, ativo: true },
+    });
+  }
+
   // ── Projetos + Macros (cada macro ganha micro "Geral") ─────────────────
   // macroMicroMap[projId][macroIndex] = { macroId, microId }
   const macroMicroMap: Record<string, { macroId: string; microId: string }[]> = {};
 
   for (const p of PROJETOS) {
     await prisma.projeto.create({
-      data: { id: p.id, codigo: p.codigo, nome: p.nome, gestorId: p.gestorId, status: 'ativo' },
+      data: { id: p.id, codigo: p.codigo, nome: p.nome, gestorId: p.gestorId, categoriaId: p.categoriaId, status: 'ativo' },
     });
     await prisma.prestacaoContas.create({
       data: { id: `spc-${p.id}`, projetoId: p.id, data: new Date(p.dataPC) },
@@ -304,6 +323,7 @@ export async function initDb() {
 
   console.log(`✅ Seed completo`);
   console.log(`   Usuários: 1 admin · 1 coordenação · 3 gestores`);
+  console.log(`   Programas: ${CATEGORIAS_PROJETO.map(c => c.nome).join(', ')}`);
   console.log(`   Colaboradores: ${totalColabs}`);
   console.log(`   Projetos: ${totalProjs} (G1=${g1Projs} · G2=${g2Projs} · G3=${g3Projs})`);
   console.log(`   Alocações: ${totalAlocs} entradas em Jun/Jul/Ago 2026`);

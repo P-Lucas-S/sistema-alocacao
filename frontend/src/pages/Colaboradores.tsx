@@ -19,12 +19,24 @@ interface Similar {
   funcao: string | null;
 }
 
+interface Categoria {
+  id: string;
+  nome: string;
+  ativo: boolean;
+}
+
+interface TarifaInput {
+  categoriaId: string;
+  valorHora: number;
+}
+
 // Dados do formulário prontos para reenvio com confirmarSimilar: true
 interface PendingCreate {
   nome: string;
   email: string;
   funcao: string | null;
-  valorHora: number | null;
+  valorHora: number;
+  tarifas: TarifaInput[];
   similares: Similar[];
 }
 
@@ -43,12 +55,13 @@ const Select = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
   <select {...props} style={{ ...inputStyle, ...props.style }} />
 );
 
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+const Field = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
   <div className="flex flex-col gap-1.5">
     <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
       {label}
     </label>
     {children}
+    {hint && <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>{hint}</p>}
   </div>
 );
 
@@ -75,6 +88,15 @@ export default function Colaboradores() {
   const [funcao, setFuncao]   = useState('');
   const [customFuncao, setCustomFuncao] = useState('');
   const [valorHora, setValorHora] = useState('');
+
+  // Tarifas por categoria (overrides) — categoriaId -> valor digitado (string, vazio = sem override)
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [tarifasLoading, setTarifasLoading] = useState(false);
+  // tarifasCarregadas: só true quando é seguro mandar `tarifas` no PUT (criar não depende de fetch).
+  // tarifasFetchErro: GET /:id falhou — overrides nos inputs não refletem a realidade, NÃO enviar.
+  const [tarifasCarregadas, setTarifasCarregadas] = useState(true);
+  const [tarifasFetchErro, setTarifasFetchErro] = useState(false);
 
   // Confirmation flow (stage 2)
   const [pending, setPending]   = useState<PendingCreate | null>(null);
@@ -106,16 +128,33 @@ export default function Colaboradores() {
     return () => clearTimeout(t);
   }, [search]);
 
+  const fetchCategorias = useCallback(async () => {
+    const res = await fetch('/api/categorias?ativo=true', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) setCategorias(await res.json());
+  }, [token]);
+
+  useEffect(() => { fetchCategorias(); }, [fetchCategorias]);
+
+  function placeholderPadrao() {
+    const num = parseFloat(valorHora);
+    if (valorHora.trim() === '' || isNaN(num)) return 'padrão: —';
+    return `padrão: ${num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
   // ── Modal helpers ──────────────────────────────────────────────────────
 
   function openCreate() {
     setEditTarget(null);
     setNome(''); setEmail(''); setFuncao(''); setCustomFuncao(''); setValorHora('');
+    setOverrides({});
+    setTarifasCarregadas(true); setTarifasFetchErro(false); // criar não depende de fetch — sempre seguro
     setError(''); setPending(null);
     setIsModalOpen(true);
   }
 
-  function openEdit(c: Colaborador) {
+  async function openEdit(c: Colaborador) {
     setEditTarget(c);
     setNome(c.nome);
     setEmail(c.email);
@@ -123,8 +162,34 @@ export default function Colaboradores() {
     setFuncao(isPredefined ? (c.funcao ?? '') : (c.funcao ? '__custom__' : ''));
     setCustomFuncao(isPredefined ? '' : (c.funcao ?? ''));
     setValorHora(c.valorHora != null ? c.valorHora : '');
+    setOverrides({});
+    setTarifasCarregadas(false); setTarifasFetchErro(false); // só fica true após o GET ter sucesso
     setError(''); setPending(null);
     setIsModalOpen(true);
+
+    // Busca o detalhe pra pré-preencher os overrides existentes (a lista não os traz).
+    // Enquanto isso não terminar (ou se falhar), o PUT não pode mandar `tarifas` —
+    // senão um array vazio apagaria os overrides reais no backend.
+    setTarifasLoading(true);
+    try {
+      const res = await fetch(`/api/colaboradores/${c.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const detail = await res.json();
+        if (detail.valorHora != null) setValorHora(String(parseFloat(detail.valorHora)));
+        const map: Record<string, string> = {};
+        for (const t of detail.tarifas ?? []) {
+          map[t.categoriaId] = String(parseFloat(t.valorHora));
+        }
+        setOverrides(map);
+        setTarifasCarregadas(true);
+      } else {
+        setTarifasFetchErro(true);
+      }
+    } catch {
+      setTarifasFetchErro(true);
+    } finally {
+      setTarifasLoading(false);
+    }
   }
 
   function closeModal() {
@@ -132,6 +197,7 @@ export default function Colaboradores() {
     setEditTarget(null);
     setPending(null);
     setError('');
+    setOverrides({});
   }
 
   function cancelConfirmation() {
@@ -147,12 +213,38 @@ export default function Colaboradores() {
   // ── Estágio 1: submit do formulário ────────────────────────────────────
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    setError(''); setSaving(true);
-    const valorHoraNum = valorHora.trim() !== '' ? parseFloat(valorHora) : null;
+    setError('');
+
+    // Valor-hora padrão é obrigatório — bloqueia ANTES de chamar a API
+    const valorHoraTrim = valorHora.trim();
+    const valorHoraNum = parseFloat(valorHoraTrim);
+    if (valorHoraTrim === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
+      setError('Informe o valor-hora padrão do colaborador (maior que zero).');
+      return;
+    }
+
+    // Monta tarifas só com os inputs preenchidos e válidos; em branco = sem override
+    const tarifas: TarifaInput[] = [];
+    for (const cat of categorias) {
+      const raw = overrides[cat.id];
+      if (raw === undefined || raw.trim() === '') continue;
+      const num = parseFloat(raw);
+      if (isNaN(num) || num <= 0) {
+        setError(`Valor inválido para a categoria "${cat.nome}" — informe um número maior que zero ou deixe em branco.`);
+        return;
+      }
+      tarifas.push({ categoriaId: cat.id, valorHora: num });
+    }
+
+    setSaving(true);
     try {
       if (editTarget) {
-        // Edição não tem fluxo de confirmação
-        const body = { nome: nome.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum };
+        // Edição não tem fluxo de confirmação.
+        // `tarifas` só entra no body se o GET de overrides já carregou com sucesso —
+        // senão omitimos o campo (backend preserva os overrides existentes).
+        const body: Record<string, unknown> = { nome: nome.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum };
+        if (tarifasCarregadas) body.tarifas = tarifas;
+
         const res  = await fetch(`/api/colaboradores/${editTarget.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -166,7 +258,7 @@ export default function Colaboradores() {
       }
 
       // Criação — estágio 1
-      const body = { nome: nome.trim(), email: email.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum };
+      const body = { nome: nome.trim(), email: email.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum, tarifas };
       const res = await fetch('/api/colaboradores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -464,20 +556,60 @@ export default function Colaboradores() {
                   )}
                 </Field>
 
-                <Field label="Valor/hora — R$ (opcional)">
+                <Field
+                  label="Valor/hora padrão (R$)"
+                  hint="Usado quando o colaborador não tem uma tarifa específica para a categoria do projeto."
+                >
                   <Input
-                    type="number" min="0" step="0.01" placeholder="Ex: 120.00"
+                    type="number" required min="0.01" step="0.01" placeholder="Ex: 120.00"
                     value={valorHora} onChange={e => setValorHora(e.target.value)}
                     disabled={saving}
                   />
                 </Field>
 
+                {categorias.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                      Tarifas por categoria (opcional)
+                    </label>
+                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                      Deixe em branco para usar o valor padrão. Preencha só as categorias com valor diferente.
+                    </p>
+
+                    {tarifasLoading ? (
+                      <p className="text-xs" style={{ color: 'var(--text-3)' }}>Carregando tarifas…</p>
+                    ) : tarifasFetchErro ? (
+                      <p className="text-xs" style={{ color: '#b42318' }}>
+                        Não foi possível carregar as tarifas; salvar não vai alterá-las.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {categorias.map(cat => (
+                          <div key={cat.id} className="flex items-center gap-3">
+                            <span className="text-sm flex-1 min-w-0 truncate" style={{ color: 'var(--text-1)' }}>
+                              {cat.nome}
+                            </span>
+                            <Input
+                              type="number" min="0.01" step="0.01"
+                              placeholder={placeholderPadrao()}
+                              value={overrides[cat.id] ?? ''}
+                              onChange={e => setOverrides(prev => ({ ...prev, [cat.id]: e.target.value }))}
+                              disabled={saving}
+                              style={{ width: 140 }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex gap-3 pt-1">
                   <button type="button" onClick={closeModal} disabled={saving} className="flex-1 py-2 px-4 rounded-xl text-sm font-medium" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)' }}>
                     Cancelar
                   </button>
-                  <button type="submit" disabled={saving} className="flex-1 py-2 px-4 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--brand-500)', opacity: saving ? 0.7 : 1 }}>
-                    {saving ? 'Verificando…' : editTarget ? 'Salvar' : 'Continuar'}
+                  <button type="submit" disabled={saving || tarifasLoading} className="flex-1 py-2 px-4 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--brand-500)', opacity: (saving || tarifasLoading) ? 0.7 : 1 }}>
+                    {saving ? 'Verificando…' : tarifasLoading ? 'Carregando tarifas…' : editTarget ? 'Salvar' : 'Continuar'}
                   </button>
                 </div>
               </form>

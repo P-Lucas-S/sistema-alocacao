@@ -609,7 +609,7 @@ export default function Colaboradores() {
                     Cancelar
                   </button>
                   <button type="submit" disabled={saving || tarifasLoading} className="flex-1 py-2 px-4 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--brand-500)', opacity: (saving || tarifasLoading) ? 0.7 : 1 }}>
-                    {saving ? 'Verificando…' : tarifasLoading ? 'Carregando tarifas…' : editTarget ? 'Salvar' : 'Continuar'}
+                    {saving ? 'Verificando…' : tarifasLoading ? 'Carregando tarifas…' : 'Salvar'}
                   </button>
                 </div>
               </form>

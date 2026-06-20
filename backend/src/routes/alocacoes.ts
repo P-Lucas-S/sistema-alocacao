@@ -2,6 +2,7 @@ import express from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prisma.js';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
+import { carregarTarifas, resolverTarifa } from '../lib/tarifa.js';
 
 const router = express.Router();
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -229,6 +230,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       codigo: p.codigo,
       nome: p.nome,
       gestorId: p.gestorId,
+      categoriaId: p.categoriaId,
       defaultMacroId: p.macroEntregas[0]?.id ?? null,
       defaultMicroId: p.macroEntregas[0]?.microEntregas[0]?.id ?? null,
     }));
@@ -301,6 +303,24 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       }
     }
 
+    // ── Categoria de cada projeto envolvido no saldo (inclui projetos de outros
+    // gestores, que não vieram em `projetos`) — pro resolvedor de tarifa ──────
+    const categoriaPorProjeto = new Map<string, string | null>();
+    for (const proj of projetos) categoriaPorProjeto.set(proj.id, proj.categoriaId);
+
+    const todosProjIdsEnvolvidos = [...new Set(todasAlocs.map(a => a.projetoId))];
+    const projIdsSemCategoria = todosProjIdsEnvolvidos.filter(id => !categoriaPorProjeto.has(id));
+    if (projIdsSemCategoria.length > 0) {
+      const outrosProjetos = await prisma.projeto.findMany({
+        where: { id: { in: projIdsSemCategoria } },
+        select: { id: true, categoriaId: true },
+      });
+      for (const op of outrosProjetos) categoriaPorProjeto.set(op.id, op.categoriaId);
+    }
+
+    // ── Tarifas específicas (override por categoria) — 1 query, sem N+1 ──────
+    const tarifasMap = await carregarTarifas(colabIds);
+
     // ── Construir linhas ──────────────────────────────────────────────────
     const D0   = new Prisma.Decimal(0);
     const TETO = new Prisma.Decimal(220);
@@ -333,10 +353,26 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       }
 
       const { valorHora, ...colaboradorOut } = colabInfo.get(colabId)!;
-      // Custo no escopo desta grade: gestor vê só as próprias colunas (totalMeusProj);
-      // admin vê todas as colunas, então usa totalGeral (evita custo R$0 por falta de escopo).
-      const horasParaCusto = role === 'admin' ? totalGeral : totalMeusProj;
-      const custo = valorHora != null ? horasParaCusto.times(valorHora).toFixed(2) : null;
+
+      // Custo no escopo desta grade: gestor vê só as próprias colunas; admin vê todas.
+      // Soma POR PROJETO (não horas totais × 1 valor) — cada projeto usa a tarifa
+      // resolvida pra (colaborador, categoria DAQUELE projeto): override específico,
+      // senão o valorHora padrão, senão sem tarifa (não soma essa parcela).
+      const horasPorProjeto = new Map<string, Prisma.Decimal>();
+      for (const a of alocs) {
+        if (role !== 'admin' && !meusProjIds.has(a.projetoId)) continue;
+        horasPorProjeto.set(a.projetoId, (horasPorProjeto.get(a.projetoId) ?? D0).plus(a.horasPlanejadas));
+      }
+
+      let custoSoma: Prisma.Decimal | null = null;
+      for (const [projId, horasNoProjeto] of horasPorProjeto) {
+        const categoriaId = categoriaPorProjeto.get(projId) ?? null;
+        const { valor } = resolverTarifa(tarifasMap, { id: colabId, valorHora }, categoriaId);
+        if (valor == null) continue; // sem_tarifa — não soma essa parcela
+        const parcela = horasNoProjeto.times(valor);
+        custoSoma = custoSoma == null ? parcela : custoSoma.plus(parcela);
+      }
+      const custo = custoSoma != null ? custoSoma.toFixed(2) : null;
 
       return {
         colaborador: colaboradorOut,
@@ -355,8 +391,9 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     linhas.sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'));
 
     // ── Custo total por projeto (coluna) ──────────────────────────────────
-    // Soma, sobre os colaboradores da grade, de (horas planejadas no projeto × valorHora).
-    // Colaborador sem valorHora não contribui (não zera o projeto, só é pulado).
+    // Soma, sobre os colaboradores da grade, de (horas na célula × tarifa resolvida
+    // pra a categoria DESTE projeto — override específico, senão o padrão).
+    // Colaborador sem tarifa (sem_tarifa) não contribui (não zera o projeto, só é pulado).
     // Sem distinção gestor/admin — é o custo da coluna inteira.
     const custoPorProjeto: Record<string, string | null> = {};
     for (const proj of projetos) {
@@ -364,9 +401,10 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       for (const colabId of colabIds) {
         const entry = celulasByColabProj.get(`${colabId}::${proj.id}`);
         if (!entry) continue;
-        const valorHora = colabInfo.get(colabId)?.valorHora;
-        if (valorHora == null) continue;
-        const custoColab = entry.totalHoras.times(valorHora);
+        const colabValorHora = colabInfo.get(colabId)?.valorHora ?? null;
+        const { valor } = resolverTarifa(tarifasMap, { id: colabId, valorHora: colabValorHora }, proj.categoriaId);
+        if (valor == null) continue;
+        const custoColab = entry.totalHoras.times(valor);
         soma = soma == null ? custoColab : soma.plus(custoColab);
       }
       custoPorProjeto[proj.id] = soma != null ? soma.toFixed(2) : null;

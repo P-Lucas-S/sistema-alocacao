@@ -2,7 +2,7 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** **Programas de fomento (categoria do projeto) completos.** Desde a Fase 4 entrou uma leva de **pedidos da cliente pós-demo** (ver §4-bis): o **preparo do demo remoto** (fix de segurança no `/auth/register`, reforma visual clara, ngrok), o **bloco de custos** (valor-hora do colaborador, custo no grid, total por projeto, relatório de custos por projeto), e a feature de **programas de fomento** (categoria obrigatória no projeto, lista compartilhada administrável, selos). A **regra de priorização** está sintetizada e aprovada (`Regra_Priorizacao.md`), aguardando implementação. **Fases 0 a 4 completas.** Próximos passos: **implementar a priorização**, depois o **dashboard**, e a **Fase 5** (coordenação + escala) — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
+> **Última atualização:** **Tarifa por colaborador × categoria completa, e a spec de papéis (chefe/diretor) + posse/exclusão fechada.** Duas frentes desde os programas de fomento: (1) a **tarifa por colaborador × categoria** — evolução do pedido #3 (valor-hora), **já completa** (resolvedor + relatório + grid + tela de edição + blindagem contra apagar override), ver §4-bis; (2) uma **segunda leva de pedidos da cliente** (via o `Manual`), cujo item estrutural — **papéis novos (chefe, diretor), delegação de projeto e exclusão permanente** — passou por **brainstorm de 4 IAs** e virou a **`Spec_Papeis_Posse_Exclusao.md`** (decisões travadas), ver §4-ter. **Fases 0 a 4 + a tarifa completas.** Próximos passos: o **bug de macro/micro** (defeito atual), depois implementar a **spec de papéis** (6 passos), e então **priorização → dashboards (3) → Fase 5** — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
 
 ---
 
@@ -22,6 +22,8 @@ O objetivo central é **comunicação entre gestores e documentação da equipe*
 - **`coordenacao`** — somente leitura em tudo (relatórios, visão global). Não aloca, não arbitra, não cede.
 - **`admin`** — administração técnica. Também é quem **fecha e reabre meses** (Fase 3).
 - **Colaborador NÃO é usuário** — é uma entidade de dados. Não tem login, não bate ponto. Tudo é cadastrado pelos gestores.
+
+> **Em expansão:** a `Spec_Papeis_Posse_Exclusao.md` (§4-ter) adiciona **`chefe`** (cria/delega projetos, aprova exclusão, **também** fecha/reabre mês) e **`diretor`** (leitura executiva, só dashboards), mantendo os três acima. **Ainda não implementado** — esta lista reflete o estado atual.
 
 ### Branches
 - **`feat/alocacao-fase-1`** — Fases 0, 1 e o C1 da Fase 2 (até o commit `65aea36`).
@@ -65,10 +67,11 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 3** | Fechamento mensal (read-only) + log de auditoria do planejado | ✅ Completa (`5aa52c4`, `0529b8d`, `af473ac`, `adc477b`) |
 | **Fase 4** | Remanejamento broadcast entre gestores | ✅ Completa — backend (`393596f`, `6e87355`, `1b5594a`) + frontend (`02e46fa`, `27ad941`, `bcce21b`, `aae171c`, `18964ed`) |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
-| **Pós-demo — pedidos da cliente** | Preparo do demo, custos (valor-hora/grid/relatório), programas de fomento, regra de priorização — ver §4-bis | 🟡 Em andamento (custos + programas ✅; priorização aprovada, falta implementar; dashboard pendente) |
+| **Pós-demo (1ª leva)** | Preparo do demo, custos, programas de fomento, **tarifa por colaborador × categoria**, regra de priorização — ver §4-bis | 🟡 Custos + programas + **tarifa** ✅; priorização aprovada (falta implementar); dashboard pendente |
+| **Pós-demo (2ª leva — Manual)** | Papéis novos (chefe/diretor) + delegação + exclusão permanente (**specado**), bug macro/micro, e itens menores — ver §4-ter | 🟡 Spec fechada (`Spec_Papeis_Posse_Exclusao.md`); implementação a começar |
 | Transversal | Identidade visual geral | ✅ Reforma clara aplicada no preparo do demo (`c378876`, `db44f99`) |
 
-> **Fases 0–4 fechadas**, e desde então uma **leva de pedidos da cliente pós-demo** (ver §4-bis): o sistema já planeja com teto protegido, opera o grid rico, lança/compara o realizado, **fecha/reabre meses**, **audita o planejado**, **remaneja entre gestores pela tela**, mostra **custo por colaborador/projeto** (grid + relatório), e marca cada projeto com um **programa de fomento**. O que falta: **implementar a priorização** (regra fechada), o **dashboard**, e a **Fase 5** (coordenação + escala).
+> **Fases 0–4 + a tarifa fechadas.** Desde então: a **tarifa por colaborador × categoria** entregue (§4-bis), e uma **2ª leva de pedidos** (via o `Manual`) cujo núcleo estrutural — **papéis chefe/diretor, delegação e exclusão permanente** — está **specado** (`Spec_Papeis_Posse_Exclusao.md`, §4-ter) e pronto pra começar. O que falta: o **bug de macro/micro** (defeito atual), **implementar a spec de papéis**, a **priorização** (regra fechada), os **dashboards (3)**, e a **Fase 5**.
 
 ### Credenciais de teste (do seed)
 | Papel | E-mail | Senha |
@@ -317,6 +320,24 @@ Cada projeto pertence a um **programa de fomento** (BNDES, EMBRAPII, FINEP, SENA
 
 **Contrato a lembrar (respostas não-uniformes):** `POST /api/categorias` devolve `{ categoria }` (embrulhado); `PATCH` devolve o objeto **direto**; **`needsConfirmation` volta com status 200** → no frontend, checar `data.needsConfirmation` **antes** de `res.ok`.
 
+### Tarifa por colaborador × categoria (evolução do pedido #3 — **COMPLETO**)
+O valor-hora único por pessoa virou **tarifa por colaborador × categoria** (a cliente pediu, via 2 áudios): cada pessoa pode ter um valor diferente por programa de fomento. Ex.: um colaborador a R$ 30,70/h no FINEP e R$ 100/h nas demais. **Decisão estrutural → passou por brainstorm de 4 IAs** (`Brainstorm_ValorHora_Categoria.md` → `Tarifa_Colaborador_Categoria_Spec.md`, aprovada). Confusão resolvida no caminho: o texto da gestora dizia "depende da função", o áudio dizia **por colaborador** — ficou **por colaborador** (a função é descritiva, não define tarifa).
+
+**Decisões travadas:**
+- **Modelo:** mantém `Colaborador.valorHora` como o **padrão** (NÃO renomeado — evita ripple em backend/API/frontend; campo físico `valor_hora` via `@map`) + tabela nova **`TarifaColaborador`** (`colaboradorId`, `categoriaId`, `valorHora Decimal(10,2)`) UNIQUE(colaboradorId, categoriaId), guarda **só as exceções**.
+- **Precedência (o resolvedor):** override (colaborador+categoria) → senão o `valorHora` padrão → senão `sem_tarifa` (defensivo, não soma).
+- **Valor-hora padrão agora OBRIGATÓRIO** (decisão da cliente) — validação no app (criar/editar); a coluna segue **nullable** no banco. Logo `sem_tarifa` só existe como guarda; com o padrão obrigatório, toda alocação sempre tem custo.
+- **Migração indolor:** o valor único atual vira o padrão; a tabela nova nasce vazia; os custos atuais não mudam.
+
+**Construído:**
+- **Resolvedor** `backend/src/lib/tarifa.ts`: `carregarTarifas(ids)` (1 query em lote, sem N+1) + `resolverTarifa(...)` → `{ valor, origem: 'especifica'|'padrao'|'sem_tarifa' }`. Migration `add_tarifa_colaborador` (`20260620004945`; o `@map` faz o SQL **só criar** `tarifas_colaborador`, sem tocar `valor_hora`).
+- **Relatório de custos** (`742e438`): passa a usar o resolvedor — cada linha traz a tarifa **resolvida** + a `origem`; tudo Decimal; o seed ganhou 3 overrides FINEP + uma alocação cruzada (Samuel Gomes em FINEP **e** BNDES) pra exercitar. `test-tarifa.mjs` **22/22**.
+- **Custo do grid** (`555ad2d`): `saldo.custo` virou **soma por projeto** (cada projeto com a tarifa da sua categoria), não mais horas × um valor só; `custoPorProjeto` usa o override da coluna. Carrega categorias + tarifas em lote (carga extra cobre projetos de outros gestores no caso admin, sem N+1). **Saldo de HORAS, teto, células e fechamento intocados.** `test-grid-custo.mjs` **18/18** (inclui sanidade de que horas/teto não mudaram).
+- **Backend da edição** (`3a00e8f`): criar/editar colaborador **exige** `valorHora` (400 claro se ausente/≤0); aceita `tarifas: [{categoriaId, valorHora}]` = **conjunto completo** de overrides (upsert dos enviados + **apaga** os omitidos, numa transação com o colaborador); `tarifas` ausente **preserva**, `[]` **apaga todos** (`notIn: []` do Prisma casa com tudo — confirmado em teste); novo **`GET /colaboradores/:id`** traz os overrides. Validação por item (categoria existe+ativa, valor > 0, sem repetir). `test-tarifa-crud.mjs` **21/21**.
+- **Tela** (`d1dd8df`): no form do colaborador, padrão obrigatório no topo + seção "Tarifas por categoria" listando as categorias ativas (em branco = usa o padrão; placeholder mostra o padrão). Editar pré-preenche os overrides via o `GET :id`. **Blindagem contra apagar override sem querer:** o Salvar fica **desabilitado** enquanto as tarifas carregam, e se o `GET :id` **falhar** o PUT **omite** o campo `tarifas` (o backend preserva). (O "Preencha este campo" do padrão é a validação nativa do navegador — funciona.)
+
+**Contrato a lembrar:** o custo no **grid** é display (arredondado); o **relatório** usa Decimal de verdade. O padrão do colaborador é a coluna física `valor_hora` (via `@map`).
+
 ### Regra de priorização — **FECHADA, implementação pendente** (pedido #4)
 Sintetizada a partir de **brainstorm de 4 IAs externas** (decisão estrutural, cara de refazer → entrou na régua do brainstorm). Documento: **`Regra_Priorizacao.md`** (aprovado pela gestora).
 
@@ -324,6 +345,40 @@ Sintetizada a partir de **brainstorm de 4 IAs externas** (decisão estrutural, c
 - **3 decisões da cliente resolvidas:** escalonamento por capacidade **desligado** (só alerta, não reordena) na v1; ordem intra-categoria por **horas pendentes**; cultura de apontamento de realizado vira **pergunta pra cliente** (a precisão degrada — não catastroficamente — sem o realizado).
 - **Saída pro usuário:** sempre **categoria + ordenação + um texto curto do "porquê"** (nunca um número solto).
 - **Implementação:** **fase futura** (estruturalmente pesada). Os endpoints de leitura existentes são base; vai precisar do cálculo + uma tela.
+
+---
+
+## 4-ter. Segunda leva de pedidos da cliente (via o `Manual`)
+
+Numa segunda conversa, a cliente trouxe um documento (`Manual_Sistema_de_Alocacao.md`, anotado por ela) misturando **o que existe** com a **visão-alvo** + listas de **bug / admin / melhorias**. A triagem separou: já-feito, bugs, decisões de produto, e a peça estrutural grande.
+
+### A peça estrutural — papéis, posse e exclusão (**SPECADO, a implementar**)
+A organização real é **diretor → chefe → gestores** (hoje só há `admin`/`gestor`/`coordenacao`). Como mexe na autorização de quase toda tela e na posse dos projetos (decisão cara de refazer), **passou por brainstorm de 4 IAs** → virou a **`Spec_Papeis_Posse_Exclusao.md`** (decisões batidas com a cliente). Resumo travado:
+- **Enum plano de 5 papéis:** `admin`, `chefe`, `gestor`, `coordenacao`, `diretor`. `admin` e `chefe` **separados** (técnico vs. negócio), mas **ambos fecham/reabrem mês** (a cliente não quis depender de uma só pessoa; e gestor individual não fecha, porque é ação **global**). `coordenacao` (leitura operacional) e `diretor` (leitura executiva, só dashboards) **coexistem**.
+- **Posse:** mantém `gestorId` como **dono operacional** (NÃO renomear — preserva a lógica do grid) + novo `criadoPorId`. Chefe **cria e delega** (`gestorId` = delegado, `criadoPorId` = chefe). Chefe **opera qualquer projeto** (autoriza se `user === gestorId` OU `papel === chefe`), pelo **mesmo `alocarComLock`** (sem atalho — o teto segue protegido). **Re-delegar** = trocar `gestorId` + auditoria; **alocações/histórico não mudam**.
+- **Exclusão permanente** (caso "criei sem querer"): **status no projeto** (`pendente_exclusao` + `exclusaoSolicitadaPorId` + motivo), **não** entidade nova. **Bloqueia se houver ALOCAÇÃO** ("virgem" = zero alocações); a estrutura auto-criada (micros → macros → prestações) é apagada junto, **cascata explícita na transação** (FKs seguem `RESTRICT`). `pendente_exclusao` **recusa novas alocações** (mesmo padrão do "mês fechado", fecha a janela de corrida). **Lápide** (`projeto_excluido`) gravada **antes** do delete. **Código liberado pra reuso** após o hard delete (decisão **(a)** da cliente — reverte o "código preso"; a lápide, com data, guarda o histórico). Gestor dono pede, chefe aprova (ou exclui direto).
+- **Diretor:** só dashboards (endpoints agregados **próprios**, não o grid com parâmetros omitidos) — entra junto do trabalho de dashboards.
+- **Ordem (6 passos):** (1) papéis + migração + `requireRole`; (2) `criadoPorId` + delegação na criação; (3) override do chefe (mesmo lock; **teste de concorrência chefe×gestor**); (4) re-delegação; (5) exclusão + lápide; (6) telas do diretor/dashboards.
+
+### Bugs reportados no Manual (a tratar)
+- **Macro/micro não apaga; não dá pra editar/excluir só a micro** — defeito **atual**, core. Precisa de **diagnóstico** (bloqueio por alocação aparecendo como "não apaga"? regressão? função faltando? lembrar que apagar a **única** micro de uma macro é bloqueado por regra). É o trabalho independente sugerido pra começar.
+- **Perfil com cores ruins / ilegível** — já conhecido (a tela de Perfil foi feita pro tema **escuro**, quebra no claro). Conserto: retrabalhar pro tema claro.
+
+### Decisões de nomenclatura / produto resolvidas
+- **Nomenclatura da classificação do projeto = "Programas"** (a cliente confirmou; **cancela** a ideia anterior de renomear pra "Categorias"). A entidade interna segue `CategoriaProjeto` (só nome de código).
+- **"Excluir projeto" = excluir de vez** (não arquivar), via pedido do gestor + aprovação do chefe — é o fluxo de exclusão permanente acima.
+
+### Itens menores / melhorias (fila)
+- **Coluna de cargo na aba de Custos** (pequeno).
+- **Admin não precisa criar projeto** (ajuste de permissão — confirmar o exato com a cliente).
+- **Gerar PDF de Declaração de HT da equipe por mês** (template editável pelo gestor) — a cliente vai mandar o template; fica pro fim.
+- **Notificação de solicitações de remanejamento** (dá pra reusar a infra de push do legado).
+- **Data de início/fim por período em cada macro-entrega** (campos novos na macro).
+- **Hierarquia de visualização de dashboards/relatórios em PDF** — casa com o diretor + dashboards.
+- (possível) campo **"área de atuação"** no colaborador — confirmar com a cliente.
+
+### Cosmético pendente
+- **"Continuar" → "Salvar"** no botão do **cadastro** de colaborador (o "Continuar" vem do fluxo de duplicata; é só o texto, a confirmação de "parecido" continua igual). **Ainda não aplicado** (prompt já preparado).
 
 ---
 
@@ -368,12 +423,15 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 
 ---
 
-## 7. Próximos passos (priorização → dashboard → Fase 5)
+## 7. Próximos passos (bug macro/micro → papéis → priorização → dashboards → Fase 5)
 
-Com as **Fases 0 a 4 completas** e a leva pós-demo já com **custos** e **programas** entregues (ver §4-bis), o que está na frente é:
+Com as **Fases 0 a 4 + a tarifa completas** e a **spec de papéis fechada** (§4-ter), a fila é:
 
-1. **Implementar a priorização** — a regra já está fechada e aprovada (`Regra_Priorizacao.md`, resumo no §4-bis). Falta o cálculo (faixa de prazo → categoria; ordenação por horas pendentes; capacidade como sinal; override; batch diário; tabela de config) e uma tela. É estruturalmente pesada, mas a decisão difícil (a regra) já passou pelo brainstorm — a implementação segue como spec.
-2. **Dashboard** (pedido #5 da cliente) — junta tudo (custos, priorização, capacidade). É o mais "de produto" e o mais caro de refazer → **merece o brainstorm de IAs externas ao escopá-lo**, antes do primeiro prompt.
+1. **Bug de macro/micro** — defeito **atual** reportado no Manual (não apaga, não edita/exclui só a micro). Independente e rápido; começa por um **diagnóstico** (bloqueio por alocação? regressão? função faltando?). Bom candidato pra atacar **antes** do build grande.
+2. **Spec de papéis (chefe/diretor) + posse + exclusão** — `Spec_Papeis_Posse_Exclusao.md`, em **6 passos** (papéis → `criadoPorId`/delegação → override do chefe → re-delegação → exclusão+lápide → telas do diretor). A decisão estrutural já passou pelo brainstorm; segue como spec. As **telas do diretor** casam com os dashboards (abaixo).
+3. **Implementar a priorização** — regra fechada e aprovada (`Regra_Priorizacao.md`, resumo no §4-bis). Falta o cálculo (faixa de prazo → categoria; ordenação por horas pendentes; capacidade como sinal; override; batch diário; tabela de config) e uma tela. Estruturalmente pesada, mas a decisão difícil já passou pelo brainstorm.
+4. **Dashboards (3: Geral / Projetos / Capacidade)** (pedido #5, que cresceu pra três) — juntam tudo (custos, priorização, capacidade) e são as telas do **diretor**. O mais "de produto" e caro de refazer → **merece brainstorm de IAs ao escopá-lo**, antes do primeiro prompt.
+5. **Itens menores do Manual** (cargo na aba de Custos, PDF de Declaração de HT, notificação de remanejamento, datas na macro, Perfil pro tema claro, o cosmético "Continuar"→"Salvar") — encaixáveis entre os grandes; ver §4-ter.
 
 E, em paralelo ou depois, a **Fase 5**, voltada à **coordenação** e à **escala**:
 
@@ -410,4 +468,7 @@ Apareceu no C2 e foi adiado. Com muitas colunas/projetos: (a) é difícil perceb
 - **`ANALISE_ADAPTACAO_OBSOLETO.md`** — análise antiga, superada. **Ignorar** (premissas abandonadas: aprovação vertical, TimeEntry, projeto-gestor M:N).
 - **`CRITICA_DESIGN_v2.md`** — o prompt de crítica que foi levado às IAs externas (registro do brainstorm de design do grid).
 - **`Regra_Priorizacao.md`** — a regra de priorização sintetizada e aprovada (spec da implementação futura; resumo no §4-bis). Saiu do brainstorm de 4 IAs.
+- **`Brainstorm_ValorHora_Categoria.md`** / **`Tarifa_Colaborador_Categoria_Spec.md`** — enunciado e spec (aprovada) da **tarifa por colaborador × categoria** (resumo no §4-bis). Saíram do brainstorm de 4 IAs.
+- **`Brainstorm_Papeis_Posse_Exclusao.md`** / **`Spec_Papeis_Posse_Exclusao.md`** — enunciado e **spec** (aprovada) dos **papéis novos (chefe/diretor), posse/delegação e exclusão permanente** (resumo no §4-ter). Saíram do brainstorm de 4 IAs. É a base dos prompts dos 6 passos.
+- **`Manual_Sistema_de_Alocacao.md`** — manual de uso (gerado), depois anotado pela cliente com a 2ª leva de pedidos (a base do §4-ter).
 - **`PROGRESSO_E_DECISOES.md`** — este documento.

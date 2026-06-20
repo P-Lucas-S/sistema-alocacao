@@ -36,6 +36,54 @@ function isSimilar(a: string, b: string): boolean {
   return levenshtein(na, nb) <= Math.floor(maxLen * 0.3);
 }
 
+// ── Validação do array `tarifas` (overrides por categoria) ──────────────────
+// O array enviado é o CONJUNTO COMPLETO de overrides do colaborador.
+interface TarifaInput { categoriaId: string; valorHora: number }
+type ValidarTarifasResult = { error: string } | { tarifas: TarifaInput[] };
+
+async function validarTarifas(tarifasRaw: unknown): Promise<ValidarTarifasResult> {
+  if (!Array.isArray(tarifasRaw)) {
+    return { error: 'tarifas deve ser uma lista de { categoriaId, valorHora }.' };
+  }
+
+  const categoriaIdsVistos = new Set<string>();
+  const parsed: TarifaInput[] = [];
+
+  for (const item of tarifasRaw) {
+    const categoriaId = item?.categoriaId;
+    if (!categoriaId || typeof categoriaId !== 'string') {
+      return { error: 'Cada item de tarifas precisa de categoriaId.' };
+    }
+    if (categoriaIdsVistos.has(categoriaId)) {
+      return { error: 'categoriaId repetido em tarifas.' };
+    }
+    categoriaIdsVistos.add(categoriaId);
+
+    const valorHoraNum = Number(item?.valorHora);
+    if (item?.valorHora === undefined || item?.valorHora === null || item?.valorHora === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
+      return { error: 'valorHora de cada item de tarifas deve ser maior que zero.' };
+    }
+
+    parsed.push({ categoriaId, valorHora: valorHoraNum });
+  }
+
+  if (parsed.length > 0) {
+    const categorias = await prisma.categoriaProjeto.findMany({
+      where: { id: { in: [...categoriaIdsVistos] } },
+      select: { id: true, ativo: true },
+    });
+    const categoriaPorId = new Map(categorias.map(c => [c.id, c.ativo]));
+
+    for (const t of parsed) {
+      const ativo = categoriaPorId.get(t.categoriaId);
+      if (ativo === undefined) return { error: `Programa não encontrado: ${t.categoriaId}` };
+      if (!ativo)             return { error: `Programa inativo: ${t.categoriaId}` };
+    }
+  }
+
+  return { tarifas: parsed };
+}
+
 // ── GET / ─────────────────────────────────────────────────────────────────
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
@@ -68,6 +116,28 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// ── GET /:id — detalhe (usado pela edição) — inclui os overrides de tarifa ──
+router.get('/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const colaborador = await prisma.colaborador.findUnique({
+      where: { id },
+      select: {
+        id: true, nome: true, email: true, funcao: true,
+        valorHora: true, ativo: true, createdAt: true,
+        createdBy: { select: { name: true } },
+        tarifas: { select: { categoriaId: true, valorHora: true } },
+      },
+    });
+    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' });
+
+    res.json(colaborador);
+  } catch (error) {
+    console.error('Get colaborador error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── POST / ────────────────────────────────────────────────────────────────
 // Estágio 1 (sem confirmarSimilar): valida e-mail + checa nome → pode retornar
 //   { needsConfirmation: true, similares } sem criar nada.
@@ -75,19 +145,22 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 // E-mail duplicado é SEMPRE 409, o flag confirmarSimilar não o contorna.
 router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
-    const { nome, email, funcao, valorHora, confirmarSimilar } = req.body;
+    const { nome, email, funcao, valorHora, tarifas, confirmarSimilar } = req.body;
     const createdById = req.user!.id;
 
     if (!nome?.trim()) return res.status(400).json({ error: 'nome é obrigatório' });
     if (!email?.trim()) return res.status(400).json({ error: 'email é obrigatório' });
 
-    let valorHoraVal: number | null = null;
-    if (valorHora !== undefined && valorHora !== null && valorHora !== '') {
-      const parsed = Number(valorHora);
-      if (isNaN(parsed) || parsed < 0) {
-        return res.status(400).json({ error: 'valorHora deve ser um número maior ou igual a zero.' });
-      }
-      valorHoraVal = parsed;
+    const valorHoraNum = Number(valorHora);
+    if (valorHora === undefined || valorHora === null || valorHora === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
+      return res.status(400).json({ error: 'Informe o valor-hora padrão do colaborador (maior que zero).' });
+    }
+
+    let tarifasValidadas: TarifaInput[] = [];
+    if (tarifas !== undefined) {
+      const result = await validarTarifas(tarifas);
+      if ('error' in result) return res.status(400).json({ error: result.error });
+      tarifasValidadas = result.tarifas;
     }
 
     const emailNorm = email.trim().toLowerCase();
@@ -114,11 +187,23 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
       }
     }
 
-    // Cria o colaborador
+    // Cria o colaborador + overrides de tarifa, na mesma transação
     const id = generateId();
-    const colaborador = await prisma.colaborador.create({
-      data: { id, nome: nome.trim(), email: emailNorm, funcao: funcao?.trim() || null, valorHora: valorHoraVal, createdById },
-      select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
+    const colaborador = await prisma.$transaction(async (tx) => {
+      await tx.colaborador.create({
+        data: { id, nome: nome.trim(), email: emailNorm, funcao: funcao?.trim() || null, valorHora: valorHoraNum, createdById },
+      });
+
+      for (const t of tarifasValidadas) {
+        await tx.tarifaColaborador.create({
+          data: { id: generateId(), colaboradorId: id, categoriaId: t.categoriaId, valorHora: t.valorHora },
+        });
+      }
+
+      return tx.colaborador.findUniqueOrThrow({
+        where: { id },
+        select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
+      });
     });
 
     res.status(201).json({ colaborador });
@@ -132,18 +217,22 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { nome, email, funcao, valorHora } = req.body;
+    const { nome, email, funcao, valorHora, tarifas } = req.body;
 
     const current = await prisma.colaborador.findUnique({ where: { id } });
     if (!current) return res.status(404).json({ error: 'Colaborador não encontrado' });
 
-    let valorHoraVal: number | null = null;
-    if (valorHora !== undefined && valorHora !== null && valorHora !== '') {
-      const parsed = Number(valorHora);
-      if (isNaN(parsed) || parsed < 0) {
-        return res.status(400).json({ error: 'valorHora deve ser um número maior ou igual a zero.' });
-      }
-      valorHoraVal = parsed;
+    const valorHoraNum = Number(valorHora);
+    if (valorHora === undefined || valorHora === null || valorHora === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
+      return res.status(400).json({ error: 'Informe o valor-hora padrão do colaborador (maior que zero).' });
+    }
+
+    // tarifas ausente → não mexe nos overrides existentes; [] → apaga todos.
+    let tarifasValidadas: TarifaInput[] | undefined;
+    if (tarifas !== undefined) {
+      const result = await validarTarifas(tarifas);
+      if ('error' in result) return res.status(400).json({ error: result.error });
+      tarifasValidadas = result.tarifas;
     }
 
     const emailNorm = email?.trim().toLowerCase();
@@ -152,15 +241,38 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
       if (conflict) return res.status(409).json({ error: 'E-mail já está em uso por outro colaborador' });
     }
 
-    const updated = await prisma.colaborador.update({
-      where: { id },
-      data: {
-        ...(nome?.trim() ? { nome: nome.trim() } : {}),
-        ...(emailNorm ? { email: emailNorm } : {}),
-        ...(funcao !== undefined ? { funcao: funcao?.trim() || null } : {}),
-        ...(valorHora !== undefined ? { valorHora: valorHoraVal } : {}),
-      },
-      select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.colaborador.update({
+        where: { id },
+        data: {
+          ...(nome?.trim() ? { nome: nome.trim() } : {}),
+          ...(emailNorm ? { email: emailNorm } : {}),
+          ...(funcao !== undefined ? { funcao: funcao?.trim() || null } : {}),
+          valorHora: valorHoraNum,
+        },
+      });
+
+      if (tarifasValidadas !== undefined) {
+        const categoriaIdsNovos = tarifasValidadas.map(t => t.categoriaId);
+
+        for (const t of tarifasValidadas) {
+          await tx.tarifaColaborador.upsert({
+            where: { colaboradorId_categoriaId: { colaboradorId: id, categoriaId: t.categoriaId } },
+            create: { id: generateId(), colaboradorId: id, categoriaId: t.categoriaId, valorHora: t.valorHora },
+            update: { valorHora: t.valorHora },
+          });
+        }
+
+        // O array enviado é o conjunto COMPLETO de overrides — apaga o que ficou de fora dele
+        await tx.tarifaColaborador.deleteMany({
+          where: { colaboradorId: id, categoriaId: { notIn: categoriaIdsNovos } },
+        });
+      }
+
+      return tx.colaborador.findUniqueOrThrow({
+        where: { id },
+        select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
+      });
     });
 
     res.json(updated);

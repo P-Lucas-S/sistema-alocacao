@@ -86,8 +86,25 @@ model CategoriaProjeto {
   updatedAt DateTime @updatedAt
 
   projetos  Projeto[]
+  tarifas   TarifaColaborador[]
 
   @@map("categorias_projeto")
+}
+
+model TarifaColaborador {
+  id            String   @id @default(cuid())
+  colaboradorId String
+  categoriaId   String
+  valorHora     Decimal  @db.Decimal(10, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  colaborador   Colaborador      @relation(fields: [colaboradorId], references: [id], onDelete: Restrict)
+  categoria     CategoriaProjeto @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
+
+  @@unique([colaboradorId, categoriaId])
+  @@index([categoriaId])
+  @@map("tarifas_colaborador")
 }
 
 model Colaborador {
@@ -104,6 +121,7 @@ model Colaborador {
   createdBy                 User                       @relation(fields: [createdById], references: [id])
   alocacoes                 Alocacao[]
   solicitacoesRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoColaborador")
+  tarifas                   TarifaColaborador[]
 
   @@map("colaboradores")
 }

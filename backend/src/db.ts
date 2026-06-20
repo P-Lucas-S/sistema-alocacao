@@ -162,8 +162,11 @@ const ALOCACOES: AlocSeed[] = [
   ['sc-15', 'sp-05', 0, 2026, 7, 80,  G2],
   // Renata Pinto: 60h (G3) — margem 160h
   ['sc-16', 'sp-10', 0, 2026, 7, 60,  G3],  // macro Roteiro
-  // Samuel Gomes: 40h (G1) — margem 180h
+  // Samuel Gomes: 40h (G1, FINEP) + 30h (G1, BNDES) — margem 150h
+  // Cross-categoria de propósito: tem override de tarifa em FINEP — demonstra
+  // 'especifica' em sp-03 (FINEP) e 'padrao' em sp-01 (BNDES) no relatório de custos.
   ['sc-17', 'sp-03', 0, 2026, 7, 40,  G1],
+  ['sc-17', 'sp-01', 0, 2026, 7, 30,  G1],
   // Tamires Campos: 100h (G2) — margem 120h
   ['sc-18', 'sp-06', 1, 2026, 7, 100, G2],  // macro Design (índice 1)
 
@@ -198,6 +201,16 @@ const ALOCACOES: AlocSeed[] = [
   ['sc-07', 'sp-06', 1, 2026, 8, 80,  G2],  // macro Design
 ];
 
+// ── Tarifas específicas por colaborador × categoria (override do padrão) ────
+// Todas em FINEP (cat-finep), valor menor que o valorHora padrão do colaborador.
+// sc-17 (Samuel Gomes) é o caso cross-categoria: tem alocação tanto em sp-03
+// (FINEP, usa esta tarifa específica) quanto em sp-01 (BNDES, usa o padrão).
+const TARIFAS_COLABORADOR = [
+  { id: 'tc-01', colaboradorId: 'sc-06', categoriaId: 'cat-finep', valorHora: 60.00 },  // padrão 75
+  { id: 'tc-02', colaboradorId: 'sc-17', categoriaId: 'cat-finep', valorHora: 85.50 },  // padrão 110
+  { id: 'tc-03', colaboradorId: 'sc-23', categoriaId: 'cat-finep', valorHora: 90.00 },  // padrão 112
+];
+
 export async function initDb() {
   // ── Limpeza (ordem respeitando todas as FKs) ───────────────────────────
   await prisma.cessaoRemanejamento.deleteMany();
@@ -209,6 +222,7 @@ export async function initDb() {
   await prisma.macroEntrega.deleteMany();
   await prisma.prestacaoContas.deleteMany();
   await prisma.projeto.deleteMany();
+  await prisma.tarifaColaborador.deleteMany(); // referencia colaboradores E categorias (RESTRICT) — apaga antes de ambos
   await prisma.categoriaProjeto.deleteMany(); // pai de projetos (RESTRICT) — apaga depois dos projetos
   await prisma.colaborador.deleteMany();
   await prisma.pushSubscription.deleteMany();
@@ -235,6 +249,13 @@ export async function initDb() {
   for (const cat of CATEGORIAS_PROJETO) {
     await prisma.categoriaProjeto.create({
       data: { id: cat.id, nome: cat.nome, ativo: true },
+    });
+  }
+
+  // ── Tarifas específicas — depende de colaboradores E categorias já criados ──
+  for (const t of TARIFAS_COLABORADOR) {
+    await prisma.tarifaColaborador.create({
+      data: { id: t.id, colaboradorId: t.colaboradorId, categoriaId: t.categoriaId, valorHora: new Prisma.Decimal(t.valorHora) },
     });
   }
 
@@ -324,6 +345,7 @@ export async function initDb() {
   console.log(`✅ Seed completo`);
   console.log(`   Usuários: 1 admin · 1 coordenação · 3 gestores`);
   console.log(`   Programas: ${CATEGORIAS_PROJETO.map(c => c.nome).join(', ')}`);
+  console.log(`   Tarifas específicas: ${TARIFAS_COLABORADOR.length} (todas FINEP, demo de override)`);
   console.log(`   Colaboradores: ${totalColabs}`);
   console.log(`   Projetos: ${totalProjs} (G1=${g1Projs} · G2=${g2Projs} · G3=${g3Projs})`);
   console.log(`   Alocações: ${totalAlocs} entradas em Jun/Jul/Ago 2026`);

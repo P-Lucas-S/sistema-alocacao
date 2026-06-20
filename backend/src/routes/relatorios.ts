@@ -2,6 +2,7 @@ import express from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prisma.js';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
+import { carregarTarifas, resolverTarifa } from '../lib/tarifa.js';
 
 const router = express.Router();
 
@@ -20,7 +21,7 @@ router.get('/custos', authenticate, requireRole('admin', 'gestor'), async (req: 
     const projetos = await prisma.projeto.findMany({
       where: projWhere,
       orderBy: { codigo: 'asc' },
-      select: { id: true, codigo: true, nome: true },
+      select: { id: true, codigo: true, nome: true, categoriaId: true },
     });
 
     if (projetos.length === 0) return res.json([]);
@@ -57,22 +58,28 @@ router.get('/custos', authenticate, requireRole('admin', 'gestor'), async (req: 
       }
     }
 
+    // ── Tarifas específicas (override por categoria) — 1 query, sem N+1 ──────
+    const colaboradorIds = [...new Set(alocs.map(a => a.colaborador.id))];
+    const tarifasMap = await carregarTarifas(colaboradorIds);
+
     const D0 = new Prisma.Decimal(0);
 
     const resultado = projetos.map(proj => {
       const colabMap = byProjeto.get(proj.id) ?? new Map<string, Agg>();
 
-      const colaboradores = [...colabMap.values()].map(c => {
-        const custo = c.valorHora != null ? c.horas.times(c.valorHora) : null;
+      const colaboradores = [...colabMap.entries()].map(([colabId, c]) => {
+        const { valor, origem } = resolverTarifa(tarifasMap, { id: colabId, valorHora: c.valorHora }, proj.categoriaId);
+        const custo = valor != null ? c.horas.times(valor) : null;
         return {
           nome:        c.nome,
           horasTotais: c.horas.toString(),
-          valorHora:   c.valorHora != null ? c.valorHora.toString() : null,
+          valorHora:   valor != null ? valor.toString() : null,
+          origem,
           custo:       custo != null ? custo.toFixed(2) : null,
         };
       });
 
-      // Custo desc; sem valor-hora vai pro fim
+      // Custo desc; sem tarifa vai pro fim
       colaboradores.sort((a, b) => {
         if (a.custo == null && b.custo == null) return 0;
         if (a.custo == null) return 1;

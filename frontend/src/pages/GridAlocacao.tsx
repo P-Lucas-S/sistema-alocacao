@@ -503,24 +503,26 @@ function CelulaEditavel(props: CelulaEditavelProps) {
           {/* Ícone de drawer — sempre montado (evita loop mount/unmount no hover),
               discreto por padrão, nítido no hover via opacity.
               O loop ocorria porque montar o botão sob o cursor disparava
-              mouseleave no <td>, desmontava o botão, e repetia ad infinitum. */}
-          {celula && mode === 'idle' && (
+              mouseleave no <td>, desmontava o botão, e repetia ad infinitum.
+              Célula com alocação: 0.5 em repouso, 1 no hover (como já era).
+              Célula vazia: 0 (invisível) em repouso, só aparece no hover — não
+              polui o grid, mas o botão continua montado pra não reintroduzir o loop. */}
+          {mode === 'idle' && (
             <button
               onClick={handleOpenDrawer}
-              title="Ver composição macro/micro"
+              title={celula ? 'Ver composição macro/micro' : 'Alocar em macro/micro específica'}
               style={{
                 position: 'absolute', top: 3, right: 3,
                 background: 'var(--surface-2)', border: '1px solid var(--border)',
                 borderRadius: 4, cursor: 'pointer', padding: '2px 4px',
                 display: 'flex', alignItems: 'center',
                 color: 'var(--text-2)',
-                // 0.5 em repouso: discreto mas claramente perceptível
-                // 1 no hover: nítido — refinamento, não requisito
-                opacity: hovered ? 1 : 0.5,
+                opacity: celula ? (hovered ? 1 : 0.5) : (hovered ? 1 : 0),
+                pointerEvents: celula || hovered ? 'auto' : 'none',
                 transition: 'opacity 0.15s ease',
               }}
               onMouseEnter={e => { e.currentTarget.style.color = 'var(--brand-500)'; e.currentTarget.style.opacity = '1'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.opacity = hovered ? '1' : '0.5'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-2)'; e.currentTarget.style.opacity = celula ? (hovered ? '1' : '0.5') : (hovered ? '1' : '0'); }}
             >
               <List size={13} />
             </button>

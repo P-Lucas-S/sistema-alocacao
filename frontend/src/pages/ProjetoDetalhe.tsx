@@ -75,8 +75,8 @@ export default function ProjetoDetalhe() {
 
   // Micro modal
   const [microModal, setMicroModal] = useState<{
-    open: boolean; macroId: string; nome: string; descricao: string;
-  }>({ open: false, macroId: '', nome: '', descricao: '' });
+    open: boolean; macroId: string; editId: string | null; nome: string; descricao: string;
+  }>({ open: false, macroId: '', editId: null, nome: '', descricao: '' });
 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -138,18 +138,25 @@ export default function ProjetoDetalhe() {
 
   async function deleteMacro(macroId: string) {
     if (!confirm('Apagar esta macro e todas as suas micro-entregas?')) return;
-    await fetch(`/api/projetos/${projetoId}/macros/${macroId}`, {
+    const res = await fetch(`/api/projetos/${projetoId}/macros/${macroId}`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
     });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error); return; }
     fetchMacros();
   }
 
   // ── Micro actions ─────────────────────────────────────────────────────
 
   function openCreateMicro(macroId: string) {
-    setMicroModal({ open: true, macroId, nome: '', descricao: '' });
+    setMicroModal({ open: true, macroId, editId: null, nome: '', descricao: '' });
     setFormError('');
     setExpanded(prev => new Set([...prev, macroId]));
+  }
+
+  function openEditMicro(macroId: string, micro: MicroEntrega) {
+    setMicroModal({ open: true, macroId, editId: micro.id, nome: micro.nome, descricao: micro.descricao ?? '' });
+    setFormError('');
   }
 
   async function saveMicro(e: React.FormEvent) {
@@ -157,8 +164,12 @@ export default function ProjetoDetalhe() {
     if (!microModal.nome.trim()) { setFormError('Nome é obrigatório'); return; }
     setSaving(true); setFormError('');
     try {
-      const res = await fetch(`/api/projetos/${projetoId}/macros/${microModal.macroId}/micros`, {
-        method: 'POST',
+      const url    = microModal.editId
+        ? `/api/projetos/${projetoId}/macros/${microModal.macroId}/micros/${microModal.editId}`
+        : `/api/projetos/${projetoId}/macros/${microModal.macroId}/micros`;
+      const method = microModal.editId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ nome: microModal.nome.trim(), descricao: microModal.descricao.trim() || null }),
       });
@@ -379,17 +390,29 @@ export default function ProjetoDetalhe() {
                               </span>
                             )}
                             {canWrite && (
-                              <button
-                                onClick={() => deleteMicro(macro.id, micro.id)}
-                                disabled={isOnly}
-                                className="w-6 h-6 rounded flex items-center justify-center shrink-0"
-                                style={{ color: isOnly ? 'var(--border)' : 'var(--text-3)', cursor: isOnly ? 'not-allowed' : 'pointer' }}
-                                onMouseEnter={e => { if (!isOnly) (e.currentTarget as HTMLElement).style.color = '#f87171'; }}
-                                onMouseLeave={e => { if (!isOnly) (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
-                                title={isOnly ? 'Única micro — não pode ser removida' : 'Remover micro-entrega'}
-                              >
-                                <X size={12} />
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => openEditMicro(macro.id, micro)}
+                                  className="w-6 h-6 rounded flex items-center justify-center shrink-0"
+                                  style={{ color: 'var(--text-3)' }}
+                                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'}
+                                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'}
+                                  title="Editar micro-entrega"
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                                <button
+                                  onClick={() => deleteMicro(macro.id, micro.id)}
+                                  disabled={isOnly}
+                                  className="w-6 h-6 rounded flex items-center justify-center shrink-0"
+                                  style={{ color: isOnly ? 'var(--border)' : 'var(--text-3)', cursor: isOnly ? 'not-allowed' : 'pointer' }}
+                                  onMouseEnter={e => { if (!isOnly) (e.currentTarget as HTMLElement).style.color = '#f87171'; }}
+                                  onMouseLeave={e => { if (!isOnly) (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
+                                  title={isOnly ? 'Única micro — não pode ser removida' : 'Remover micro-entrega'}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </>
                             )}
                           </div>
                         );
@@ -454,7 +477,9 @@ export default function ProjetoDetalhe() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }} onClick={e => { if (e.target === e.currentTarget) setMicroModal(m => ({ ...m, open: false })); }}>
           <div className="w-full max-w-md rounded-2xl p-6 flex flex-col gap-4" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
             <div className="flex items-center justify-between">
-              <h2 className="font-bold text-base" style={{ color: 'var(--text-1)' }}>Nova Micro-Entrega</h2>
+              <h2 className="font-bold text-base" style={{ color: 'var(--text-1)' }}>
+                {microModal.editId ? 'Editar Micro-Entrega' : 'Nova Micro-Entrega'}
+              </h2>
               <button onClick={() => setMicroModal(m => ({ ...m, open: false }))} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: 'var(--text-3)' }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
                 <X size={16} />
               </button>
@@ -469,7 +494,7 @@ export default function ProjetoDetalhe() {
               </Field>
               <div className="flex gap-3">
                 <button type="button" onClick={() => setMicroModal(m => ({ ...m, open: false }))} disabled={saving} className="flex-1 py-2 rounded-xl text-sm font-medium" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)' }}>Cancelar</button>
-                <button type="submit" disabled={saving} className="flex-1 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--brand-500)', opacity: saving ? 0.7 : 1 }}>{saving ? 'Salvando…' : 'Criar'}</button>
+                <button type="submit" disabled={saving} className="flex-1 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--brand-500)', opacity: saving ? 0.7 : 1 }}>{saving ? 'Salvando…' : microModal.editId ? 'Salvar' : 'Criar'}</button>
               </div>
             </form>
           </div>

@@ -3,6 +3,14 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod';
 
+// ── Fonte única dos papéis válidos ─────────────────────────────────────────
+// `role` no banco é String (VARCHAR), não enum — esta é a referência única
+// em código. Adicionar um papel novo aqui é o único lugar que precisa mudar
+// pra que requireRole(...) aceite esse valor (passar um papel fora desta
+// lista em requireRole(...) vira erro de compilação, não erro em runtime).
+export const PAPEIS = ['admin', 'chefe', 'gestor', 'coordenacao', 'diretor'] as const;
+export type Papel = typeof PAPEIS[number];
+
 export interface AuthRequest extends Request {
   user?: {
     id: string;
@@ -26,9 +34,12 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
   }
 };
 
-export const requireRole = (...roles: string[]) =>
+export const requireRole = (...roles: Papel[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!roles.includes(req.user?.role ?? '')) {
+    // req.user.role vem do JWT como string solta (pode não ser um Papel válido,
+    // ex.: token antigo) — comparação em runtime continua por string, sem
+    // assumir que o valor decodificado já é um Papel.
+    if (!(roles as readonly string[]).includes(req.user?.role ?? '')) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     next();

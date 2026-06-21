@@ -42,6 +42,9 @@ const SEED_USERS = [
   { id: G1,                name: 'Gestor 1',    email: 'gestor1@sistema.dev', password: 'gestor123', role: 'gestor',      position: 'Gestor de Projetos' },
   { id: G2,                name: 'Gestor 2',    email: 'gestor2@sistema.dev', password: 'gestor123', role: 'gestor',      position: 'Gestor de Projetos' },
   { id: G3,                name: 'Gestor 3',    email: 'gestor3@sistema.dev', password: 'gestor123', role: 'gestor',      position: 'Gestor de Projetos' },
+  // Papéis novos da Spec_Papeis_Posse_Exclusao — ainda sem nenhuma rota os reconhecendo (passo 1: só existência).
+  { id: 'seed-chefe-001',  name: 'Chefe',       email: 'chefe@sistema.dev',   password: 'chefe123',  role: 'chefe',       position: 'Chefia'             },
+  { id: 'seed-diretor-001',name: 'Diretor',     email: 'diretor@sistema.dev', password: 'diretor123',role: 'diretor',     position: 'Diretoria'          },
 ];
 
 // ── Colaboradores ──────────────────────────────────────────────────────────
@@ -343,7 +346,7 @@ export async function initDb() {
   const g3Projs = PROJETOS.filter(p => p.gestorId === G3).length;
 
   console.log(`✅ Seed completo`);
-  console.log(`   Usuários: 1 admin · 1 coordenação · 3 gestores`);
+  console.log(`   Usuários: 1 admin · 1 coordenação · 3 gestores · 1 chefe · 1 diretor`);
   console.log(`   Programas: ${CATEGORIAS_PROJETO.map(c => c.nome).join(', ')}`);
   console.log(`   Tarifas específicas: ${TARIFAS_COLABORADOR.length} (todas FINEP, demo de override)`);
   console.log(`   Colaboradores: ${totalColabs}`);

@@ -268,7 +268,8 @@ export async function initDb() {
 
   for (const p of PROJETOS) {
     await prisma.projeto.create({
-      data: { id: p.id, codigo: p.codigo, nome: p.nome, gestorId: p.gestorId, categoriaId: p.categoriaId, status: 'ativo' },
+      // criadoPorId = gestorId: no seed, cada projeto é criado pelo próprio gestor (mesma regra do backfill da migration).
+      data: { id: p.id, codigo: p.codigo, nome: p.nome, gestorId: p.gestorId, criadoPorId: p.gestorId, categoriaId: p.categoriaId, status: 'ativo' },
     });
     await prisma.prestacaoContas.create({
       data: { id: `spc-${p.id}`, projetoId: p.id, data: new Date(p.dataPC) },

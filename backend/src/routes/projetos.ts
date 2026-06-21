@@ -38,10 +38,12 @@ function serializeProjeto(p: any) {
     codigo: p.codigo,
     nome: p.nome,
     gestorId: p.gestorId,
+    criadoPorId: p.criadoPorId,
     status: p.status,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     gestor: p.gestor,
+    criadoPor: p.criadoPor,
     categoria: p.categoria ? { id: p.categoria.id, nome: p.categoria.nome, ativo: p.categoria.ativo } : null,
     prestacoesContas: prestacoes,
     proximaPrestacao: computeProxima(
@@ -82,6 +84,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       where: { id },
       include: {
         gestor: { select: { id: true, name: true } },
+        criadoPor: { select: { id: true, name: true } },
         categoria: { select: { id: true, nome: true, ativo: true } },
         prestacoesContas: { orderBy: { data: 'asc' } },
       },
@@ -115,6 +118,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       where,
       include: {
         gestor: { select: { id: true, name: true } },
+        criadoPor: { select: { id: true, name: true } },
         categoria: { select: { id: true, nome: true, ativo: true } },
         prestacoesContas: { orderBy: { data: 'asc' } },
       },
@@ -128,10 +132,18 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 });
 
 // ── POST / ────────────────────────────────────────────────────────────────
-router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+// Posse vs. autoria (Spec_Papeis_Posse_Exclusao):
+//   criadoPorId = sempre quem está criando (req.user.id).
+//   gestorId    = quem opera/vê no grid:
+//     - gestor: sempre o próprio (ignora qualquer gestorId do corpo — não delega).
+//     - admin/chefe: pode delegar via body.gestorId (precisa ser um usuário com
+//       role 'gestor'); se omitido, mantém pra si (gestorId = req.user.id).
+router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
-    const { codigo, nome, prestacoesContas, categoriaId } = req.body;
-    const gestorId = req.user!.id;
+    const { codigo, nome, prestacoesContas, categoriaId, gestorId: gestorIdBody } = req.body;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+    const criadoPorId = userId;
 
     if (!codigo?.trim()) return res.status(400).json({ error: 'codigo é obrigatório' });
     if (!nome?.trim())   return res.status(400).json({ error: 'nome é obrigatório' });
@@ -146,6 +158,20 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     if (!categoria)        return res.status(400).json({ error: 'Programa não encontrado' });
     if (!categoria.ativo)  return res.status(400).json({ error: 'Programa inativo' });
 
+    // Resolve o gestorId conforme o papel de quem cria.
+    let gestorId: string;
+    if (role === 'gestor') {
+      gestorId = userId;
+    } else if (gestorIdBody) {
+      const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdBody } });
+      if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
+        return res.status(400).json({ error: 'gestorId informado deve ser de um usuário com papel "gestor".' });
+      }
+      gestorId = gestorIdBody;
+    } else {
+      gestorId = userId;
+    }
+
     const codigoNorm = codigo.trim().toUpperCase();
     const conflict = await prisma.projeto.findUnique({ where: { codigo: codigoNorm } });
     if (conflict) {
@@ -156,7 +182,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 
     const projeto = await prisma.$transaction(async (tx) => {
       await tx.projeto.create({
-        data: { id: projetoId, codigo: codigoNorm, nome: nome.trim(), gestorId, categoriaId, status: 'ativo' },
+        data: { id: projetoId, codigo: codigoNorm, nome: nome.trim(), gestorId, criadoPorId, categoriaId, status: 'ativo' },
       });
       await tx.prestacaoContas.createMany({
         data: datas.map(d => ({ id: generateId(), projetoId, data: d })),
@@ -165,6 +191,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
         where: { id: projetoId },
         include: {
           gestor: { select: { id: true, name: true } },
+          criadoPor: { select: { id: true, name: true } },
           categoria: { select: { id: true, nome: true, ativo: true } },
           prestacoesContas: { orderBy: { data: 'asc' } },
         },
@@ -232,6 +259,7 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
         where: { id },
         include: {
           gestor: { select: { id: true, name: true } },
+          criadoPor: { select: { id: true, name: true } },
           categoria: { select: { id: true, nome: true, ativo: true } },
           prestacoesContas: { orderBy: { data: 'asc' } },
         },

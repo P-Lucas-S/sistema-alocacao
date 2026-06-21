@@ -20,7 +20,8 @@ model User {
   notifications        Notification[]
   pushSubscriptions    PushSubscription[]
   passwordResets       PasswordReset[]
-  projetos             Projeto[]
+  projetosGeridos      Projeto[]          @relation("ProjetoGestor")
+  projetosCriados      Projeto[]          @relation("ProjetoCriadoPor")
   colaboradoresCriados Colaborador[]
   alocacoesCriadas     Alocacao[]         @relation("AlocacaoCreatedBy")
   alocacoesAtualizadas Alocacao[]         @relation("AlocacaoUpdatedBy")
@@ -131,12 +132,14 @@ model Projeto {
   codigo      String   @unique @db.VarChar(50)
   nome        String   @db.VarChar(255)
   gestorId    String   @map("gestor_id") @db.VarChar(191)
+  criadoPorId String   @map("criado_por_id") @db.VarChar(191)
   categoriaId String?
   status      String   @default("ativo") @db.VarChar(50)
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  gestor                           User                       @relation(fields: [gestorId], references: [id])
+  gestor                           User                       @relation("ProjetoGestor", fields: [gestorId], references: [id])
+  criadoPor                        User                       @relation("ProjetoCriadoPor", fields: [criadoPorId], references: [id], onDelete: Restrict)
   categoria                        CategoriaProjeto?          @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
   macroEntregas                    MacroEntrega[]
   prestacoesContas                 PrestacaoContas[]

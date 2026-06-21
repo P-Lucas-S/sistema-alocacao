@@ -11,7 +11,9 @@ const generateId = () => Math.random().toString(36).substring(2, 15);
 const TETO_HORAS_MES = new Prisma.Decimal(220);
 
 // ── Helper: verificar se um mês está fechado ──────────────────────────────────
-async function mesEstaFechado(ano: number, mes: number): Promise<boolean> {
+// Exportado pra ser reusado por outras rotas que também precisam bloquear
+// edição/remoção em mês fechado (ex.: macros.ts na exclusão em cascata).
+export async function mesEstaFechado(ano: number, mes: number): Promise<boolean> {
   const f = await prisma.fechamentoMensal.findUnique({
     where: { ano_mes: { ano, mes } },
     select: { id: true },

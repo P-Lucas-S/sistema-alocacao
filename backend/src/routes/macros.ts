@@ -1,6 +1,8 @@
 import express from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../prisma.js';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
+import { mesEstaFechado } from './alocacoes.js';
 
 // mergeParams: true permite acessar :projetoId do app.use pai
 const router = express.Router({ mergeParams: true });
@@ -109,29 +111,86 @@ router.put('/:macroId', authenticate, requireRole('admin', 'gestor'), async (req
 });
 
 // DELETE /:macroId — apaga macro e todas as suas micros
+//
+// SEMPRE em 2 chamadas (mesmo padrão needsConfirmation de categorias) — mesmo
+// quando a macro está vazia, pra evitar dois confirm() nativos em sequência
+// no frontend (um genérico + um informativo). A 1ª chamada NUNCA apaga nada.
+//   1ª chamada (sem ?confirmar): se algum mês das alocações está fechado, 400
+//     e não apaga nada; senão, 200 { needsConfirmation, totalAlocacoes, totalHoras }
+//     (totalAlocacoes pode ser 0, pra macro vazia) — só informa, não apaga.
+//   2ª chamada (?confirmar=true): revalida mês fechado (defensivo — pode ter
+//     fechado entre as duas chamadas) e, se livre, apaga TUDO numa transação:
+//     cada alocação (com log 'removeu', mesmo formato de DELETE /api/alocacoes/:id,
+//     se houver) → as micros → a macro. 200 { ok: true, alocacoesRemovidas }.
 router.delete('/:macroId', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { projetoId, macroId } = req.params as { projetoId: string; macroId: string };
     const userId = req.user!.id;
     const role   = req.user!.role;
+    const confirmar = req.query.confirmar === 'true';
 
     if (!(await requireOwner(projetoId, userId, role, res))) return;
 
     const macro = await prisma.macroEntrega.findFirst({ where: { id: macroId, projetoId } });
     if (!macro) return res.status(404).json({ error: 'MacroEntrega não encontrada' });
 
-    const alocCount = await prisma.alocacao.count({ where: { macroEntregaId: macroId } });
-    if (alocCount > 0) {
+    const alocacoes = await prisma.alocacao.findMany({ where: { macroEntregaId: macroId } });
+
+    // ── Verifica mês fechado em TODAS as alocações (lista vazia = nenhum mês,
+    // passa direto). Recalculado em toda chamada (1ª e 2ª) → a "revalidação
+    // defensiva" da 2ª chamada é o mesmo código, não um caminho separado.
+    const mesesEnvolvidos = [...new Set(alocacoes.map(a => `${a.ano}-${a.mes}`))]
+      .map(s => { const [ano, mes] = s.split('-').map(Number); return { ano, mes }; })
+      .sort((a, b) => a.ano - b.ano || a.mes - b.mes);
+
+    const mesesFechados: { ano: number; mes: number }[] = [];
+    for (const { ano, mes } of mesesEnvolvidos) {
+      if (await mesEstaFechado(ano, mes)) mesesFechados.push({ ano, mes });
+    }
+
+    if (mesesFechados.length > 0) {
+      const lista = mesesFechados.map(m => `${String(m.mes).padStart(2, '0')}/${m.ano}`).join(', ');
       return res.status(400).json({
-        error: `Não é possível remover: há ${alocCount} alocação(ões) vinculada(s) a esta macro-entrega.`,
+        error: `Esta macro tem alocação em mês(es) fechado(s): ${lista}. Reabra o(s) mês(es) ou remova essas alocações antes de apagar a macro.`,
       });
     }
 
+    // ── 1ª chamada: avisa e pede confirmação, sem apagar nada — mesmo se vazia ──
+    if (!confirmar) {
+      const totalHoras = alocacoes.reduce((s, a) => s.plus(a.horasPlanejadas), new Prisma.Decimal(0));
+      return res.status(200).json({
+        needsConfirmation: true,
+        totalAlocacoes: alocacoes.length,
+        totalHoras: totalHoras.toString(),
+      });
+    }
+
+    // ── 2ª chamada confirmada: apaga alocações (com log, se houver) + micros + macro ──
     await prisma.$transaction(async (tx) => {
+      for (const aloc of alocacoes) {
+        await tx.alocacao.delete({ where: { id: aloc.id } });
+        await tx.alocacaoLog.create({
+          data: {
+            id:              generateId(),
+            alocacaoId:      aloc.id,
+            colaboradorId:   aloc.colaboradorId,
+            projetoId:       aloc.projetoId,
+            macroEntregaId:  aloc.macroEntregaId,
+            microEntregaId:  aloc.microEntregaId,
+            ano:             aloc.ano,
+            mes:             aloc.mes,
+            acao:            'removeu',
+            horasAnteriores: aloc.horasPlanejadas,
+            horasNovas:      null,
+            usuarioId:       userId,
+          },
+        });
+      }
       await tx.microEntrega.deleteMany({ where: { macroEntregaId: macroId } });
       await tx.macroEntrega.delete({ where: { id: macroId } });
     });
-    res.json({ success: true });
+
+    res.json({ ok: true, alocacoesRemovidas: alocacoes.length });
   } catch (error) {
     console.error('Delete macro error:', error);
     res.status(500).json({ error: 'Internal server error' });

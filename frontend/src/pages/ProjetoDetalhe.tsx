@@ -137,13 +137,30 @@ export default function ProjetoDetalhe() {
   }
 
   async function deleteMacro(macroId: string) {
-    if (!confirm('Apagar esta macro e todas as suas micro-entregas?')) return;
     const res = await fetch(`/api/projetos/${projetoId}/macros/${macroId}`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
+
     if (!res.ok) { alert(data.error); return; }
-    fetchMacros();
+
+    // needsConfirmation sempre vem na 1ª chamada (mesmo macro vazia) — um único confirm()
+    if (data.needsConfirmation) {
+      const mensagem = data.totalAlocacoes > 0
+        ? `Esta macro tem ${data.totalAlocacoes} alocação(ões) (${Number(data.totalHoras)}h planejadas). Apagar remove todas elas e não pode ser desfeito. Continuar?`
+        : `Apagar esta macro?`;
+
+      if (!confirm(mensagem)) return;
+
+      const res2 = await fetch(`/api/projetos/${projetoId}/macros/${macroId}?confirmar=true`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      const data2 = await res2.json();
+      if (!res2.ok) { alert(data2.error); return; }
+      fetchMacros();
+      if (data2.alocacoesRemovidas > 0) alert(`${data2.alocacoesRemovidas} alocações removidas`);
+      return;
+    }
   }
 
   // ── Micro actions ─────────────────────────────────────────────────────

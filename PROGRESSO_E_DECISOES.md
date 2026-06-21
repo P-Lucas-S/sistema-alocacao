@@ -2,7 +2,7 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** **Tarifa por colaborador × categoria completa, e a spec de papéis (chefe/diretor) + posse/exclusão fechada.** Duas frentes desde os programas de fomento: (1) a **tarifa por colaborador × categoria** — evolução do pedido #3 (valor-hora), **já completa** (resolvedor + relatório + grid + tela de edição + blindagem contra apagar override), ver §4-bis; (2) uma **segunda leva de pedidos da cliente** (via o `Manual`), cujo item estrutural — **papéis novos (chefe, diretor), delegação de projeto e exclusão permanente** — passou por **brainstorm de 4 IAs** e virou a **`Spec_Papeis_Posse_Exclusao.md`** (decisões travadas), ver §4-ter. **Fases 0 a 4 + a tarifa completas.** Próximos passos: o **bug de macro/micro** (defeito atual), depois implementar a **spec de papéis** (6 passos), e então **priorização → dashboards (3) → Fase 5** — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
+> **Última atualização:** **Bug de macro/micro resolvido (editar micro + apagar macro em cascata) e arrumo no grid (abrir o painel a partir da célula vazia).** O diagnóstico mostrou que o backend de macro/micro estava correto — os defeitos eram só no frontend: o `deleteMacro` engolia o erro em silêncio e a edição de micro nunca tinha sido feita (`acb3383`); em cima disso, a cliente pediu **apagar a macro mesmo com alocação**, resolvido com **cascata + confirmação** (`21b44ec`). E o grid ganhou a abertura do painel também na **célula vazia** (`1a2b7bb`), eliminando o desvio pela "Geral" pra alocar numa macro não-padrão. Nesta mesma leva, antes disso: a **tarifa por colaborador × categoria** (§4-bis) e a **spec de papéis (chefe/diretor) + posse/exclusão** (`Spec_Papeis_Posse_Exclusao.md`, §4-ter). **Fases 0 a 4 + a tarifa completas; bug de macro/micro fechado.** Próximo passo: **implementar a spec de papéis** (6 passos, começando pelo enum dos 5 papéis), e então **priorização → dashboards (3) → Fase 5** — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
 
 ---
 
@@ -68,10 +68,10 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 4** | Remanejamento broadcast entre gestores | ✅ Completa — backend (`393596f`, `6e87355`, `1b5594a`) + frontend (`02e46fa`, `27ad941`, `bcce21b`, `aae171c`, `18964ed`) |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
 | **Pós-demo (1ª leva)** | Preparo do demo, custos, programas de fomento, **tarifa por colaborador × categoria**, regra de priorização — ver §4-bis | 🟡 Custos + programas + **tarifa** ✅; priorização aprovada (falta implementar); dashboard pendente |
-| **Pós-demo (2ª leva — Manual)** | Papéis novos (chefe/diretor) + delegação + exclusão permanente (**specado**), bug macro/micro, e itens menores — ver §4-ter | 🟡 Spec fechada (`Spec_Papeis_Posse_Exclusao.md`); implementação a começar |
+| **Pós-demo (2ª leva — Manual)** | Papéis novos (chefe/diretor) + delegação + exclusão permanente (**specado**), bug macro/micro, e itens menores — ver §4-ter | 🟡 **Bug macro/micro ✅ resolvido** (`acb3383`, `21b44ec`) + abertura do painel na célula vazia no grid (`1a2b7bb`); spec de papéis fechada (`Spec_Papeis_Posse_Exclusao.md`), **implementação a começar** |
 | Transversal | Identidade visual geral | ✅ Reforma clara aplicada no preparo do demo (`c378876`, `db44f99`) |
 
-> **Fases 0–4 + a tarifa fechadas.** Desde então: a **tarifa por colaborador × categoria** entregue (§4-bis), e uma **2ª leva de pedidos** (via o `Manual`) cujo núcleo estrutural — **papéis chefe/diretor, delegação e exclusão permanente** — está **specado** (`Spec_Papeis_Posse_Exclusao.md`, §4-ter) e pronto pra começar. O que falta: o **bug de macro/micro** (defeito atual), **implementar a spec de papéis**, a **priorização** (regra fechada), os **dashboards (3)**, e a **Fase 5**.
+> **Fases 0–4 + a tarifa fechadas, e o bug de macro/micro resolvido.** Desde a tarifa: a **2ª leva de pedidos** (via o `Manual`) cujo núcleo estrutural — **papéis chefe/diretor, delegação e exclusão permanente** — está **specado** (`Spec_Papeis_Posse_Exclusao.md`, §4-ter) e pronto pra começar; e o **bug de macro/micro** foi corrigido (`acb3383`, `21b44ec`) junto de um arrumo no grid (`1a2b7bb`). O que falta: **implementar a spec de papéis**, a **priorização** (regra fechada), os **dashboards (3)**, e a **Fase 5**.
 
 ### Credenciais de teste (do seed)
 | Papel | E-mail | Senha |
@@ -361,7 +361,7 @@ A organização real é **diretor → chefe → gestores** (hoje só há `admin`
 - **Ordem (6 passos):** (1) papéis + migração + `requireRole`; (2) `criadoPorId` + delegação na criação; (3) override do chefe (mesmo lock; **teste de concorrência chefe×gestor**); (4) re-delegação; (5) exclusão + lápide; (6) telas do diretor/dashboards.
 
 ### Bugs reportados no Manual (a tratar)
-- **Macro/micro não apaga; não dá pra editar/excluir só a micro** — defeito **atual**, core. Precisa de **diagnóstico** (bloqueio por alocação aparecendo como "não apaga"? regressão? função faltando? lembrar que apagar a **única** micro de uma macro é bloqueado por regra). É o trabalho independente sugerido pra começar.
+- ~~**Macro/micro não apaga; não dá pra editar/excluir só a micro**~~ — **RESOLVIDO** (`acb3383`, `21b44ec`). Diagnóstico: o **backend estava correto e completo**; os dois bugs eram **só no frontend** (`ProjetoDetalhe.tsx`) — o `deleteMacro()` **engolia o erro do backend em silêncio** (macro com alocação ficava na lista sem aviso, parecendo "não apaga"), e a **edição de micro nunca tinha sido implementada** (a rota `PUT .../micros/:id` já existia). Conserto (`acb3383`): `deleteMacro` passou a checar `res.ok` e mostrar a mensagem do backend, e foi adicionada a edição de micro (lápis + modal, no mesmo padrão da macro). **Em cima disso**, a cliente pediu **apagar a macro mesmo com alocação** (em vez de só bloquear) → **cascata com confirmação** (`21b44ec`, Opção A): a 1ª chamada é um **pre-check** que devolve a contagem de alocações/horas **sem apagar**; só `?confirmar=true` apaga, numa **transação** que remove cada alocação (gravando log `removeu`, reusando o formato do `DELETE /alocacoes/:id`) → micros → macro. **Mês fechado bloqueia** o apagar (alocação em mês fechado é read-only — a macro só apaga depois de o mês reabrir). Owner-check intacto (gestor-dono/admin; coordenação 403); FKs seguem `RESTRICT` (deleção explícita e ordenada). A tela mostra **um único `confirm`** (com a contagem quando há alocações). Testado: `backend/test-apagar-macro-cascata.mjs` **35/35**.
 - **Perfil com cores ruins / ilegível** — já conhecido (a tela de Perfil foi feita pro tema **escuro**, quebra no claro). Conserto: retrabalhar pro tema claro.
 
 ### Decisões de nomenclatura / produto resolvidas
@@ -377,8 +377,8 @@ A organização real é **diretor → chefe → gestores** (hoje só há `admin`
 - **Hierarquia de visualização de dashboards/relatórios em PDF** — casa com o diretor + dashboards.
 - (possível) campo **"área de atuação"** no colaborador — confirmar com a cliente.
 
-### Cosmético pendente
-- **"Continuar" → "Salvar"** no botão do **cadastro** de colaborador (o "Continuar" vem do fluxo de duplicata; é só o texto, a confirmação de "parecido" continua igual). **Ainda não aplicado** (prompt já preparado).
+### Cosmético (resolvido)
+- ~~**"Continuar" → "Salvar"** no botão do cadastro de colaborador~~ — **RESOLVIDO** (`460df17`): o botão diz "Salvar" (consistente com a edição); a confirmação de "parecido" no fluxo de duplicata segue igual.
 
 ---
 
@@ -391,6 +391,8 @@ Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem esco
 **Por que não tornar `microEntregaId` opcional?** Seria uma mudança de modelagem desaconselhada: quebraria a regra de unicidade da alocação e a integridade da soma do teto (uma alocação "solta" na macro não teria âncora estável, e o remanejamento da Fase 4 não teria onde pousar as horas cedidas). A micro "Geral" atende exatamente a mesma necessidade sem nenhum desses riscos. **Recomendação: manter como está.**
 
 **Como ficou na interface (resolvido no C2/C3):** o clique rápido na célula do grid cai na "Geral" daquele projeto (tanto para planejado quanto para realizado); o ícone de lista abre o painel lateral, que lista todas as micros (inclusive zeradas) e permite distribuir planejado e realizado entre elas. A "Geral" aparece com um rótulo "padrão" discreto. Sem impacto no modelo de dados.
+
+**Arrumo posterior (`1a2b7bb`):** o painel passou a ser abrível **também a partir da célula vazia** (o ícone aparece no hover; antes só existia em célula com alocação). Isso elimina um desvio: pra alocar numa macro **não-padrão**, o gestor era obrigado a alocar na "Geral" pelo clique rápido e depois **mover** as horas pelo painel; agora ele abre o painel direto da célula vazia e aloca na macro que quiser. O clique rápido (Geral), a barra de saldo, as colunas sticky e o read-only de mês fechado seguem iguais; na célula vazia o ícone fica invisível em repouso (só aparece no hover) pra não poluir o grid.
 
 ---
 
@@ -423,15 +425,14 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 
 ---
 
-## 7. Próximos passos (bug macro/micro → papéis → priorização → dashboards → Fase 5)
+## 7. Próximos passos (papéis → priorização → dashboards → Fase 5)
 
-Com as **Fases 0 a 4 + a tarifa completas** e a **spec de papéis fechada** (§4-ter), a fila é:
+Com as **Fases 0 a 4 + a tarifa completas**, a **spec de papéis fechada** (§4-ter) e o **bug de macro/micro resolvido** (§4-ter), a fila é:
 
-1. **Bug de macro/micro** — defeito **atual** reportado no Manual (não apaga, não edita/exclui só a micro). Independente e rápido; começa por um **diagnóstico** (bloqueio por alocação? regressão? função faltando?). Bom candidato pra atacar **antes** do build grande.
-2. **Spec de papéis (chefe/diretor) + posse + exclusão** — `Spec_Papeis_Posse_Exclusao.md`, em **6 passos** (papéis → `criadoPorId`/delegação → override do chefe → re-delegação → exclusão+lápide → telas do diretor). A decisão estrutural já passou pelo brainstorm; segue como spec. As **telas do diretor** casam com os dashboards (abaixo).
-3. **Implementar a priorização** — regra fechada e aprovada (`Regra_Priorizacao.md`, resumo no §4-bis). Falta o cálculo (faixa de prazo → categoria; ordenação por horas pendentes; capacidade como sinal; override; batch diário; tabela de config) e uma tela. Estruturalmente pesada, mas a decisão difícil já passou pelo brainstorm.
-4. **Dashboards (3: Geral / Projetos / Capacidade)** (pedido #5, que cresceu pra três) — juntam tudo (custos, priorização, capacidade) e são as telas do **diretor**. O mais "de produto" e caro de refazer → **merece brainstorm de IAs ao escopá-lo**, antes do primeiro prompt.
-5. **Itens menores do Manual** (cargo na aba de Custos, PDF de Declaração de HT, notificação de remanejamento, datas na macro, Perfil pro tema claro, o cosmético "Continuar"→"Salvar") — encaixáveis entre os grandes; ver §4-ter.
+1. **Spec de papéis (chefe/diretor) + posse + exclusão** — `Spec_Papeis_Posse_Exclusao.md`, em **6 passos** (papéis → `criadoPorId`/delegação → override do chefe → re-delegação → exclusão+lápide → telas do diretor). A decisão estrutural já passou pelo brainstorm; segue como spec. **É o próximo a começar** (passo 1 = enum dos 5 papéis + migração + `requireRole`). As **telas do diretor** casam com os dashboards (abaixo).
+2. **Implementar a priorização** — regra fechada e aprovada (`Regra_Priorizacao.md`, resumo no §4-bis). Falta o cálculo (faixa de prazo → categoria; ordenação por horas pendentes; capacidade como sinal; override; batch diário; tabela de config) e uma tela. Estruturalmente pesada, mas a decisão difícil já passou pelo brainstorm.
+3. **Dashboards (3: Geral / Projetos / Capacidade)** (pedido #5, que cresceu pra três) — juntam tudo (custos, priorização, capacidade) e são as telas do **diretor**. O mais "de produto" e caro de refazer → **merece brainstorm de IAs ao escopá-lo**, antes do primeiro prompt.
+4. **Itens menores do Manual** (cargo na aba de Custos, PDF de Declaração de HT, notificação de remanejamento, datas na macro, Perfil pro tema claro) — encaixáveis entre os grandes; ver §4-ter.
 
 E, em paralelo ou depois, a **Fase 5**, voltada à **coordenação** e à **escala**:
 

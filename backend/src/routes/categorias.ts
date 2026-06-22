@@ -39,7 +39,7 @@ function isSimilar(a: string, b: string): boolean {
 }
 
 // ── GET / — lista programas ────────────────────────────────────────────────
-router.get('/', authenticate, requireRole('admin', 'gestor', 'coordenacao'), async (req: AuthRequest, res) => {
+router.get('/', authenticate, requireRole('admin', 'gestor', 'coordenacao', 'chefe', 'diretor'), async (req: AuthRequest, res) => {
   try {
     const { ativo } = req.query as Record<string, string | undefined>;
 

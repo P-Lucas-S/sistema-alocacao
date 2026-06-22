@@ -187,26 +187,32 @@ export default function Profile() {
           <UserCircle size={24} className="text-indigo-400" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-white">Meu Perfil</h1>
-          <p className="text-sm text-gray-400">Gerencie suas informações pessoais</p>
+          <h1 className="text-xl font-bold" style={{ color: 'var(--text-1)' }}>Meu Perfil</h1>
+          <p className="text-sm" style={{ color: 'var(--text-3)' }}>Gerencie suas informações pessoais</p>
         </div>
       </div>
 
       {/* Feedback */}
       {success && (
-        <div className="mb-4 p-3 bg-green-500/20 border border-green-500/30 rounded-lg text-green-400 text-sm flex items-center gap-2">
+        <div
+          className="mb-4 p-3 rounded-lg text-sm flex items-center gap-2"
+          style={{ background: 'hsl(142 76% 36% / 0.08)', border: '1px solid hsl(142 76% 36% / 0.25)', color: '#15803d' }}
+        >
           <Check size={16} /> {success}
         </div>
       )}
       {error && (
-        <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm flex items-center gap-2">
+        <div
+          className="mb-4 p-3 rounded-lg text-sm flex items-center gap-2"
+          style={{ background: 'hsl(0 85% 60% / 0.08)', border: '1px solid hsl(0 85% 60% / 0.25)', color: '#b42318' }}
+        >
           <AlertCircle size={16} /> {error}
         </div>
       )}
 
       <div className="space-y-6">
         {/* Avatar + Name Card */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+        <div className="card p-6">
           <div className="flex items-center gap-5">
             {/* Avatar */}
             <div className="relative group">
@@ -214,12 +220,13 @@ export default function Profile() {
                 <img
                   src={user.avatarUrl}
                   alt={user.name}
-                  className="w-20 h-20 rounded-full object-cover border-2 border-white/10"
+                  className="w-20 h-20 rounded-full object-cover border-2"
+                  style={{ borderColor: 'var(--border)' }}
                 />
               ) : (
                 <div
-                  className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white border-2 border-white/10"
-                  style={{ background: 'var(--grad-brand)' }}
+                  className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white border-2"
+                  style={{ background: 'var(--grad-brand)', borderColor: 'var(--border)' }}
                 >
                   {initial}
                 </div>
@@ -247,37 +254,43 @@ export default function Profile() {
                     value={name}
                     onChange={e => setName(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSaveName()}
-                    className="flex-1 bg-transparent border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-400"
+                    className="flex-1 form-input text-sm"
+                    style={{ padding: '0.375rem 0.75rem' }}
                     autoFocus
                   />
                   <button
                     onClick={handleSaveName}
                     disabled={nameLoading}
-                    className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 rounded-lg text-xs text-white font-medium transition-colors"
+                    className="btn-brand"
+                    style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', borderRadius: 8 }}
                   >
                     {nameLoading ? '...' : 'Salvar'}
                   </button>
                   <button
                     onClick={() => { setEditingName(false); setName(user?.name ?? ''); }}
-                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/20 rounded-lg text-xs text-gray-400 transition-colors"
+                    className="btn-ghost"
+                    style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', borderRadius: 8 }}
                   >
                     Cancelar
                   </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold text-white truncate">{user?.name}</h2>
+                  <h2 className="text-lg font-semibold truncate" style={{ color: 'var(--text-1)' }}>{user?.name}</h2>
                   <button
                     onClick={() => setEditingName(true)}
-                    className="p-1 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+                    className="p-1 rounded-lg transition-colors"
+                    style={{ color: 'var(--text-2)' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-3)'; e.currentTarget.style.color = 'var(--text-1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-2)'; }}
                     title="Editar nome"
                   >
                     <Pencil size={14} />
                   </button>
                 </div>
               )}
-              <p className="text-sm text-gray-400 truncate mt-0.5">{user?.email}</p>
-              <p className="text-xs text-gray-500 capitalize mt-0.5">
+              <p className="text-sm truncate mt-0.5" style={{ color: 'var(--text-2)' }}>{user?.email}</p>
+              <p className="text-xs capitalize mt-0.5" style={{ color: 'var(--text-3)' }}>
                 {user?.position ?? user?.role}
               </p>
             </div>
@@ -285,16 +298,17 @@ export default function Profile() {
         </div>
 
         {/* Change Password */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+        <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Lock size={16} className="text-gray-400" />
-              <h2 className="text-base font-semibold text-white">Alterar Senha</h2>
+              <Lock size={16} style={{ color: 'var(--text-2)' }} />
+              <h2 className="text-base font-semibold" style={{ color: 'var(--text-1)' }}>Alterar Senha</h2>
             </div>
             {!showPwForm && (
               <button
                 onClick={() => setShowPwForm(true)}
-                className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/20 rounded-lg text-xs text-gray-300 font-medium transition-colors"
+                className="btn-ghost"
+                style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', borderRadius: 8 }}
               >
                 Alterar
               </button>
@@ -304,37 +318,39 @@ export default function Profile() {
           {showPwForm && (
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Senha atual</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-2)' }}>Senha atual</label>
                 <input
                   type="password"
                   value={currentPw}
                   onChange={e => setCurrentPw(e.target.value)}
-                  className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400"
+                  className="form-input"
                   placeholder="••••••"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Nova senha</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-2)' }}>Nova senha</label>
                 <input
                   type="password"
                   value={newPw}
                   onChange={e => setNewPw(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleChangePassword()}
-                  className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400"
+                  className="form-input"
                   placeholder="Mínimo 4 caracteres"
                 />
               </div>
               <div className="flex gap-2 justify-end pt-1">
                 <button
                   onClick={() => { setShowPwForm(false); setCurrentPw(''); setNewPw(''); }}
-                  className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/20 rounded-lg text-xs text-gray-400 transition-colors"
+                  className="btn-ghost"
+                  style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', borderRadius: 8 }}
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleChangePassword}
                   disabled={pwLoading || !currentPw || !newPw}
-                  className="px-4 py-1.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 rounded-lg text-xs text-white font-medium transition-colors"
+                  className="btn-brand"
+                  style={{ padding: '0.375rem 1rem', fontSize: '0.75rem', borderRadius: 8 }}
                 >
                   {pwLoading ? 'Salvando...' : 'Confirmar'}
                 </button>
@@ -354,17 +370,20 @@ export default function Profile() {
           <div
             className="relative w-full max-w-md mx-4 rounded-2xl overflow-hidden"
             style={{
-              background: 'var(--surface-1, #1a1d23)',
-              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'var(--surface-1)',
+              border: '1px solid var(--border)',
               boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
             }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-              <h3 className="text-base font-semibold text-white">Ajustar foto de perfil</h3>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="text-base font-semibold" style={{ color: 'var(--text-1)' }}>Ajustar foto de perfil</h3>
               <button
                 onClick={handleCropCancel}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: 'var(--text-2)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-3)'; e.currentTarget.style.color = 'var(--text-1)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-2)'; }}
               >
                 <X size={18} />
               </button>
@@ -389,8 +408,8 @@ export default function Profile() {
             </div>
 
             {/* Zoom slider */}
-            <div className="flex items-center gap-3 px-5 py-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-              <ZoomOut size={16} className="text-gray-400 shrink-0" />
+            <div className="flex items-center gap-3 px-5 py-3" style={{ borderTop: '1px solid var(--border)' }}>
+              <ZoomOut size={16} className="shrink-0" style={{ color: 'var(--text-2)' }} />
               <input
                 type="range"
                 min={1}
@@ -400,24 +419,26 @@ export default function Profile() {
                 onChange={e => setZoom(Number(e.target.value))}
                 className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
                 style={{
-                  background: `linear-gradient(to right, #6366f1 ${((zoom - 1) / 2) * 100}%, rgba(255,255,255,0.15) ${((zoom - 1) / 2) * 100}%)`,
+                  background: `linear-gradient(to right, #6366f1 ${((zoom - 1) / 2) * 100}%, var(--border-strong) ${((zoom - 1) / 2) * 100}%)`,
                 }}
               />
-              <ZoomIn size={16} className="text-gray-400 shrink-0" />
+              <ZoomIn size={16} className="shrink-0" style={{ color: 'var(--text-2)' }} />
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 justify-end px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="flex gap-3 justify-end px-5 py-4" style={{ borderTop: '1px solid var(--border)' }}>
               <button
                 onClick={handleCropCancel}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/20 rounded-xl text-sm text-gray-300 font-medium transition-colors"
+                className="btn-ghost"
+                style={{ padding: '0.5rem 1rem', borderRadius: 12 }}
               >
                 Cancelar
               </button>
               <button
                 onClick={handleCropSave}
                 disabled={cropLoading}
-                className="px-5 py-2 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 rounded-xl text-sm text-white font-semibold transition-colors flex items-center gap-2"
+                className="btn-brand"
+                style={{ padding: '0.5rem 1.25rem', borderRadius: 12 }}
               >
                 {cropLoading ? (
                   <>

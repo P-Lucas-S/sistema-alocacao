@@ -1,10 +1,11 @@
-// Teste de concorrência do teto de 220h
-// Cenário: colaborador com 200h alocadas (20h livres)
-// Dispara 2 requisições simultâneas de 15h cada → deve: UMA passa, OUTRA bloqueia
-// Resultado ERRADO: ambas passam → total = 230h → teto furado
+// Teste de concorrência do teto de 220h — MESMO molde do test-concorrencia.mjs,
+// mas um dos dois lados disparando é o CHEFE (override), não outro gestor.
+// Cenário: colaborador com 200h alocadas (20h livres). Chefe e gestor1 disparam
+// 15h cada, simultaneamente, pro MESMO colaborador/mês → soma estouraria 220h.
+// Resultado ERRADO: ambos passam → total = 230h → teto furado.
 
 import { randomBytes } from 'crypto';
-const uid = () => randomBytes(5).toString('hex'); // 10 chars hex únicos
+const uid = () => randomBytes(5).toString('hex');
 
 const API = 'http://localhost:3001';
 
@@ -36,28 +37,30 @@ async function getCategoriaId(token) {
   return categoriaIdCache;
 }
 
-async function setup(token) {
-  const id = uid(); // único por rodada
-  const categoriaId = await getCategoriaId(token);
+// Setup feito pelo gestor1 (dono "natural") — colaborador + projeto base.
+// O chefe vai operar esse MESMO colaborador/projeto por override, sem ser dono.
+async function setup(tokenGestor) {
+  const id = uid();
+  const categoriaId = await getCategoriaId(tokenGestor);
 
   const colab = await post('/api/colaboradores', {
-    nome: `Corrida ${id}`,
-    email: `cr${id}@teste.dev`,
+    nome: `CorridaChefe ${id}`,
+    email: `crc${id}@teste.dev`,
     valorHora: 100,
-  }, token);
+  }, tokenGestor);
   if (colab.status !== 201)
     throw new Error(`Colaborador falhou (${colab.status}): ${JSON.stringify(colab.data)}`);
 
   const proj = await post('/api/projetos', {
-    codigo: `C${id}`,
-    nome: `Projeto ${id}`,
+    codigo: `CC${id}`,
+    nome: `Projeto Chefe ${id}`,
     prestacoesContas: ['2027-01-31'],
     categoriaId,
-  }, token);
+  }, tokenGestor);
   if (proj.status !== 201)
     throw new Error(`Projeto falhou (${proj.status}): ${JSON.stringify(proj.data)}`);
 
-  const macro = await post(`/api/projetos/${proj.data.id}/macros`, { nome: 'M' }, token);
+  const macro = await post(`/api/projetos/${proj.data.id}/macros`, { nome: 'M' }, tokenGestor);
   if (macro.status !== 201)
     throw new Error(`Macro falhou (${macro.status}): ${JSON.stringify(macro.data)}`);
 
@@ -69,86 +72,82 @@ async function setup(token) {
   };
 }
 
-async function runRodada(token, n) {
-  // Setup base — colaborador fresco, sem alocações no mês 9/2027
-  const base = await setup(token);
+async function runRodada(tokenGestor, tokenChefe, n) {
+  const base = await setup(tokenGestor);
+  const categoriaId = await getCategoriaId(tokenGestor);
 
-  // Alocar 200h base → sobram 20h
+  // Alocar 200h base (pelo gestor, dono) → sobram 20h
   const r200 = await post('/api/alocacoes', {
     colaboradorId:  base.colabId,
     projetoId:      base.projId,
     macroEntregaId: base.macroId,
     microEntregaId: base.microId,
     ano: 2027, mes: 9, horasPlanejadas: 200,
-  }, token);
+  }, tokenGestor);
   if (r200.status !== 201)
     return { rodada: n, erro: `Setup 200h falhou: ${JSON.stringify(r200.data)}` };
 
-  // Dois projetos diferentes para os dois "ataques" concorrentes
-  const categoriaId = await getCategoriaId(token);
-  const pA   = await post('/api/projetos', { codigo: `A${uid()}`, nome: 'Ataque A', prestacoesContas: ['2027-01-31'], categoriaId }, token);
+  // Dois projetos "de ataque" — um o CHEFE vai usar (sem ser dono), outro o gestor.
+  const pA = await post('/api/projetos', { codigo: `CA${uid()}`, nome: 'Ataque Chefe', prestacoesContas: ['2027-01-31'], categoriaId }, tokenGestor);
   if (pA.status !== 201) throw new Error(`ProjA falhou: ${JSON.stringify(pA.data)}`);
-  const mA   = await post(`/api/projetos/${pA.data.id}/macros`, { nome: 'MA' }, token);
+  const mA = await post(`/api/projetos/${pA.data.id}/macros`, { nome: 'MA' }, tokenGestor);
 
-  const pB   = await post('/api/projetos', { codigo: `B${uid()}`, nome: 'Ataque B', prestacoesContas: ['2027-01-31'], categoriaId }, token);
+  const pB = await post('/api/projetos', { codigo: `CB${uid()}`, nome: 'Ataque Gestor', prestacoesContas: ['2027-01-31'], categoriaId }, tokenGestor);
   if (pB.status !== 201) throw new Error(`ProjB falhou: ${JSON.stringify(pB.data)}`);
-  const mB   = await post(`/api/projetos/${pB.data.id}/macros`, { nome: 'MB' }, token);
+  const mB = await post(`/api/projetos/${pB.data.id}/macros`, { nome: 'MB' }, tokenGestor);
 
-  const bodyA = {
+  const bodyChefe = {
     colaboradorId: base.colabId, projetoId: pA.data.id,
     macroEntregaId: mA.data.id, microEntregaId: mA.data.microEntregas[0].id,
     ano: 2027, mes: 9, horasPlanejadas: 15,
   };
-  const bodyB = {
+  const bodyGestor = {
     colaboradorId: base.colabId, projetoId: pB.data.id,
     macroEntregaId: mB.data.id, microEntregaId: mB.data.microEntregas[0].id,
     ano: 2027, mes: 9, horasPlanejadas: 15,
   };
 
-  // ── Requisições SIMULTÂNEAS ────────────────────────────────────────────
-  // Promise.all faz os dois fetch() antes de qualquer await — ambos os pacotes
-  // TCP são enviados quase ao mesmo tempo. No servidor, ambas as transações
-  // começam; a segunda bloqueia em SELECT colaboradores FOR UPDATE até a
-  // primeira fazer COMMIT, então lê o total atualizado.
-  const [rA, rB] = await Promise.all([
-    post('/api/alocacoes', bodyA, token),
-    post('/api/alocacoes', bodyB, token),
+  // ── Requisições SIMULTÂNEAS: chefe (override, projeto pA não é dele) x gestor1 (dono de pB) ──
+  const [rChefe, rGestor] = await Promise.all([
+    post('/api/alocacoes', bodyChefe, tokenChefe),
+    post('/api/alocacoes', bodyGestor, tokenGestor),
   ]);
 
-  const passouA  = rA.status === 201;
-  const passouB  = rB.status === 201;
-  const bloqA    = rA.status === 409 && rA.data.bloqueado;
-  const bloqB    = rB.status === 409 && rB.data.bloqueado;
+  const passouChefe  = rChefe.status === 201;
+  const passouGestor = rGestor.status === 201;
+  const bloqChefe    = rChefe.status === 409 && rChefe.data.bloqueado;
+  const bloqGestor   = rGestor.status === 409 && rGestor.data.bloqueado;
 
   // Verificar total real no banco — fonte de verdade
   const listResp = await fetch(
     `${API}/api/alocacoes?colaboradorId=${base.colabId}&ano=2027&mes=9`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    { headers: { Authorization: `Bearer ${tokenGestor}` } }
   );
   const lista     = await listResp.json();
   const totalReal = lista.reduce((s, a) => s + parseFloat(a.horasPlanejadas), 0);
 
-  const exatamenteUmaPassou = (passouA ? 1 : 0) + (passouB ? 1 : 0) === 1;
+  const exatamenteUmaPassou = (passouChefe ? 1 : 0) + (passouGestor ? 1 : 0) === 1;
   const correto = exatamenteUmaPassou && totalReal <= 220;
 
   return {
     rodada: n, correto,
-    A: passouA ? 'PASSOU' : (bloqA ? 'BLOQUEOU' : `ERR:${rA.status}`),
-    B: passouB ? 'PASSOU' : (bloqB ? 'BLOQUEOU' : `ERR:${rB.status}`),
+    Chefe:  passouChefe  ? 'PASSOU' : (bloqChefe  ? 'BLOQUEOU' : `ERR:${rChefe.status}`),
+    Gestor: passouGestor ? 'PASSOU' : (bloqGestor ? 'BLOQUEOU' : `ERR:${rGestor.status}`),
     totalReal,
     furou: totalReal > 220,
   };
 }
 
 async function main() {
-  const token = await login('gestor1@sistema.dev', 'gestor123');
-  console.log('Token obtido. Rodando 8 rodadas...\n');
+  const tokenGestor = await login('gestor1@sistema.dev', 'gestor123');
+  const tokenChefe  = await login('chefe@sistema.dev', 'chefe123');
+  console.log('Tokens obtidos. Rodando 8 rodadas (chefe × gestor)...\n');
 
   let todasOk = true;
   for (let i = 1; i <= 8; i++) {
     let r;
     try {
-      r = await runRodada(token, i);
+      r = await runRodada(tokenGestor, tokenChefe, i);
     } catch (e) {
       console.log(`❌ Rodada ${i}: ERRO DE SETUP — ${e.message}`);
       todasOk = false;
@@ -156,16 +155,17 @@ async function main() {
     }
     const icon  = r.correto ? '✅' : '❌';
     const furou = r.furou   ? '  ⚠️  TETO FURADO!' : '';
-    console.log(`${icon} Rodada ${r.rodada}: A=${r.A} | B=${r.B} | total=${r.totalReal}h${furou}`);
+    console.log(`${icon} Rodada ${r.rodada}: Chefe=${r.Chefe} | Gestor=${r.Gestor} | total=${r.totalReal}h${furou}`);
     if (r.erro)    { console.log(`   ERRO: ${r.erro}`); }
     if (!r.correto) todasOk = false;
   }
 
   console.log(
     `\n${todasOk
-      ? '✅  TODAS AS RODADAS OK — lock protege o teto sob concorrência'
-      : '❌  FALHA — revisar o mecanismo de lock'}`
+      ? '✅  TODAS AS RODADAS OK — lock protege o teto sob concorrência (chefe incluso, sem atalho)'
+      : '❌  FALHA — revisar o mecanismo de lock com chefe'}`
   );
+  if (!todasOk) process.exit(1);
 }
 
 main().catch(console.error);

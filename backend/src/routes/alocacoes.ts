@@ -497,7 +497,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 });
 
 // ── POST / — cria ou atualiza alocação (upsert com lock) ─────────────────
-router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { colaboradorId, projetoId, macroEntregaId, microEntregaId,
             ano, mes, horasPlanejadas } = req.body;
@@ -577,7 +577,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 // ── PATCH /:id/realizado — atualiza horasRealizadas (sem teto, sem lock) ──
 // Ownership: mesmo critério do POST — gestor pode editar qualquer alocação,
 // não só a dos próprios projetos (POST também não verifica ownership).
-router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const userId = req.user!.id;
@@ -627,7 +627,7 @@ router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor'), asy
 
 // ── POST /copiar-realizado — copia horas_planejadas → horas_realizadas em massa ──
 // Preenche SOMENTE onde horas_realizadas IS NULL.  Sem lock — realizado fora do teto.
-router.post('/copiar-realizado', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/copiar-realizado', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { ano, mes } = req.body;
     const userId = req.user!.id;
@@ -647,7 +647,9 @@ router.post('/copiar-realizado', authenticate, requireRole('admin', 'gestor'), a
     }
 
     let atualizadas: number;
-    if (role === 'admin') {
+    // Chefe é tratado como admin aqui — sem restrição a "meus projetos"
+    // (chefe não tem projetos próprios; o conceito que se aplica é gestorId).
+    if (role === 'admin' || role === 'chefe') {
       atualizadas = await prisma.$executeRaw`
         UPDATE alocacoes
         SET horas_realizadas = horas_planejadas,
@@ -696,7 +698,7 @@ router.get('/:id/log', authenticate, requireRole('admin', 'gestor'), async (req:
 });
 
 // ── DELETE /:id — remove alocação ─────────────────────────────────────────
-router.delete('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.delete('/:id', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const userId = req.user!.id;

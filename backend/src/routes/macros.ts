@@ -49,7 +49,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 });
 
 // POST / — cria macro + micro "Geral" automática (transação)
-router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { projetoId } = req.params as { projetoId: string };
     const { nome, descricao } = req.body;
@@ -83,7 +83,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 });
 
 // PUT /:macroId — edita macro
-router.put('/:macroId', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.put('/:macroId', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { projetoId, macroId } = req.params as { projetoId: string; macroId: string };
     const { nome, descricao } = req.body;
@@ -122,7 +122,7 @@ router.put('/:macroId', authenticate, requireRole('admin', 'gestor'), async (req
 //     fechado entre as duas chamadas) e, se livre, apaga TUDO numa transação:
 //     cada alocação (com log 'removeu', mesmo formato de DELETE /api/alocacoes/:id,
 //     se houver) → as micros → a macro. 200 { ok: true, alocacoesRemovidas }.
-router.delete('/:macroId', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.delete('/:macroId', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { projetoId, macroId } = req.params as { projetoId: string; macroId: string };
     const userId = req.user!.id;
@@ -200,7 +200,7 @@ router.delete('/:macroId', authenticate, requireRole('admin', 'gestor'), async (
 // ── MICROS ────────────────────────────────────────────────────────────────
 
 // POST /:macroId/micros — cria micro extra
-router.post('/:macroId/micros', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/:macroId/micros', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { projetoId, macroId } = req.params as { projetoId: string; macroId: string };
     const { nome, descricao } = req.body;
@@ -230,7 +230,7 @@ router.post('/:macroId/micros', authenticate, requireRole('admin', 'gestor'), as
 });
 
 // PUT /:macroId/micros/:microId — edita micro
-router.put('/:macroId/micros/:microId', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.put('/:macroId/micros/:microId', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { projetoId, macroId, microId } = req.params as { projetoId: string; macroId: string; microId: string };
     const { nome, descricao } = req.body;
@@ -257,7 +257,7 @@ router.put('/:macroId/micros/:microId', authenticate, requireRole('admin', 'gest
 });
 
 // DELETE /:macroId/micros/:microId — apaga micro (não se for a única)
-router.delete('/:macroId/micros/:microId', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.delete('/:macroId/micros/:microId', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { projetoId, macroId, microId } = req.params as { projetoId: string; macroId: string; microId: string };
     const userId = req.user!.id;

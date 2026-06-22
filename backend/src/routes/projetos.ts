@@ -208,7 +208,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
 // ── PUT /:id ───────────────────────────────────────────────────────────────
 // Sincronização de datas: substitui o conjunto completo se prestacoesContas for fornecido.
 // Sem prestacoesContas no body → datas não mudam.
-router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.put('/:id', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { nome, prestacoesContas, categoriaId } = req.body;
@@ -274,7 +274,7 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
 });
 
 // ── PATCH /:id/status ─────────────────────────────────────────────────────
-router.patch('/:id/status', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.patch('/:id/status', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;

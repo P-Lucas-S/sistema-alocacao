@@ -141,6 +141,7 @@ model Projeto {
   status                  String   @default("ativo") @db.VarChar(50)
   exclusaoSolicitadaPorId String?  @map("exclusao_solicitada_por_id") @db.VarChar(191)
   motivoExclusao          String?  @map("motivo_exclusao") @db.Text
+  statusAnteriorExclusao  String?  @map("status_anterior_exclusao") @db.VarChar(50)
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 

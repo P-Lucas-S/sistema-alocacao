@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../prisma.js';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
+import { precheckExclusao, executarExclusaoCascata, ExclusaoBloqueadaError } from '../lib/exclusaoProjeto.js';
 
 const router = express.Router();
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -40,6 +41,9 @@ function serializeProjeto(p: any) {
     gestorId: p.gestorId,
     criadoPorId: p.criadoPorId,
     status: p.status,
+    exclusaoSolicitadaPorId: p.exclusaoSolicitadaPorId,
+    motivoExclusao: p.motivoExclusao,
+    statusAnteriorExclusao: p.statusAnteriorExclusao,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     gestor: p.gestor,
@@ -365,6 +369,179 @@ router.patch('/:id/redelegar', authenticate, requireRole('chefe'), async (req: A
     res.json(serializeProjeto(updated));
   } catch (error) {
     console.error('Redelegar projeto error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /:id/solicitar-exclusao — SÓ o gestor dono pede ───────────────────
+// Spec_Papeis_Posse_Exclusao: projeto arquivado pode ser solicitado (sem gate
+// de "ativo"); só rejeita se já está pendente_exclusao. Não toca alocação.
+router.post('/:id/solicitar-exclusao', authenticate, requireRole('gestor'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { motivo } = req.body;
+    const userId = req.user!.id;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+
+    if (projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Só o gestor dono do projeto pode solicitar a exclusão' });
+    }
+
+    if (projeto.status === 'pendente_exclusao') {
+      return res.status(409).json({ error: 'Já há um pedido de exclusão em aberto para este projeto' });
+    }
+
+    const updated = await prisma.projeto.update({
+      where: { id },
+      data: {
+        status: 'pendente_exclusao',
+        exclusaoSolicitadaPorId: userId,
+        motivoExclusao: motivo ?? null,
+        statusAnteriorExclusao: projeto.status, // pra recusar poder restaurar (ex.: 'arquivado')
+      },
+      include: {
+        gestor: { select: { id: true, name: true } },
+        criadoPor: { select: { id: true, name: true } },
+        categoria: { select: { id: true, nome: true, ativo: true } },
+        prestacoesContas: { orderBy: { data: 'asc' } },
+      },
+    });
+
+    res.json(serializeProjeto(updated));
+  } catch (error) {
+    console.error('Solicitar exclusão error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /:id/aprovar-exclusao — SÓ chefe ───────────────────────────────────
+router.post('/:id/aprovar-exclusao', authenticate, requireRole('chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+
+    if (projeto.status !== 'pendente_exclusao') {
+      return res.status(409).json({ error: 'Não há pedido de exclusão para aprovar' });
+    }
+
+    const precheck = await precheckExclusao(id);
+    if (!precheck.ok) {
+      if (precheck.motivo === 'mes_fechado') {
+        return res.status(409).json({
+          error: 'Há alocação em mês fechado; reabra o mês antes de excluir',
+          mesesFechados: precheck.mesesFechados,
+        });
+      }
+      return res.status(404).json({ error: 'Projeto não encontrado' }); // corrida rara
+    }
+
+    try {
+      const resultado = await executarExclusaoCascata(id, {
+        solicitanteId: projeto.exclusaoSolicitadaPorId,
+        aprovadorId:   userId,
+        motivo:        projeto.motivoExclusao,
+      });
+      res.json(resultado);
+    } catch (err) {
+      if (err instanceof ExclusaoBloqueadaError) {
+        return res.status(409).json({
+          error: 'Há alocação em mês fechado; reabra o mês antes de excluir',
+          mesesFechados: err.mesesFechados,
+        });
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error('Aprovar exclusão error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /:id/recusar-exclusao — SÓ chefe ───────────────────────────────────
+// Restaura o status anterior ao pedido (statusAnteriorExclusao) — ex.: um
+// projeto que era 'arquivado' antes de solicitar volta pra 'arquivado', não
+// pra 'ativo'. O `?? 'ativo'` é rede de segurança defensiva.
+router.post('/:id/recusar-exclusao', authenticate, requireRole('chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+
+    if (projeto.status !== 'pendente_exclusao') {
+      return res.status(409).json({ error: 'Não há pedido de exclusão para recusar' });
+    }
+
+    const updated = await prisma.projeto.update({
+      where: { id },
+      data: {
+        status: projeto.statusAnteriorExclusao ?? 'ativo',
+        exclusaoSolicitadaPorId: null,
+        motivoExclusao: null,
+        statusAnteriorExclusao: null,
+      },
+      include: {
+        gestor: { select: { id: true, name: true } },
+        criadoPor: { select: { id: true, name: true } },
+        categoria: { select: { id: true, nome: true, ativo: true } },
+        prestacoesContas: { orderBy: { data: 'asc' } },
+      },
+    });
+
+    res.json(serializeProjeto(updated));
+  } catch (error) {
+    console.error('Recusar exclusão error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /:id/excluir-direto — SÓ chefe, sem exigir pedido prévio ────────
+router.delete('/:id/excluir-direto', authenticate, requireRole('chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { motivo: motivoBody } = req.body;
+    const userId = req.user!.id;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+
+    // Preserva quem pediu (se havia pedido em aberto); senão, exclusão direta sem solicitante.
+    const solicitanteId = (projeto.status === 'pendente_exclusao' && projeto.exclusaoSolicitadaPorId)
+      ? projeto.exclusaoSolicitadaPorId
+      : null;
+    // Motivo do corpo tem prioridade; senão preserva o do pedido em aberto; senão null.
+    const motivo = motivoBody ?? projeto.motivoExclusao ?? null;
+
+    const precheck = await precheckExclusao(id);
+    if (!precheck.ok) {
+      if (precheck.motivo === 'mes_fechado') {
+        return res.status(409).json({
+          error: 'Há alocação em mês fechado; reabra o mês antes de excluir',
+          mesesFechados: precheck.mesesFechados,
+        });
+      }
+      return res.status(404).json({ error: 'Projeto não encontrado' }); // corrida rara
+    }
+
+    try {
+      const resultado = await executarExclusaoCascata(id, { solicitanteId, aprovadorId: userId, motivo });
+      res.json(resultado);
+    } catch (err) {
+      if (err instanceof ExclusaoBloqueadaError) {
+        return res.status(409).json({
+          error: 'Há alocação em mês fechado; reabra o mês antes de excluir',
+          mesesFechados: err.mesesFechados,
+        });
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error('Excluir direto error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -305,4 +305,68 @@ router.patch('/:id/status', authenticate, requireRole('admin', 'gestor', 'chefe'
   }
 });
 
+// ── PATCH /:id/redelegar — chefe troca o gestor operacional do projeto ─────
+// Spec_Papeis_Posse_Exclusao: SÓ chefe (nunca admin) pode re-delegar. Só troca
+// o gestorId + grava auditoria em `redelegacoes` — alocações, macros/micros e
+// o histórico (alocacao_logs) não são tocados; nada se move, só o dono muda.
+router.patch('/:id/redelegar', authenticate, requireRole('chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { gestorId: gestorIdBody } = req.body;
+    const userId = req.user!.id;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+
+    if (projeto.status !== 'ativo') {
+      return res.status(400).json({ error: 'Só é possível re-delegar projetos ativos.' });
+    }
+
+    if (!gestorIdBody) return res.status(400).json({ error: 'gestorId é obrigatório' });
+
+    const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdBody } });
+    if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
+      return res.status(400).json({ error: 'gestorId informado deve ser de um usuário com papel "gestor".' });
+    }
+
+    if (gestorIdBody === projeto.gestorId) {
+      return res.status(400).json({ error: 'O projeto já é desse gestor.' });
+    }
+
+    const gestorAnteriorId = projeto.gestorId;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.projeto.update({
+        where: { id },
+        data: { gestorId: gestorIdBody },
+      });
+
+      await tx.redelegacao.create({
+        data: {
+          id: generateId(),
+          projetoId: id,
+          gestorAnteriorId,
+          gestorNovoId: gestorIdBody,
+          redelegadoPorId: userId,
+        },
+      });
+
+      return tx.projeto.findUniqueOrThrow({
+        where: { id },
+        include: {
+          gestor: { select: { id: true, name: true } },
+          criadoPor: { select: { id: true, name: true } },
+          categoria: { select: { id: true, nome: true, ativo: true } },
+          prestacoesContas: { orderBy: { data: 'asc' } },
+        },
+      });
+    });
+
+    res.json(serializeProjeto(updated));
+  } catch (error) {
+    console.error('Redelegar projeto error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

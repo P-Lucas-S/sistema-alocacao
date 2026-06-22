@@ -30,6 +30,7 @@ model User {
   solicitacoesRemanejamentoFeitas     SolicitacaoRemanejamento[]  @relation("SolicitacaoRemanejamentoSolicitante")
   solicitacoesRemanejamentoEncerradas SolicitacaoRemanejamento[]  @relation("SolicitacaoRemanejamentoFechadoPor")
   cessoesCedidas                      CessaoRemanejamento[]       @relation("CessaoRemanejamentoGestorCedente")
+  redelegacoesFeitas                  Redelegacao[]               @relation("RedelegacaoRedelegadoPor")
 
   @@map("users")
 }
@@ -310,4 +311,24 @@ model CessaoRemanejamento {
   gestorCedente User                     @relation("CessaoRemanejamentoGestorCedente", fields: [gestorCedenteId], references: [id])
 
   @@map("cessoes_remanejamento")
+}
+
+// ─── Spec_Papeis_Posse_Exclusao: re-delegação de projeto ──────────
+// Auditoria de quando o chefe troca o gestorId de um projeto. Contexto
+// denormalizado (projetoId/gestorAnteriorId/gestorNovoId sem FK) no mesmo
+// padrão de AlocacaoLog.alocacaoId — sobrevive à deleção do projeto (passo 5).
+// Só redelegadoPorId (quem fez, o chefe) tem FK, porque User nunca é apagado
+// por este fluxo.
+model Redelegacao {
+  id               String   @id @db.VarChar(191)
+  projetoId        String   @map("projeto_id") @db.VarChar(191)
+  gestorAnteriorId String   @map("gestor_anterior_id") @db.VarChar(191)
+  gestorNovoId     String   @map("gestor_novo_id") @db.VarChar(191)
+  redelegadoPorId  String   @map("redelegado_por_id") @db.VarChar(191)
+  criadoEm         DateTime @default(now()) @map("criado_em")
+
+  redelegadoPor User @relation("RedelegacaoRedelegadoPor", fields: [redelegadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([projetoId])
+  @@map("redelegacoes")
 }

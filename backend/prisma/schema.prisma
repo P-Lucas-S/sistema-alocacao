@@ -31,6 +31,9 @@ model User {
   solicitacoesRemanejamentoEncerradas SolicitacaoRemanejamento[]  @relation("SolicitacaoRemanejamentoFechadoPor")
   cessoesCedidas                      CessaoRemanejamento[]       @relation("CessaoRemanejamentoGestorCedente")
   redelegacoesFeitas                  Redelegacao[]               @relation("RedelegacaoRedelegadoPor")
+  projetosExclusaoSolicitada          Projeto[]                   @relation("ProjetoExclusaoSolicitadaPor")
+  exclusoesSolicitadas                ProjetoExcluido[]            @relation("ProjetoExcluidoSolicitante")
+  exclusoesAprovadas                  ProjetoExcluido[]            @relation("ProjetoExcluidoAprovador")
 
   @@map("users")
 }
@@ -129,18 +132,21 @@ model Colaborador {
 }
 
 model Projeto {
-  id          String   @id @db.VarChar(191)
-  codigo      String   @unique @db.VarChar(50)
-  nome        String   @db.VarChar(255)
-  gestorId    String   @map("gestor_id") @db.VarChar(191)
-  criadoPorId String   @map("criado_por_id") @db.VarChar(191)
-  categoriaId String?
-  status      String   @default("ativo") @db.VarChar(50)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                      String   @id @db.VarChar(191)
+  codigo                  String   @unique @db.VarChar(50)
+  nome                    String   @db.VarChar(255)
+  gestorId                String   @map("gestor_id") @db.VarChar(191)
+  criadoPorId             String   @map("criado_por_id") @db.VarChar(191)
+  categoriaId             String?
+  status                  String   @default("ativo") @db.VarChar(50)
+  exclusaoSolicitadaPorId String?  @map("exclusao_solicitada_por_id") @db.VarChar(191)
+  motivoExclusao          String?  @map("motivo_exclusao") @db.Text
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
 
   gestor                           User                       @relation("ProjetoGestor", fields: [gestorId], references: [id])
   criadoPor                        User                       @relation("ProjetoCriadoPor", fields: [criadoPorId], references: [id], onDelete: Restrict)
+  exclusaoSolicitadaPor            User?                      @relation("ProjetoExclusaoSolicitadaPor", fields: [exclusaoSolicitadaPorId], references: [id], onDelete: Restrict)
   categoria                        CategoriaProjeto?          @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
   macroEntregas                    MacroEntrega[]
   prestacoesContas                 PrestacaoContas[]
@@ -331,4 +337,35 @@ model Redelegacao {
 
   @@index([projetoId])
   @@map("redelegacoes")
+}
+
+// ─── Spec_Papeis_Posse_Exclusao: lápide de projeto excluído ────────
+// Gravada ANTES do delete físico do projeto (passo 5, fora deste sub-passo).
+// codigo NÃO é unique: o projeto morre, o código volta a ficar livre, e pode
+// ser reusado e excluído de novo — cada exclusão é uma lápide independente.
+// projetoIdOriginal/gestorIdOriginal/criadoPorIdOriginal são colunas simples
+// SEM FK (o projeto e potencialmente os usuários originais já não existem
+// mais como entidades referenciáveis no momento da consulta futura) — mesmo
+// padrão denormalizado de AlocacaoLog/Redelegacao. Só solicitanteId (pode ser
+// null — exclusão direta do chefe sem pedido prévio) e aprovadorId (o chefe
+// que executou) apontam pra User vivo, com FK.
+model ProjetoExcluido {
+  id                  String    @id @db.VarChar(191)
+  codigo              String    @db.VarChar(50)
+  nome                String    @db.VarChar(255)
+  projetoIdOriginal   String    @map("projeto_id_original") @db.VarChar(191)
+  gestorIdOriginal    String    @map("gestor_id_original") @db.VarChar(191)
+  criadoPorIdOriginal String    @map("criado_por_id_original") @db.VarChar(191)
+  solicitanteId       String?   @map("solicitante_id") @db.VarChar(191)
+  aprovadorId         String    @map("aprovador_id") @db.VarChar(191)
+  motivo              String?   @db.Text
+  criadoEmOriginal    DateTime? @map("criado_em_original")
+  excluidoEm          DateTime  @default(now()) @map("excluido_em")
+
+  solicitante User?  @relation("ProjetoExcluidoSolicitante", fields: [solicitanteId], references: [id], onDelete: Restrict)
+  aprovador   User   @relation("ProjetoExcluidoAprovador",   fields: [aprovadorId],   references: [id], onDelete: Restrict)
+
+  @@index([codigo])
+  @@index([projetoIdOriginal])
+  @@map("projeto_excluido")
 }

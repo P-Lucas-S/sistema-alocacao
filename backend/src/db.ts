@@ -95,6 +95,17 @@ const CATEGORIAS_PROJETO = [
   { id: 'cat-sebrae',   nome: 'SEBRAE'   },
 ];
 
+// ── Áreas de atuação do colaborador ──────────────────────────────────────────
+// Globais, sem dono. A FK no Colaborador entra no passo B — aqui é só a lista.
+const AREAS_ATUACAO = [
+  { id: 'area-dev',    nome: 'Desenvolvimento' },
+  { id: 'area-design', nome: 'Design'          },
+  { id: 'area-dados',  nome: 'Dados'           },
+  { id: 'area-infra',  nome: 'Infraestrutura'  },
+  { id: 'area-gestao', nome: 'Gestão'          },
+  { id: 'area-conteudo', nome: 'Conteúdo'      },
+];
+
 // ── Projetos (com macros e micro Geral por macro) ───────────────────────────
 // macros: array de nomes → cada um vira uma MacroEntrega com MicroEntrega 'Geral'
 // categoriaId: SEED01–04 mapeados explicitamente; demais ciclam pela lista de programas.
@@ -227,6 +238,7 @@ export async function initDb() {
   await prisma.projeto.deleteMany();
   await prisma.tarifaColaborador.deleteMany(); // referencia colaboradores E categorias (RESTRICT) — apaga antes de ambos
   await prisma.categoriaProjeto.deleteMany(); // pai de projetos (RESTRICT) — apaga depois dos projetos
+  await prisma.areaAtuacao.deleteMany(); // ainda sem FK em colaborador (vem no passo B) — ordem trivial por ora
   await prisma.colaborador.deleteMany();
   await prisma.pushSubscription.deleteMany();
   await prisma.notification.deleteMany();
@@ -252,6 +264,13 @@ export async function initDb() {
   for (const cat of CATEGORIAS_PROJETO) {
     await prisma.categoriaProjeto.create({
       data: { id: cat.id, nome: cat.nome, ativo: true },
+    });
+  }
+
+  // ── Áreas de atuação — ainda sem ninguém apontando pra elas (passo B) ────
+  for (const area of AREAS_ATUACAO) {
+    await prisma.areaAtuacao.create({
+      data: { id: area.id, nome: area.nome, ativo: true },
     });
   }
 
@@ -349,6 +368,7 @@ export async function initDb() {
   console.log(`✅ Seed completo`);
   console.log(`   Usuários: 1 admin · 1 coordenação · 3 gestores · 1 chefe · 1 diretor`);
   console.log(`   Programas: ${CATEGORIAS_PROJETO.map(c => c.nome).join(', ')}`);
+  console.log(`   Áreas de atuação: ${AREAS_ATUACAO.map(a => a.nome).join(', ')}`);
   console.log(`   Tarifas específicas: ${TARIFAS_COLABORADOR.length} (todas FINEP, demo de override)`);
   console.log(`   Colaboradores: ${totalColabs}`);
   console.log(`   Projetos: ${totalProjs} (G1=${g1Projs} · G2=${g2Projs} · G3=${g3Projs})`);

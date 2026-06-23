@@ -8,6 +8,7 @@ interface Colaborador {
   email: string;
   funcao: string | null;
   valorHora: string | null;
+  areaAtuacao: { id: string; nome: string } | null;
   ativo: boolean;
   createdAt: string;
   createdBy?: { name: string };
@@ -20,6 +21,12 @@ interface Similar {
 }
 
 interface Categoria {
+  id: string;
+  nome: string;
+  ativo: boolean;
+}
+
+interface Area {
   id: string;
   nome: string;
   ativo: boolean;
@@ -89,6 +96,12 @@ export default function Colaboradores() {
   const [customFuncao, setCustomFuncao] = useState('');
   const [valorHora, setValorHora] = useState('');
 
+  // Área de atuação — obrigatória (espelha categoriaId/categoriaIdOriginal/categoriaInativaExtra de Projetos.tsx)
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaAtuacaoId, setAreaAtuacaoId] = useState('');
+  const [areaAtuacaoIdOriginal, setAreaAtuacaoIdOriginal] = useState('');
+  const [areaInativaExtra, setAreaInativaExtra] = useState<{ id: string; nome: string } | null>(null);
+
   // Tarifas por categoria (overrides) — categoriaId -> valor digitado (string, vazio = sem override)
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -137,6 +150,15 @@ export default function Colaboradores() {
 
   useEffect(() => { fetchCategorias(); }, [fetchCategorias]);
 
+  const fetchAreas = useCallback(async () => {
+    const res = await fetch('/api/areas-atuacao?ativo=true', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) setAreas(await res.json());
+  }, [token]);
+
+  useEffect(() => { fetchAreas(); }, [fetchAreas]);
+
   function placeholderPadrao() {
     const num = parseFloat(valorHora);
     if (valorHora.trim() === '' || isNaN(num)) return 'padrão: —';
@@ -148,6 +170,7 @@ export default function Colaboradores() {
   function openCreate() {
     setEditTarget(null);
     setNome(''); setEmail(''); setFuncao(''); setCustomFuncao(''); setValorHora('');
+    setAreaAtuacaoId(''); setAreaAtuacaoIdOriginal(''); setAreaInativaExtra(null);
     setOverrides({});
     setTarifasCarregadas(true); setTarifasFetchErro(false); // criar não depende de fetch — sempre seguro
     setError(''); setPending(null);
@@ -162,6 +185,17 @@ export default function Colaboradores() {
     setFuncao(isPredefined ? (c.funcao ?? '') : (c.funcao ? '__custom__' : ''));
     setCustomFuncao(isPredefined ? '' : (c.funcao ?? ''));
     setValorHora(c.valorHora != null ? c.valorHora : '');
+
+    const areaId = c.areaAtuacao?.id ?? '';
+    setAreaAtuacaoId(areaId);
+    setAreaAtuacaoIdOriginal(areaId);
+    // Área atual do colaborador não está entre as ativas (foi desativada depois) — mostra mesmo assim
+    if (c.areaAtuacao && !areas.some(a => a.id === c.areaAtuacao!.id)) {
+      setAreaInativaExtra({ id: c.areaAtuacao.id, nome: c.areaAtuacao.nome });
+    } else {
+      setAreaInativaExtra(null);
+    }
+
     setOverrides({});
     setTarifasCarregadas(false); setTarifasFetchErro(false); // só fica true após o GET ter sucesso
     setError(''); setPending(null);
@@ -244,6 +278,8 @@ export default function Colaboradores() {
         // senão omitimos o campo (backend preserva os overrides existentes).
         const body: Record<string, unknown> = { nome: nome.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum };
         if (tarifasCarregadas) body.tarifas = tarifas;
+        // Área de atuação — só reenvia se mudou (molde do categoriaId em Projetos.tsx); preserva se intacta
+        if (areaAtuacaoId !== areaAtuacaoIdOriginal) body.areaAtuacaoId = areaAtuacaoId;
 
         const res  = await fetch(`/api/colaboradores/${editTarget.id}`, {
           method: 'PUT',
@@ -257,8 +293,8 @@ export default function Colaboradores() {
         return;
       }
 
-      // Criação — estágio 1
-      const body = { nome: nome.trim(), email: email.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum, tarifas };
+      // Criação — estágio 1 (areaAtuacaoId sempre incluída — obrigatória)
+      const body = { nome: nome.trim(), email: email.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum, areaAtuacaoId, tarifas };
       const res = await fetch('/api/colaboradores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -413,6 +449,7 @@ export default function Colaboradores() {
                   </div>
                   <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>{c.email}</p>
                   {c.funcao && <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--brand-500)' }}>{c.funcao}</p>}
+                  {c.areaAtuacao && <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>{c.areaAtuacao.nome}</p>}
                   {c.valorHora != null && (
                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
                       R$ {parseFloat(c.valorHora).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/h
@@ -554,6 +591,16 @@ export default function Colaboradores() {
                   {funcao === '__custom__' && (
                     <Input type="text" placeholder="Ex: Analista de Mídia" value={customFuncao} onChange={e => setCustomFuncao(e.target.value)} style={{ marginTop: 6 }} disabled={saving} />
                   )}
+                </Field>
+
+                <Field label="Área de atuação">
+                  <Select required value={areaAtuacaoId} onChange={e => setAreaAtuacaoId(e.target.value)} disabled={saving}>
+                    <option value="">Selecione uma área</option>
+                    {areaInativaExtra && (
+                      <option value={areaInativaExtra.id}>{areaInativaExtra.nome} (inativo)</option>
+                    )}
+                    {areas.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                  </Select>
                 </Field>
 
                 <Field

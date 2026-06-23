@@ -106,6 +106,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         id: true, nome: true, email: true, funcao: true,
         valorHora: true, ativo: true, createdAt: true,
         createdBy: { select: { name: true } },
+        areaAtuacao: { select: { id: true, nome: true } },
       },
     });
 
@@ -126,6 +127,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         id: true, nome: true, email: true, funcao: true,
         valorHora: true, ativo: true, createdAt: true,
         createdBy: { select: { name: true } },
+        areaAtuacao: { select: { id: true, nome: true } },
         tarifas: { select: { categoriaId: true, valorHora: true } },
       },
     });
@@ -145,7 +147,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 // E-mail duplicado é SEMPRE 409, o flag confirmarSimilar não o contorna.
 router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
-    const { nome, email, funcao, valorHora, tarifas, confirmarSimilar } = req.body;
+    const { nome, email, funcao, valorHora, areaAtuacaoId, tarifas, confirmarSimilar } = req.body;
     const createdById = req.user!.id;
 
     if (!nome?.trim()) return res.status(400).json({ error: 'nome é obrigatório' });
@@ -155,6 +157,12 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     if (valorHora === undefined || valorHora === null || valorHora === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
       return res.status(400).json({ error: 'Informe o valor-hora padrão do colaborador (maior que zero).' });
     }
+
+    // Área de atuação — obrigatória na criação (mesmo molde do categoriaId em POST /projetos)
+    if (!areaAtuacaoId) return res.status(400).json({ error: 'Área de atuação é obrigatória' });
+    const area = await prisma.areaAtuacao.findUnique({ where: { id: areaAtuacaoId } });
+    if (!area)        return res.status(400).json({ error: 'Área de atuação não encontrada' });
+    if (!area.ativo)  return res.status(400).json({ error: 'Área de atuação inativa' });
 
     let tarifasValidadas: TarifaInput[] = [];
     if (tarifas !== undefined) {
@@ -191,7 +199,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     const id = generateId();
     const colaborador = await prisma.$transaction(async (tx) => {
       await tx.colaborador.create({
-        data: { id, nome: nome.trim(), email: emailNorm, funcao: funcao?.trim() || null, valorHora: valorHoraNum, createdById },
+        data: { id, nome: nome.trim(), email: emailNorm, funcao: funcao?.trim() || null, valorHora: valorHoraNum, areaAtuacaoId, createdById },
       });
 
       for (const t of tarifasValidadas) {
@@ -217,7 +225,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { nome, email, funcao, valorHora, tarifas } = req.body;
+    const { nome, email, funcao, valorHora, areaAtuacaoId, tarifas } = req.body;
 
     const current = await prisma.colaborador.findUnique({ where: { id } });
     if (!current) return res.status(404).json({ error: 'Colaborador não encontrado' });
@@ -225,6 +233,15 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
     const valorHoraNum = Number(valorHora);
     if (valorHora === undefined || valorHora === null || valorHora === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
       return res.status(400).json({ error: 'Informe o valor-hora padrão do colaborador (maior que zero).' });
+    }
+
+    // Área de atuação — se enviada, não pode ficar vazia; ausente → preserva a atual
+    // (mesmo molde do categoriaId em PUT /projetos)
+    if (areaAtuacaoId !== undefined) {
+      if (!areaAtuacaoId) return res.status(400).json({ error: 'Área de atuação é obrigatória' });
+      const area = await prisma.areaAtuacao.findUnique({ where: { id: areaAtuacaoId } });
+      if (!area)        return res.status(400).json({ error: 'Área de atuação não encontrada' });
+      if (!area.ativo)  return res.status(400).json({ error: 'Área de atuação inativa' });
     }
 
     // tarifas ausente → não mexe nos overrides existentes; [] → apaga todos.
@@ -248,6 +265,7 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
           ...(nome?.trim() ? { nome: nome.trim() } : {}),
           ...(emailNorm ? { email: emailNorm } : {}),
           ...(funcao !== undefined ? { funcao: funcao?.trim() || null } : {}),
+          ...(areaAtuacaoId !== undefined ? { areaAtuacaoId } : {}),
           valorHora: valorHoraNum,
         },
       });

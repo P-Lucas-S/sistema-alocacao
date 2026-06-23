@@ -53,36 +53,36 @@ const SEED_USERS = [
 //   Desenvolvedor R$140–180 · Motion/Designer R$100–130 · Redatora(or) R$70–100
 //   Social Media R$60–90 · Editor de Vídeo R$90–120
 const COLABORADORES = [
-  { id: 'sc-01', nome: 'Adriana Lima',        email: 'adriana.lima@equipe.dev',       funcao: 'Designer',          valorHora: 110 },
-  { id: 'sc-02', nome: 'Beatriz Cardoso',     email: 'beatriz.cardoso@equipe.dev',    funcao: 'Redatora',          valorHora: 80  },
-  { id: 'sc-03', nome: 'Caio Henrique',       email: 'caio.henrique@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 150 },
-  { id: 'sc-04', nome: 'Daniela Rocha',       email: 'daniela.rocha@equipe.dev',      funcao: 'Motion Designer',   valorHora: 120 },
-  { id: 'sc-05', nome: 'Enzo Carvalho',       email: 'enzo.carvalho@equipe.dev',      funcao: 'Designer',          valorHora: 105 },
-  { id: 'sc-06', nome: 'Fabiana Costa',       email: 'fabiana.costa@equipe.dev',      funcao: 'Redatora',          valorHora: 75  },
-  { id: 'sc-07', nome: 'Gustavo Pires',       email: 'gustavo.pires@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 165 },
-  { id: 'sc-08', nome: 'Heloisa Borges',      email: 'heloisa.borges@equipe.dev',     funcao: 'Social Media',      valorHora: 65  },
-  { id: 'sc-09', nome: 'Ivan Monteiro',       email: 'ivan.monteiro@equipe.dev',      funcao: 'Editor de Vídeo',   valorHora: 95  },
-  { id: 'sc-10', nome: 'Juliana Ferreira',    email: 'juliana.ferreira@equipe.dev',   funcao: 'Designer',          valorHora: 115 },
-  { id: 'sc-11', nome: 'Leonardo Alves',      email: 'leonardo.alves@equipe.dev',     funcao: 'Desenvolvedor',     valorHora: 145 },
-  { id: 'sc-12', nome: 'Marina Souza',        email: 'marina.souza@equipe.dev',       funcao: 'Redatora',          valorHora: 90  },
-  { id: 'sc-13', nome: 'Nicolas Barbosa',     email: 'nicolas.barbosa@equipe.dev',    funcao: 'Motion Designer',   valorHora: 125 },
-  { id: 'sc-14', nome: 'Olivia Teixeira',     email: 'olivia.teixeira@equipe.dev',    funcao: 'Designer',          valorHora: 108 },
-  { id: 'sc-15', nome: 'Paulo Nunes',         email: 'paulo.nunes@equipe.dev',        funcao: 'Desenvolvedor',     valorHora: 175 },
-  { id: 'sc-16', nome: 'Renata Pinto',        email: 'renata.pinto@equipe.dev',       funcao: 'Redatora',          valorHora: 85  },
-  { id: 'sc-17', nome: 'Samuel Gomes',        email: 'samuel.gomes@equipe.dev',       funcao: 'Editor de Vídeo',   valorHora: 110 },
-  { id: 'sc-18', nome: 'Tamires Campos',      email: 'tamires.campos@equipe.dev',     funcao: 'Designer',          valorHora: 118 },
-  { id: 'sc-19', nome: 'Ulisses Ribeiro',     email: 'ulisses.ribeiro@equipe.dev',    funcao: 'Desenvolvedor',     valorHora: 155 },
-  { id: 'sc-20', nome: 'Vanessa Torres',      email: 'vanessa.torres@equipe.dev',     funcao: 'Motion Designer',   valorHora: 130 },
-  { id: 'sc-21', nome: 'Wagner Cunha',        email: 'wagner.cunha@equipe.dev',       funcao: 'Redator',           valorHora: 95  },
-  { id: 'sc-22', nome: 'Xiomara Fonseca',     email: 'xiomara.fonseca@equipe.dev',    funcao: 'Social Media',      valorHora: 85  },
-  { id: 'sc-23', nome: 'Yago Cavalcanti',     email: 'yago.cavalcanti@equipe.dev',    funcao: 'Designer',          valorHora: 112 },
-  { id: 'sc-24', nome: 'Zara Martins',        email: 'zara.martins@equipe.dev',       funcao: 'Redatora',          valorHora: 70  },
-  { id: 'sc-25', nome: 'Abel Cruz',           email: 'abel.cruz@equipe.dev',          funcao: 'Desenvolvedor',     valorHora: 180 },
-  { id: 'sc-26', nome: 'Brenda Vieira',       email: 'brenda.vieira@equipe.dev',      funcao: 'Motion Designer',   valorHora: 122 },
-  { id: 'sc-27', nome: 'Celso Rodrigues',     email: 'celso.rodrigues@equipe.dev',    funcao: 'Editor de Vídeo',   valorHora: 120 },
-  { id: 'sc-28', nome: 'Debora Andrade',      email: 'debora.andrade@equipe.dev',     funcao: 'Designer',          valorHora: 100 },
-  { id: 'sc-29', nome: 'Emerson Lopes',       email: 'emerson.lopes@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 160 },
-  { id: 'sc-30', nome: 'Flora Nascimento',    email: 'flora.nascimento@equipe.dev',   funcao: 'Redatora',          valorHora: 100 },
+  { id: 'sc-01', nome: 'Adriana Lima',        email: 'adriana.lima@equipe.dev',       funcao: 'Designer',          valorHora: 110, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-02', nome: 'Beatriz Cardoso',     email: 'beatriz.cardoso@equipe.dev',    funcao: 'Redatora',          valorHora: 80,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-03', nome: 'Caio Henrique',       email: 'caio.henrique@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 150, areaAtuacaoId: 'area-dev'      },
+  { id: 'sc-04', nome: 'Daniela Rocha',       email: 'daniela.rocha@equipe.dev',      funcao: 'Motion Designer',   valorHora: 120, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-05', nome: 'Enzo Carvalho',       email: 'enzo.carvalho@equipe.dev',      funcao: 'Designer',          valorHora: 105, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-06', nome: 'Fabiana Costa',       email: 'fabiana.costa@equipe.dev',      funcao: 'Redatora',          valorHora: 75,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-07', nome: 'Gustavo Pires',       email: 'gustavo.pires@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 165, areaAtuacaoId: 'area-dev'      },
+  { id: 'sc-08', nome: 'Heloisa Borges',      email: 'heloisa.borges@equipe.dev',     funcao: 'Social Media',      valorHora: 65,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-09', nome: 'Ivan Monteiro',       email: 'ivan.monteiro@equipe.dev',      funcao: 'Editor de Vídeo',   valorHora: 95,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-10', nome: 'Juliana Ferreira',    email: 'juliana.ferreira@equipe.dev',   funcao: 'Designer',          valorHora: 115, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-11', nome: 'Leonardo Alves',      email: 'leonardo.alves@equipe.dev',     funcao: 'Desenvolvedor',     valorHora: 145, areaAtuacaoId: 'area-infra'    },
+  { id: 'sc-12', nome: 'Marina Souza',        email: 'marina.souza@equipe.dev',       funcao: 'Redatora',          valorHora: 90,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-13', nome: 'Nicolas Barbosa',     email: 'nicolas.barbosa@equipe.dev',    funcao: 'Motion Designer',   valorHora: 125, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-14', nome: 'Olivia Teixeira',     email: 'olivia.teixeira@equipe.dev',    funcao: 'Designer',          valorHora: 108, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-15', nome: 'Paulo Nunes',         email: 'paulo.nunes@equipe.dev',        funcao: 'Desenvolvedor',     valorHora: 175, areaAtuacaoId: 'area-dev'      },
+  { id: 'sc-16', nome: 'Renata Pinto',        email: 'renata.pinto@equipe.dev',       funcao: 'Redatora',          valorHora: 85,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-17', nome: 'Samuel Gomes',        email: 'samuel.gomes@equipe.dev',       funcao: 'Editor de Vídeo',   valorHora: 110, areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-18', nome: 'Tamires Campos',      email: 'tamires.campos@equipe.dev',     funcao: 'Designer',          valorHora: 118, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-19', nome: 'Ulisses Ribeiro',     email: 'ulisses.ribeiro@equipe.dev',    funcao: 'Desenvolvedor',     valorHora: 155, areaAtuacaoId: 'area-dados'    },
+  { id: 'sc-20', nome: 'Vanessa Torres',      email: 'vanessa.torres@equipe.dev',     funcao: 'Motion Designer',   valorHora: 130, areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-21', nome: 'Wagner Cunha',        email: 'wagner.cunha@equipe.dev',       funcao: 'Redator',           valorHora: 95,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-22', nome: 'Xiomara Fonseca',     email: 'xiomara.fonseca@equipe.dev',    funcao: 'Social Media',      valorHora: 85,  areaAtuacaoId: 'area-gestao'   },
+  { id: 'sc-23', nome: 'Yago Cavalcanti',     email: 'yago.cavalcanti@equipe.dev',    funcao: 'Designer',          valorHora: 112, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-24', nome: 'Zara Martins',        email: 'zara.martins@equipe.dev',       funcao: 'Redatora',          valorHora: 70,  areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-25', nome: 'Abel Cruz',           email: 'abel.cruz@equipe.dev',          funcao: 'Desenvolvedor',     valorHora: 180, areaAtuacaoId: 'area-dev'      },
+  { id: 'sc-26', nome: 'Brenda Vieira',       email: 'brenda.vieira@equipe.dev',      funcao: 'Motion Designer',   valorHora: 122, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-27', nome: 'Celso Rodrigues',     email: 'celso.rodrigues@equipe.dev',    funcao: 'Editor de Vídeo',   valorHora: 120, areaAtuacaoId: 'area-conteudo' },
+  { id: 'sc-28', nome: 'Debora Andrade',      email: 'debora.andrade@equipe.dev',     funcao: 'Designer',          valorHora: 100, areaAtuacaoId: 'area-design'   },
+  { id: 'sc-29', nome: 'Emerson Lopes',       email: 'emerson.lopes@equipe.dev',      funcao: 'Desenvolvedor',     valorHora: 160, areaAtuacaoId: 'area-dev'      },
+  { id: 'sc-30', nome: 'Flora Nascimento',    email: 'flora.nascimento@equipe.dev',   funcao: 'Redatora',          valorHora: 100, areaAtuacaoId: 'area-gestao'   },
 ];
 
 // ── Programas/categorias de projeto ─────────────────────────────────────────
@@ -238,8 +238,8 @@ export async function initDb() {
   await prisma.projeto.deleteMany();
   await prisma.tarifaColaborador.deleteMany(); // referencia colaboradores E categorias (RESTRICT) — apaga antes de ambos
   await prisma.categoriaProjeto.deleteMany(); // pai de projetos (RESTRICT) — apaga depois dos projetos
-  await prisma.areaAtuacao.deleteMany(); // ainda sem FK em colaborador (vem no passo B) — ordem trivial por ora
-  await prisma.colaborador.deleteMany();
+  await prisma.colaborador.deleteMany(); // referencia área de atuação (RESTRICT) — apaga antes dela
+  await prisma.areaAtuacao.deleteMany(); // pai de colaborador (RESTRICT) — apaga depois dos colaboradores
   await prisma.pushSubscription.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.passwordReset.deleteMany();
@@ -253,13 +253,6 @@ export async function initDb() {
     });
   }
 
-  // ── Colaboradores ──────────────────────────────────────────────────────
-  for (const c of COLABORADORES) {
-    await prisma.colaborador.create({
-      data: { id: c.id, nome: c.nome, email: c.email, funcao: c.funcao, valorHora: c.valorHora, createdById: G1 },
-    });
-  }
-
   // ── Programas/categorias de projeto — pai de Projeto (RESTRICT), cria antes ──
   for (const cat of CATEGORIAS_PROJETO) {
     await prisma.categoriaProjeto.create({
@@ -267,10 +260,17 @@ export async function initDb() {
     });
   }
 
-  // ── Áreas de atuação — ainda sem ninguém apontando pra elas (passo B) ────
+  // ── Áreas de atuação — pai de Colaborador (RESTRICT), cria antes ────────
   for (const area of AREAS_ATUACAO) {
     await prisma.areaAtuacao.create({
       data: { id: area.id, nome: area.nome, ativo: true },
+    });
+  }
+
+  // ── Colaboradores — depende de área de atuação já criada ────────────────
+  for (const c of COLABORADORES) {
+    await prisma.colaborador.create({
+      data: { id: c.id, nome: c.nome, email: c.email, funcao: c.funcao, valorHora: c.valorHora, areaAtuacaoId: c.areaAtuacaoId, createdById: G1 },
     });
   }
 

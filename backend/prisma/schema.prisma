@@ -103,6 +103,8 @@ model AreaAtuacao {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  colaboradores Colaborador[]
+
   @@map("areas_atuacao")
 }
 
@@ -123,17 +125,19 @@ model TarifaColaborador {
 }
 
 model Colaborador {
-  id          String   @id @db.VarChar(191)
-  nome        String   @db.VarChar(255)
-  email       String   @unique @db.VarChar(255)
-  funcao      String?  @db.VarChar(100)
-  valorHora   Decimal? @map("valor_hora") @db.Decimal(10, 2)
-  ativo       Boolean  @default(true)
-  createdById String   @map("created_by_id") @db.VarChar(191)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id            String   @id @db.VarChar(191)
+  nome          String   @db.VarChar(255)
+  email         String   @unique @db.VarChar(255)
+  funcao        String?  @db.VarChar(100)
+  valorHora     Decimal? @map("valor_hora") @db.Decimal(10, 2)
+  areaAtuacaoId String?  @map("area_atuacao_id") @db.VarChar(191)
+  ativo         Boolean  @default(true)
+  createdById   String   @map("created_by_id") @db.VarChar(191)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   createdBy                 User                       @relation(fields: [createdById], references: [id])
+  areaAtuacao               AreaAtuacao?                @relation(fields: [areaAtuacaoId], references: [id], onDelete: Restrict)
   alocacoes                 Alocacao[]
   solicitacoesRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoColaborador")
   tarifas                   TarifaColaborador[]

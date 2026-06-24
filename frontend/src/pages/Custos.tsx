@@ -4,7 +4,7 @@ import { DollarSign } from 'lucide-react';
 
 interface ColaboradorCusto {
   nome: string;
-  funcao: string | null;
+  profissao: string | null;
   horasTotais: string;
   valorHora: string | null;
   custo: string | null;
@@ -146,7 +146,7 @@ export default function Custos() {
                               )}
                             </div>
                           </td>
-                          <td style={td}>{c.funcao || '—'}</td>
+                          <td style={td}>{c.profissao || '—'}</td>
                           <td style={{ ...td, textAlign: 'right' }}>{fmtHoras(c.horasTotais)}</td>
                           <td style={{ ...td, textAlign: 'right', color: c.valorHora == null ? 'var(--text-3)' : 'var(--text-1)' }}>
                             {c.valorHora != null ? `${fmtMoeda(c.valorHora)}/h` : '—'}

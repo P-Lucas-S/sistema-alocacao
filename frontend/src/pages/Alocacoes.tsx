@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
 
 // Tipos mínimos necessários
-interface Colaborador { id: string; nome: string; funcao: string | null; ativo: boolean }
+interface Colaborador { id: string; nome: string; profissao: { id: string; nome: string } | null; ativo: boolean }
 interface Projeto      { id: string; codigo: string; nome: string; gestorId: string }
 interface Macro        { id: string; nome: string; microEntregas: { id: string; nome: string }[] }
 
@@ -184,7 +184,7 @@ export default function Alocacoes() {
             <select value={colaboradorId} onChange={e => { setColaboradorId(e.target.value); resetResultado(); }} style={sel} required>
               <option value="">Selecione…</option>
               {colaboradores.map(c => (
-                <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>
+                <option key={c.id} value={c.id}>{c.nome}{c.profissao ? ` — ${c.profissao.nome}` : ''}</option>
               ))}
             </select>
           </Field>

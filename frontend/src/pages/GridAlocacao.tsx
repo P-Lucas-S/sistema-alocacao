@@ -41,7 +41,7 @@ interface Saldo {
 }
 
 interface Linha {
-  colaborador: { id: string; nome: string; funcao: string | null };
+  colaborador: { id: string; nome: string; profissao: { id: string; nome: string } | null };
   saldo: Saldo;
   celulas: Record<string, CelulaData>;
 }
@@ -87,7 +87,7 @@ interface BloqueioInfo {
 
 // Colaborador adicionado manualmente ao grid (ainda sem alocação nos meus projetos)
 interface ExtraLinha {
-  colaborador: { id: string; nome: string; funcao: string | null };
+  colaborador: { id: string; nome: string; profissao: { id: string; nome: string } | null };
   saldo: Saldo;
 }
 
@@ -1112,7 +1112,7 @@ function BuscaColaborador({
   onLocate: (colabId: string) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [resultados, setResultados] = useState<{ id: string; nome: string; funcao: string | null }[]>([]);
+  const [resultados, setResultados] = useState<{ id: string; nome: string; profissao: { id: string; nome: string } | null }[]>([]);
   const [open, setOpen]     = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1139,7 +1139,7 @@ function BuscaColaborador({
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.ok) {
-          const data: { id: string; nome: string; funcao: string | null; ativo: boolean }[] = await res.json();
+          const data: { id: string; nome: string; profissao: { id: string; nome: string } | null; ativo: boolean }[] = await res.json();
           // Mostra TODOS os ativos — quem está no grid recebe badge, não é escondido
           setResultados(data.filter(c => c.ativo).slice(0, 8));
           setOpen(true);
@@ -1149,7 +1149,7 @@ function BuscaColaborador({
     return () => clearTimeout(t);
   }, [query, token, idsNoGrid]);
 
-  async function handleSelect(c: { id: string; nome: string; funcao: string | null }) {
+  async function handleSelect(c: { id: string; nome: string; profissao: { id: string; nome: string } | null }) {
     setOpen(false);
     setQuery('');
 
@@ -1174,7 +1174,7 @@ function BuscaColaborador({
     const disponivel    = Math.max(0, TETO - totalGeral);
 
     onAdd({
-      colaborador: { id: c.id, nome: c.nome, funcao: c.funcao },
+      colaborador: { id: c.id, nome: c.nome, profissao: c.profissao },
       saldo: {
         totalMeusProj: String(totalMeusProj),
         totalOutros:   String(totalOutros),
@@ -1242,7 +1242,7 @@ function BuscaColaborador({
                     </span>
                   )}
                 </div>
-                {c.funcao && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{c.funcao}</div>}
+                {c.profissao && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{c.profissao.nome}</div>}
               </button>
             );
           })}
@@ -1655,9 +1655,9 @@ export default function GridAlocacao() {
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={linha.colaborador.nome}>
                         {linha.colaborador.nome}
                       </div>
-                      {linha.colaborador.funcao && (
+                      {linha.colaborador.profissao && (
                         <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {linha.colaborador.funcao}
+                          {linha.colaborador.profissao.nome}
                         </div>
                       )}
                     </td>

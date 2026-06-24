@@ -6,7 +6,7 @@ interface Colaborador {
   id: string;
   nome: string;
   email: string;
-  funcao: string | null;
+  profissao: { id: string; nome: string } | null;
   valorHora: string | null;
   ativo: boolean;
   createdAt: string;
@@ -16,10 +16,16 @@ interface Colaborador {
 interface Similar {
   nome: string;
   email: string;
-  funcao: string | null;
+  profissao: string | null;
 }
 
 interface Categoria {
+  id: string;
+  nome: string;
+  ativo: boolean;
+}
+
+interface Profissao {
   id: string;
   nome: string;
   ativo: boolean;
@@ -34,13 +40,11 @@ interface TarifaInput {
 interface PendingCreate {
   nome: string;
   email: string;
-  funcao: string | null;
+  profissaoId: string;
   valorHora: number;
   tarifas: TarifaInput[];
   similares: Similar[];
 }
-
-const FUNCOES_COMUNS = ['Designer', 'Redator', 'Editor de Vídeo', 'Motion Designer', 'Social Media', 'Desenvolvedor'];
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10,
@@ -85,9 +89,13 @@ export default function Colaboradores() {
   // Form fields
   const [nome, setNome]       = useState('');
   const [email, setEmail]     = useState('');
-  const [funcao, setFuncao]   = useState('');
-  const [customFuncao, setCustomFuncao] = useState('');
   const [valorHora, setValorHora] = useState('');
+
+  // Profissão — obrigatória (espelha categoriaId/categoriaIdOriginal/categoriaInativaExtra de Projetos.tsx)
+  const [profissoes, setProfissoes] = useState<Profissao[]>([]);
+  const [profissaoId, setProfissaoId] = useState('');
+  const [profissaoIdOriginal, setProfissaoIdOriginal] = useState('');
+  const [profissaoInativaExtra, setProfissaoInativaExtra] = useState<{ id: string; nome: string } | null>(null);
 
   // Tarifas por categoria (overrides) — categoriaId -> valor digitado (string, vazio = sem override)
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -137,6 +145,15 @@ export default function Colaboradores() {
 
   useEffect(() => { fetchCategorias(); }, [fetchCategorias]);
 
+  const fetchProfissoes = useCallback(async () => {
+    const res = await fetch('/api/profissoes?ativo=true', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) setProfissoes(await res.json());
+  }, [token]);
+
+  useEffect(() => { fetchProfissoes(); }, [fetchProfissoes]);
+
   function placeholderPadrao() {
     const num = parseFloat(valorHora);
     if (valorHora.trim() === '' || isNaN(num)) return 'padrão: —';
@@ -147,7 +164,8 @@ export default function Colaboradores() {
 
   function openCreate() {
     setEditTarget(null);
-    setNome(''); setEmail(''); setFuncao(''); setCustomFuncao(''); setValorHora('');
+    setNome(''); setEmail(''); setValorHora('');
+    setProfissaoId(''); setProfissaoIdOriginal(''); setProfissaoInativaExtra(null);
     setOverrides({});
     setTarifasCarregadas(true); setTarifasFetchErro(false); // criar não depende de fetch — sempre seguro
     setError(''); setPending(null);
@@ -158,10 +176,18 @@ export default function Colaboradores() {
     setEditTarget(c);
     setNome(c.nome);
     setEmail(c.email);
-    const isPredefined = FUNCOES_COMUNS.includes(c.funcao ?? '');
-    setFuncao(isPredefined ? (c.funcao ?? '') : (c.funcao ? '__custom__' : ''));
-    setCustomFuncao(isPredefined ? '' : (c.funcao ?? ''));
     setValorHora(c.valorHora != null ? c.valorHora : '');
+
+    const profId = c.profissao?.id ?? '';
+    setProfissaoId(profId);
+    setProfissaoIdOriginal(profId);
+    // Profissão atual do colaborador não está entre as ativas (foi desativada depois) — mostra mesmo assim
+    if (c.profissao && !profissoes.some(p => p.id === c.profissao!.id)) {
+      setProfissaoInativaExtra({ id: c.profissao.id, nome: c.profissao.nome });
+    } else {
+      setProfissaoInativaExtra(null);
+    }
+
     setOverrides({});
     setTarifasCarregadas(false); setTarifasFetchErro(false); // só fica true após o GET ter sucesso
     setError(''); setPending(null);
@@ -206,10 +232,6 @@ export default function Colaboradores() {
     setError('');
   }
 
-  function effectiveFuncao() {
-    return funcao === '__custom__' ? customFuncao.trim() : funcao;
-  }
-
   // ── Estágio 1: submit do formulário ────────────────────────────────────
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -242,8 +264,10 @@ export default function Colaboradores() {
         // Edição não tem fluxo de confirmação.
         // `tarifas` só entra no body se o GET de overrides já carregou com sucesso —
         // senão omitimos o campo (backend preserva os overrides existentes).
-        const body: Record<string, unknown> = { nome: nome.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum };
+        const body: Record<string, unknown> = { nome: nome.trim(), valorHora: valorHoraNum };
         if (tarifasCarregadas) body.tarifas = tarifas;
+        // Profissão — só reenvia se mudou (molde do categoriaId em Projetos.tsx); preserva se intacta
+        if (profissaoId !== profissaoIdOriginal) body.profissaoId = profissaoId;
 
         const res  = await fetch(`/api/colaboradores/${editTarget.id}`, {
           method: 'PUT',
@@ -257,8 +281,8 @@ export default function Colaboradores() {
         return;
       }
 
-      // Criação — estágio 1
-      const body = { nome: nome.trim(), email: email.trim(), funcao: effectiveFuncao() || null, valorHora: valorHoraNum, tarifas };
+      // Criação — estágio 1 (profissaoId sempre incluída — obrigatória)
+      const body = { nome: nome.trim(), email: email.trim(), profissaoId, valorHora: valorHoraNum, tarifas };
       const res = await fetch('/api/colaboradores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -412,7 +436,7 @@ export default function Colaboradores() {
                     )}
                   </div>
                   <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>{c.email}</p>
-                  {c.funcao && <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--brand-500)' }}>{c.funcao}</p>}
+                  {c.profissao && <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--brand-500)' }}>{c.profissao.nome}</p>}
                   {c.valorHora != null && (
                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
                       R$ {parseFloat(c.valorHora).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/h
@@ -495,7 +519,7 @@ export default function Colaboradores() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-1)' }}>{s.nome}</p>
                           <p className="text-xs truncate" style={{ color: 'var(--text-3)' }}>{s.email}</p>
-                          {s.funcao && <p className="text-xs font-medium" style={{ color: 'var(--brand-500)' }}>{s.funcao}</p>}
+                          {s.profissao && <p className="text-xs font-medium" style={{ color: 'var(--brand-500)' }}>{s.profissao}</p>}
                         </div>
                       </div>
                     );
@@ -545,15 +569,14 @@ export default function Colaboradores() {
                   )}
                 </Field>
 
-                <Field label="Função / Cargo (opcional)">
-                  <Select value={funcao} onChange={e => { setFuncao(e.target.value); if (e.target.value !== '__custom__') setCustomFuncao(''); }} disabled={saving}>
-                    <option value="">Sem função definida</option>
-                    {FUNCOES_COMUNS.map(f => <option key={f} value={f}>{f}</option>)}
-                    <option value="__custom__">Outra (personalizada)</option>
+                <Field label="Profissão">
+                  <Select required value={profissaoId} onChange={e => setProfissaoId(e.target.value)} disabled={saving}>
+                    <option value="">Selecione uma profissão</option>
+                    {profissaoInativaExtra && (
+                      <option value={profissaoInativaExtra.id}>{profissaoInativaExtra.nome} (inativo)</option>
+                    )}
+                    {profissoes.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                   </Select>
-                  {funcao === '__custom__' && (
-                    <Input type="text" placeholder="Ex: Analista de Mídia" value={customFuncao} onChange={e => setCustomFuncao(e.target.value)} style={{ marginTop: 6 }} disabled={saving} />
-                  )}
                 </Field>
 
                 <Field

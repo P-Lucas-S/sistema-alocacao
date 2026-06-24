@@ -934,7 +934,7 @@ function MicroLinha({
 
 // ── Painel lateral com edicao por macro/micro ─────────────────────────────────
 
-function Drawer({ info, token, onClose, onSaved, readonly }: { info: DrawerInfo; token: string; onClose: () => void; onSaved: () => void; readonly: boolean; }) {
+function Drawer({ info, token, onClose, onSaved, onBlocked, readonly }: { info: DrawerInfo; token: string; onClose: () => void; onSaved: () => void; onBlocked?: () => void; readonly: boolean; }) {
   const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1003,6 +1003,9 @@ function Drawer({ info, token, onClose, onSaved, readonly }: { info: DrawerInfo;
           await refreshSaldo(); onSaved();
         } else if (res.status === 409 && data.bloqueado) {
           setBloqueioMap(m => ({ ...m, [microId]: data }));
+          // Concorrência: outro gestor pode ter ocupado as horas no meio —
+          // atualiza a disponibilidade mostrada na faixa de candidatos.
+          onBlocked?.();
         }
       }
     } catch { /* silently fail */ }
@@ -1402,23 +1405,23 @@ export default function GridAlocacao() {
 
   // Busca os candidatos quando a profissão filtrada (ou o mês) muda.
   // Sem profissão selecionada → limpa (a faixa nem existe no DOM nesse caso).
-  useEffect(() => {
+  // Extraído em função (não só efeito) pra poder ser re-chamado manualmente
+  // depois que o drawer aloca um candidato (ele precisa sair da lista).
+  const fetchCandidatos = useCallback(async (silent = false) => {
     if (!filtroProfissaoId) { setCandidatos([]); return; }
-    let cancelado = false;
-    setCandidatosLoading(true);
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/alocacoes/candidatos?profissaoId=${filtroProfissaoId}&ano=${ano}&mes=${mes}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (!cancelado && res.ok) setCandidatos(await res.json());
-      } finally {
-        if (!cancelado) setCandidatosLoading(false);
-      }
-    })();
-    return () => { cancelado = true; };
+    if (!silent) setCandidatosLoading(true);
+    try {
+      const res = await fetch(
+        `/api/alocacoes/candidatos?profissaoId=${filtroProfissaoId}&ano=${ano}&mes=${mes}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) setCandidatos(await res.json());
+    } finally {
+      if (!silent) setCandidatosLoading(false);
+    }
   }, [filtroProfissaoId, ano, mes, token]);
+
+  useEffect(() => { fetchCandidatos(); }, [fetchCandidatos]);
 
   // IDs já no grid (para filtrar os resultados da busca)
   const idsNoGrid = useMemo(() => new Set(todasLinhas.map(l => l.colaborador.id)), [todasLinhas]);
@@ -1910,14 +1913,38 @@ export default function GridAlocacao() {
                           </div>
                         </td>
 
-                        {/* Células por projeto — inertes neste passo */}
+                        {/* Células por projeto — "+ Alocar" no hover abre o MESMO
+                            drawer dos alocados (DrawerInfo genérico, celula: null) */}
                         {data.projetos.map(p => (
-                          <td key={p.id} style={{
-                            textAlign: 'center', padding: '8px 6px', verticalAlign: 'middle',
-                            borderBottom: '1px dashed var(--border)', borderRight: '1px dashed var(--border)',
-                            color: 'var(--text-3)', fontSize: 13, opacity: 0.6,
-                          }}>
+                          <td
+                            key={p.id}
+                            className="group"
+                            style={{
+                              position: 'relative', textAlign: 'center', padding: '8px 6px', verticalAlign: 'middle',
+                              borderBottom: '1px dashed var(--border)', borderRight: '1px dashed var(--border)',
+                              color: 'var(--text-3)', fontSize: 13, opacity: 0.6,
+                            }}
+                          >
                             —
+                            <button
+                              onClick={() => setDrawer({
+                                colabId: cand.id, colabNome: cand.nome,
+                                projetoId: p.id, projCodigo: p.codigo, projNome: p.nome,
+                                celula: null, saldo: saldoSintetico, ano, mes,
+                              })}
+                              title="Alocar candidato em macro/micro específica"
+                              className="opacity-0 group-hover:opacity-100"
+                              style={{
+                                position: 'absolute', top: 3, right: 3,
+                                background: 'var(--surface-1)', border: '1px solid var(--border)',
+                                borderRadius: 4, cursor: 'pointer', padding: '2px 4px',
+                                display: 'flex', alignItems: 'center',
+                                color: 'var(--brand-500)',
+                                transition: 'opacity 0.15s ease',
+                              }}
+                            >
+                              <List size={13} />
+                            </button>
                           </td>
                         ))}
                       </tr>
@@ -2042,7 +2069,7 @@ export default function GridAlocacao() {
       )}
 
       {/* Drawer lateral de detalhamento */}
-      {drawer && <Drawer info={drawer} token={token!} onClose={() => setDrawer(null)} onSaved={() => fetchGrid(true)} readonly={mesFechado} />}
+      {drawer && <Drawer info={drawer} token={token!} onClose={() => setDrawer(null)} onSaved={() => { fetchGrid(true); fetchCandidatos(true); }} onBlocked={() => fetchCandidatos(true)} readonly={mesFechado} />}
     </div>
   );
 }

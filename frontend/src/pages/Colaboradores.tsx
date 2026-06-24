@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Users, UserPlus, Search, Pencil, PowerOff, Power, X, AlertTriangle } from 'lucide-react';
+import { Users, UserPlus, Search, Pencil, PowerOff, Power, X, AlertTriangle, Plus } from 'lucide-react';
+import Combobox from '../components/Combobox';
 
 interface Colaborador {
   id: string;
@@ -97,6 +98,15 @@ export default function Colaboradores() {
   const [profissaoIdOriginal, setProfissaoIdOriginal] = useState('');
   const [profissaoInativaExtra, setProfissaoInativaExtra] = useState<{ id: string; nome: string } | null>(null);
 
+  // Mini-modal "Nova profissão" — estado ISOLADO do form do colaborador (não
+  // reaproveita nome/email/etc.); sobreposto ao modal do colaborador.
+  const [novaProfOpen, setNovaProfOpen]       = useState(false);
+  const [novaProfNome, setNovaProfNome]       = useState('');
+  const [novaProfSaving, setNovaProfSaving]   = useState(false);
+  const [novaProfError, setNovaProfError]     = useState('');
+  const [novaProfPending, setNovaProfPending] = useState(false);
+  const [novaProfSimilares, setNovaProfSimilares] = useState<{ id: string; nome: string; ativo: boolean }[]>([]);
+
   // Tarifas por categoria (overrides) — categoriaId -> valor digitado (string, vazio = sem override)
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -153,6 +163,94 @@ export default function Colaboradores() {
   }, [token]);
 
   useEffect(() => { fetchProfissoes(); }, [fetchProfissoes]);
+
+  // ── Mini-modal "Nova profissão" ──────────────────────────────────────────
+
+  function openNovaProf() {
+    setNovaProfNome('');
+    setNovaProfError('');
+    setNovaProfPending(false);
+    setNovaProfSimilares([]);
+    setNovaProfOpen(true);
+  }
+
+  function closeNovaProf() {
+    setNovaProfOpen(false);
+    setNovaProfNome('');
+    setNovaProfError('');
+    setNovaProfPending(false);
+    setNovaProfSimilares([]);
+  }
+
+  function cancelarNovaProfConfirmacao() {
+    // Volta ao campo de nome, sem criar nada
+    setNovaProfPending(false);
+    setNovaProfSimilares([]);
+    setNovaProfError('');
+  }
+
+  // Profissão criada com sucesso (201): adiciona localmente (evita corrida com
+  // o refetch), seleciona no form do colaborador, fecha o mini-modal e atualiza
+  // a lista a partir do servidor.
+  function aplicarProfissaoCriada(profissao: Profissao) {
+    setProfissoes(prev => prev.some(p => p.id === profissao.id) ? prev : [...prev, profissao]);
+    setProfissaoId(profissao.id);
+    closeNovaProf();
+    fetchProfissoes();
+  }
+
+  // ── Estágio 1: submit do mini-modal ──────────────────────────────────────
+  async function handleCriarProfissao(e: React.FormEvent) {
+    e.preventDefault();
+    if (!novaProfNome.trim()) return;
+    setNovaProfError('');
+    setNovaProfSaving(true);
+    try {
+      const res = await fetch('/api/profissoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ nome: novaProfNome.trim() }),
+      });
+      const data = await res.json();
+
+      // needsConfirmation vem com status 200 — checar ANTES de res.ok
+      if (data.needsConfirmation) {
+        setNovaProfSimilares(data.similares);
+        setNovaProfPending(true);
+        return;
+      }
+
+      if (!res.ok) { setNovaProfError(data.error || 'Erro ao criar profissão'); return; }
+
+      // 201 — criada (objeto vem em data.profissao)
+      aplicarProfissaoCriada(data.profissao);
+    } catch {
+      setNovaProfError('Erro de rede');
+    } finally {
+      setNovaProfSaving(false);
+    }
+  }
+
+  // ── Estágio 2: confirma mesmo com nome parecido ──────────────────────────
+  async function handleCriarProfissaoConfirmar() {
+    setNovaProfSaving(true);
+    setNovaProfError('');
+    try {
+      const res = await fetch('/api/profissoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ nome: novaProfNome.trim(), confirmarSimilar: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setNovaProfError(data.error || 'Erro ao criar profissão'); setNovaProfPending(false); return; }
+
+      aplicarProfissaoCriada(data.profissao);
+    } catch {
+      setNovaProfError('Erro de rede');
+    } finally {
+      setNovaProfSaving(false);
+    }
+  }
 
   function placeholderPadrao() {
     const num = parseFloat(valorHora);
@@ -236,6 +334,13 @@ export default function Colaboradores() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
+    // Profissão é obrigatória — o Combobox é custom, então o `required` nativo
+    // não bloqueia o submit (browser só vê um <input type="text">). Valida aqui.
+    if (!profissaoId) {
+      setError('Profissão é obrigatória.');
+      return;
+    }
 
     // Valor-hora padrão é obrigatório — bloqueia ANTES de chamar a API
     const valorHoraTrim = valorHora.trim();
@@ -570,13 +675,33 @@ export default function Colaboradores() {
                 </Field>
 
                 <Field label="Profissão">
-                  <Select required value={profissaoId} onChange={e => setProfissaoId(e.target.value)} disabled={saving}>
-                    <option value="">Selecione uma profissão</option>
-                    {profissaoInativaExtra && (
-                      <option value={profissaoInativaExtra.id}>{profissaoInativaExtra.nome} (inativo)</option>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <Combobox
+                        options={[
+                          ...(profissaoInativaExtra ? [{ id: profissaoInativaExtra.id, nome: profissaoInativaExtra.nome, inativo: true }] : []),
+                          ...profissoes.map(p => ({ id: p.id, nome: p.nome })),
+                        ]}
+                        value={profissaoId}
+                        onChange={setProfissaoId}
+                        placeholder="Selecione uma profissão"
+                        disabled={saving}
+                      />
+                    </div>
+                    {canWrite && (
+                      <button
+                        type="button"
+                        onClick={openNovaProf}
+                        disabled={saving}
+                        className="flex items-center gap-1 px-3 rounded-lg text-xs font-medium shrink-0"
+                        style={{ border: '1px solid var(--border)', color: 'var(--brand-500)' }}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                      >
+                        <Plus size={13} /> Nova
+                      </button>
                     )}
-                    {profissoes.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                  </Select>
+                  </div>
                 </Field>
 
                 <Field
@@ -633,6 +758,100 @@ export default function Colaboradores() {
                   </button>
                   <button type="submit" disabled={saving || tarifasLoading} className="flex-1 py-2 px-4 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--brand-500)', opacity: (saving || tarifasLoading) ? 0.7 : 1 }}>
                     {saving ? 'Verificando…' : tarifasLoading ? 'Carregando tarifas…' : 'Salvar'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Mini-modal "Nova profissão" — sobreposto ao modal do colaborador,
+          renderizado como IRMÃO dele (fora da sua árvore) pra clique no
+          backdrop daqui nunca propagar pro fechamento do modal de baixo. ── */}
+      {novaProfOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          style={{ background: 'hsl(0 0% 0% / 0.5)', backdropFilter: 'blur(4px)' }}
+          onClick={e => { if (e.target === e.currentTarget) closeNovaProf(); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-base" style={{ color: 'var(--text-1)' }}>Nova profissão</h2>
+              <button
+                onClick={closeNovaProf}
+                className="w-8 h-8 rounded-lg flex items-center justify-center"
+                style={{ color: 'var(--text-3)' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {novaProfError && (
+              <div className="p-3 rounded-xl text-sm" style={{ background: 'hsl(0 85% 60% / 0.1)', color: 'hsl(0 85% 65%)', border: '1px solid hsl(0 85% 60% / 0.2)' }}>
+                {novaProfError}
+              </div>
+            )}
+
+            {novaProfPending ? (
+              /* ── Estágio 2: aviso de profissão parecida ── */
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'hsl(38 92% 50% / 0.1)', border: '1px solid hsl(38 92% 50% / 0.3)' }}>
+                  <AlertTriangle size={15} className="shrink-0 mt-0.5" style={{ color: '#b45309' }} />
+                  <p className="text-sm" style={{ color: '#b45309' }}>
+                    Já existe profissão parecida: <strong>{novaProfSimilares.map(s => s.nome).join(', ')}</strong>. Criar mesmo assim?
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={cancelarNovaProfConfirmacao}
+                    disabled={novaProfSaving}
+                    className="flex-1 py-2 px-4 rounded-xl text-sm font-medium"
+                    style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCriarProfissaoConfirmar}
+                    disabled={novaProfSaving}
+                    className="flex-1 py-2 px-4 rounded-xl text-sm font-semibold text-white"
+                    style={{ background: 'var(--brand-500)', opacity: novaProfSaving ? 0.7 : 1 }}
+                  >
+                    {novaProfSaving ? 'Criando…' : 'Criar mesmo assim'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── Estágio 1: campo de nome ── */
+              <form onSubmit={handleCriarProfissao} className="flex flex-col gap-4">
+                <Field label="Nome da profissão">
+                  <Input
+                    type="text" required autoFocus placeholder="Ex: Analista de Suporte"
+                    value={novaProfNome} onChange={e => setNovaProfNome(e.target.value)}
+                    disabled={novaProfSaving}
+                  />
+                </Field>
+                <div className="flex gap-3">
+                  <button
+                    type="button" onClick={closeNovaProf} disabled={novaProfSaving}
+                    className="flex-1 py-2 px-4 rounded-xl text-sm font-medium"
+                    style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit" disabled={novaProfSaving || !novaProfNome.trim()}
+                    className="flex-1 py-2 px-4 rounded-xl text-sm font-semibold text-white"
+                    style={{ background: 'var(--brand-500)', opacity: (novaProfSaving || !novaProfNome.trim()) ? 0.7 : 1 }}
+                  >
+                    {novaProfSaving ? 'Verificando…' : 'Criar'}
                   </button>
                 </div>
               </form>

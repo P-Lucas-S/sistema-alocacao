@@ -18,6 +18,7 @@ import fechamentosRoutes from './routes/fechamentos.js';
 import remanejamentoRoutes from './routes/remanejamento.js';
 import relatoriosRoutes from './routes/relatorios.js';
 import categoriasRoutes from './routes/categorias.js';
+import profissoesRoutes from './routes/profissoes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -40,6 +41,7 @@ app.use('/api/fechamentos', fechamentosRoutes);
 app.use('/api/remanejamento', remanejamentoRoutes);
 app.use('/api/relatorios', relatoriosRoutes);
 app.use('/api/categorias', categoriasRoutes);
+app.use('/api/profissoes', profissoesRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', ambiente: process.env.NODE_ENV });

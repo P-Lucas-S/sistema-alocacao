@@ -96,6 +96,16 @@ model CategoriaProjeto {
   @@map("categorias_projeto")
 }
 
+model Profissao {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("profissoes")
+}
+
 model TarifaColaborador {
   id            String   @id @default(cuid())
   colaboradorId String

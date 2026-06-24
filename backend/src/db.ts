@@ -95,6 +95,32 @@ const CATEGORIAS_PROJETO = [
   { id: 'cat-sebrae',   nome: 'SEBRAE'   },
 ];
 
+// ── Profissões (lista administrável plana) ──────────────────────────────────
+// Globais, sem dono. Ainda NÃO ligada ao colaborador — a FK + a substituição
+// da função-string entram no passo 2. Aqui é só a lista.
+const PROFISSOES_PADRAO = [
+  { id: 'prof-dev-software',     nome: 'Desenvolvedor(a) de Software' },
+  { id: 'prof-eng-dados',        nome: 'Engenheiro(a) de Dados'       },
+  { id: 'prof-eng-devops',       nome: 'Engenheiro(a) de DevOps'      },
+  { id: 'prof-arquiteto-sw',     nome: 'Arquiteto(a) de Software'     },
+  { id: 'prof-qa',               nome: 'Analista de QA/Testes'        },
+  { id: 'prof-cientista-dados',  nome: 'Cientista de Dados'           },
+  { id: 'prof-analista-dados',   nome: 'Analista de Dados'            },
+  { id: 'prof-pesquisador',      nome: 'Pesquisador(a)'               },
+  { id: 'prof-analista-inov',    nome: 'Analista de Inovação'         },
+  { id: 'prof-designer-uxui',    nome: 'Designer UX/UI'               },
+  { id: 'prof-designer-grafico', nome: 'Designer Gráfico'             },
+  { id: 'prof-product-manager',  nome: 'Product Manager'              },
+  { id: 'prof-product-owner',    nome: 'Product Owner'                },
+  { id: 'prof-redator-tecnico',  nome: 'Redator(a) Técnico'           },
+  { id: 'prof-social-media',     nome: 'Social Media'                 },
+  { id: 'prof-editor-video',     nome: 'Editor(a) de Vídeo'           },
+  { id: 'prof-gerente-projetos', nome: 'Gerente de Projetos'          },
+  { id: 'prof-coord-tecnico',    nome: 'Coordenador(a) Técnico'       },
+  { id: 'prof-scrum-master',     nome: 'Scrum Master'                 },
+  { id: 'prof-analista-negocios',nome: 'Analista de Negócios'         },
+];
+
 // ── Projetos (com macros e micro Geral por macro) ───────────────────────────
 // macros: array de nomes → cada um vira uma MacroEntrega com MicroEntrega 'Geral'
 // categoriaId: SEED01–04 mapeados explicitamente; demais ciclam pela lista de programas.
@@ -227,6 +253,7 @@ export async function initDb() {
   await prisma.projeto.deleteMany();
   await prisma.tarifaColaborador.deleteMany(); // referencia colaboradores E categorias (RESTRICT) — apaga antes de ambos
   await prisma.categoriaProjeto.deleteMany(); // pai de projetos (RESTRICT) — apaga depois dos projetos
+  await prisma.profissao.deleteMany(); // ainda sem FK em colaborador (vem no passo 2) — ordem trivial por ora
   await prisma.colaborador.deleteMany();
   await prisma.pushSubscription.deleteMany();
   await prisma.notification.deleteMany();
@@ -252,6 +279,13 @@ export async function initDb() {
   for (const cat of CATEGORIAS_PROJETO) {
     await prisma.categoriaProjeto.create({
       data: { id: cat.id, nome: cat.nome, ativo: true },
+    });
+  }
+
+  // ── Profissões — ainda sem ninguém apontando pra elas (passo 2) ──────────
+  for (const prof of PROFISSOES_PADRAO) {
+    await prisma.profissao.create({
+      data: { id: prof.id, nome: prof.nome, ativo: true },
     });
   }
 
@@ -349,6 +383,7 @@ export async function initDb() {
   console.log(`✅ Seed completo`);
   console.log(`   Usuários: 1 admin · 1 coordenação · 3 gestores · 1 chefe · 1 diretor`);
   console.log(`   Programas: ${CATEGORIAS_PROJETO.map(c => c.nome).join(', ')}`);
+  console.log(`   Profissões: ${PROFISSOES_PADRAO.length} cadastradas`);
   console.log(`   Tarifas específicas: ${TARIFAS_COLABORADOR.length} (todas FINEP, demo de override)`);
   console.log(`   Colaboradores: ${totalColabs}`);
   console.log(`   Projetos: ${totalProjs} (G1=${g1Projs} · G2=${g2Projs} · G3=${g3Projs})`);

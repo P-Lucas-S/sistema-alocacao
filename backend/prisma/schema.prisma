@@ -103,6 +103,8 @@ model Profissao {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  colaboradores Colaborador[]
+
   @@map("profissoes")
 }
 
@@ -126,7 +128,7 @@ model Colaborador {
   id          String   @id @db.VarChar(191)
   nome        String   @db.VarChar(255)
   email       String   @unique @db.VarChar(255)
-  funcao      String?  @db.VarChar(100)
+  profissaoId String?  @map("profissao_id") @db.VarChar(191)
   valorHora   Decimal? @map("valor_hora") @db.Decimal(10, 2)
   ativo       Boolean  @default(true)
   createdById String   @map("created_by_id") @db.VarChar(191)
@@ -134,6 +136,7 @@ model Colaborador {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   createdBy                 User                       @relation(fields: [createdById], references: [id])
+  profissao                 Profissao?                 @relation(fields: [profissaoId], references: [id], onDelete: Restrict)
   alocacoes                 Alocacao[]
   solicitacoesRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoColaborador")
   tarifas                   TarifaColaborador[]

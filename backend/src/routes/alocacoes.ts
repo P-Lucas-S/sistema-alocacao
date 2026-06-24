@@ -246,7 +246,7 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     const minhasAlocs = await prisma.alocacao.findMany({
       where: { projetoId: { in: [...meusProjIds] }, ano: anoN, mes: mesN },
       include: {
-        colaborador:  { select: { id: true, nome: true, funcao: true, valorHora: true } },
+        colaborador:  { select: { id: true, nome: true, profissao: { select: { id: true, nome: true } }, valorHora: true } },
         macroEntrega: { select: { nome: true } },
         microEntrega: { select: { nome: true } },
       },
@@ -480,7 +480,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       where,
       orderBy: [{ ano: 'asc' }, { mes: 'asc' }],
       include: {
-        colaborador:  { select: { nome: true, funcao: true } },
+        colaborador:  { select: { nome: true, profissao: { select: { id: true, nome: true } } } },
         projeto:      { select: { codigo: true, nome: true, gestor: { select: { name: true } } } },
         macroEntrega: { select: { nome: true } },
         microEntrega: { select: { nome: true } },

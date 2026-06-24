@@ -87,11 +87,10 @@ async function validarTarifas(tarifasRaw: unknown): Promise<ValidarTarifasResult
 // ── GET / ─────────────────────────────────────────────────────────────────
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { search, funcao, ativo } = req.query as Record<string, string | undefined>;
+    const { search, ativo } = req.query as Record<string, string | undefined>;
 
     const where: any = {};
     if (ativo !== undefined) where.ativo = ativo === 'true';
-    if (funcao) where.funcao = { contains: funcao };
     if (search) {
       where.OR = [
         { nome: { contains: search } },
@@ -103,7 +102,8 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       where,
       orderBy: { nome: 'asc' },
       select: {
-        id: true, nome: true, email: true, funcao: true,
+        id: true, nome: true, email: true,
+        profissao: { select: { id: true, nome: true } },
         valorHora: true, ativo: true, createdAt: true,
         createdBy: { select: { name: true } },
       },
@@ -123,7 +123,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     const colaborador = await prisma.colaborador.findUnique({
       where: { id },
       select: {
-        id: true, nome: true, email: true, funcao: true,
+        id: true, nome: true, email: true,
+        profissao: { select: { id: true, nome: true } },
         valorHora: true, ativo: true, createdAt: true,
         createdBy: { select: { name: true } },
         tarifas: { select: { categoriaId: true, valorHora: true } },
@@ -145,7 +146,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 // E-mail duplicado é SEMPRE 409, o flag confirmarSimilar não o contorna.
 router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
-    const { nome, email, funcao, valorHora, tarifas, confirmarSimilar } = req.body;
+    const { nome, email, profissaoId, valorHora, tarifas, confirmarSimilar } = req.body;
     const createdById = req.user!.id;
 
     if (!nome?.trim()) return res.status(400).json({ error: 'nome é obrigatório' });
@@ -155,6 +156,12 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     if (valorHora === undefined || valorHora === null || valorHora === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
       return res.status(400).json({ error: 'Informe o valor-hora padrão do colaborador (maior que zero).' });
     }
+
+    // Profissão — obrigatória na criação (mesmo molde do categoriaId em POST /projetos)
+    if (!profissaoId) return res.status(400).json({ error: 'Profissão é obrigatória' });
+    const profissao = await prisma.profissao.findUnique({ where: { id: profissaoId } });
+    if (!profissao)        return res.status(400).json({ error: 'Profissão não encontrada' });
+    if (!profissao.ativo)  return res.status(400).json({ error: 'Profissão inativa' });
 
     let tarifasValidadas: TarifaInput[] = [];
     if (tarifas !== undefined) {
@@ -174,7 +181,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     // Verificação de similaridade de nome (pulada quando confirmarSimilar: true)
     if (!confirmarSimilar) {
       const todos = await prisma.colaborador.findMany({
-        select: { id: true, nome: true, email: true, funcao: true },
+        select: { id: true, nome: true, email: true, profissao: { select: { nome: true } } },
       });
       const similares = todos.filter(c => isSimilar(c.nome, nome.trim()));
 
@@ -182,7 +189,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
         // Retorna 200 sem criar — frontend deve pedir confirmação
         return res.status(200).json({
           needsConfirmation: true,
-          similares: similares.map(s => ({ nome: s.nome, email: s.email, funcao: s.funcao })),
+          similares: similares.map(s => ({ nome: s.nome, email: s.email, profissao: s.profissao?.nome ?? null })),
         });
       }
     }
@@ -191,7 +198,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
     const id = generateId();
     const colaborador = await prisma.$transaction(async (tx) => {
       await tx.colaborador.create({
-        data: { id, nome: nome.trim(), email: emailNorm, funcao: funcao?.trim() || null, valorHora: valorHoraNum, createdById },
+        data: { id, nome: nome.trim(), email: emailNorm, profissaoId, valorHora: valorHoraNum, createdById },
       });
 
       for (const t of tarifasValidadas) {
@@ -202,7 +209,11 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 
       return tx.colaborador.findUniqueOrThrow({
         where: { id },
-        select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
+        select: {
+          id: true, nome: true, email: true,
+          profissao: { select: { id: true, nome: true } },
+          valorHora: true, ativo: true, createdAt: true,
+        },
       });
     });
 
@@ -217,7 +228,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { nome, email, funcao, valorHora, tarifas } = req.body;
+    const { nome, email, profissaoId, valorHora, tarifas } = req.body;
 
     const current = await prisma.colaborador.findUnique({ where: { id } });
     if (!current) return res.status(404).json({ error: 'Colaborador não encontrado' });
@@ -225,6 +236,15 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
     const valorHoraNum = Number(valorHora);
     if (valorHora === undefined || valorHora === null || valorHora === '' || isNaN(valorHoraNum) || valorHoraNum <= 0) {
       return res.status(400).json({ error: 'Informe o valor-hora padrão do colaborador (maior que zero).' });
+    }
+
+    // Profissão — se enviada, não pode ficar vazia; ausente → preserva a atual
+    // (mesmo molde do categoriaId em PUT /projetos)
+    if (profissaoId !== undefined) {
+      if (!profissaoId) return res.status(400).json({ error: 'Profissão é obrigatória' });
+      const profissao = await prisma.profissao.findUnique({ where: { id: profissaoId } });
+      if (!profissao)        return res.status(400).json({ error: 'Profissão não encontrada' });
+      if (!profissao.ativo)  return res.status(400).json({ error: 'Profissão inativa' });
     }
 
     // tarifas ausente → não mexe nos overrides existentes; [] → apaga todos.
@@ -247,7 +267,7 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
         data: {
           ...(nome?.trim() ? { nome: nome.trim() } : {}),
           ...(emailNorm ? { email: emailNorm } : {}),
-          ...(funcao !== undefined ? { funcao: funcao?.trim() || null } : {}),
+          ...(profissaoId !== undefined ? { profissaoId } : {}),
           valorHora: valorHoraNum,
         },
       });
@@ -271,7 +291,11 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor'), async (req: Aut
 
       return tx.colaborador.findUniqueOrThrow({
         where: { id },
-        select: { id: true, nome: true, email: true, funcao: true, valorHora: true, ativo: true, createdAt: true },
+        select: {
+          id: true, nome: true, email: true,
+          profissao: { select: { id: true, nome: true } },
+          valorHora: true, ativo: true, createdAt: true,
+        },
       });
     });
 

@@ -34,12 +34,12 @@ router.get('/custos', authenticate, requireRole('admin', 'gestor'), async (req: 
       select: {
         projetoId: true,
         horasPlanejadas: true,
-        colaborador: { select: { id: true, nome: true, valorHora: true, funcao: true } },
+        colaborador: { select: { id: true, nome: true, valorHora: true, profissao: { select: { nome: true } } } },
       },
     });
 
     // ── Agrega horas por (projetoId, colaboradorId) — em Decimal, sem drift ──
-    type Agg = { nome: string; funcao: string | null; valorHora: Prisma.Decimal | null; horas: Prisma.Decimal };
+    type Agg = { nome: string; profissao: string | null; valorHora: Prisma.Decimal | null; horas: Prisma.Decimal };
     const byProjeto = new Map<string, Map<string, Agg>>();
 
     for (const a of alocs) {
@@ -52,7 +52,7 @@ router.get('/custos', authenticate, requireRole('admin', 'gestor'), async (req: 
       } else {
         colabMap.set(a.colaborador.id, {
           nome:      a.colaborador.nome,
-          funcao:    a.colaborador.funcao,
+          profissao: a.colaborador.profissao?.nome ?? null,
           valorHora: a.colaborador.valorHora,
           horas:     a.horasPlanejadas,
         });
@@ -73,7 +73,7 @@ router.get('/custos', authenticate, requireRole('admin', 'gestor'), async (req: 
         const custo = valor != null ? c.horas.times(valor) : null;
         return {
           nome:        c.nome,
-          funcao:      c.funcao,
+          profissao:   c.profissao,
           horasTotais: c.horas.toString(),
           valorHora:   valor != null ? valor.toString() : null,
           origem,

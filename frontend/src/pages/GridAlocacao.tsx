@@ -198,6 +198,7 @@ interface CelulaEditavelProps {
   onSaved:         () => void;
   onSavedSilent:   () => void;
   onOpenDrawer:    (info: DrawerInfo) => void;
+  onBlocked?:      () => void;
   projCodigo:      string;
   projNome:        string;
   saldo:           Saldo;
@@ -208,7 +209,7 @@ interface CelulaEditavelProps {
 function CelulaEditavel(props: CelulaEditavelProps) {
   const { celula, projetoId, defaultMacroId, defaultMicroId,
           colaboradorId, colaboradorNome, totalGeral,
-          ano, mes, token, onSaved, onSavedSilent, onOpenDrawer,
+          ano, mes, token, onSaved, onSavedSilent, onOpenDrawer, onBlocked,
           projCodigo, projNome, saldo, isHighlighted = false,
           readonly = false } = props;
 
@@ -369,6 +370,9 @@ function CelulaEditavel(props: CelulaEditavelProps) {
           });
         }
         setBloqueio(data);
+        // Concorrência: outro gestor pode ter ocupado as horas no meio —
+        // atualiza a disponibilidade mostrada na faixa de candidatos (se houver).
+        onBlocked?.();
       }
     } catch { /* silently fail */ }
 
@@ -1786,9 +1790,10 @@ export default function GridAlocacao() {
                         ano={ano}
                         mes={mes}
                         token={token!}
-                        onSaved={fetchGrid}
-                        onSavedSilent={() => fetchGrid(true)}
+                        onSaved={() => { fetchGrid(); fetchCandidatos(true); }}
+                        onSavedSilent={() => { fetchGrid(true); fetchCandidatos(true); }}
                         onOpenDrawer={setDrawer}
+                        onBlocked={() => fetchCandidatos(true)}
                         projCodigo={p.codigo}
                         projNome={p.nome}
                         saldo={linha.saldo}
@@ -1913,39 +1918,32 @@ export default function GridAlocacao() {
                           </div>
                         </td>
 
-                        {/* Células por projeto — "+ Alocar" no hover abre o MESMO
-                            drawer dos alocados (DrawerInfo genérico, celula: null) */}
+                        {/* Células por projeto — MESMA CelulaEditavel dos alocados:
+                            clique vira input → Enter/blur grava na Geral (POST
+                            /alocacoes, mesmo lock/teto); ícone de drawer continua
+                            pro macro/micro detalhado. celula:null (nunca alocado). */}
                         {data.projetos.map(p => (
-                          <td
+                          <CelulaEditavel
                             key={p.id}
-                            className="group"
-                            style={{
-                              position: 'relative', textAlign: 'center', padding: '8px 6px', verticalAlign: 'middle',
-                              borderBottom: '1px dashed var(--border)', borderRight: '1px dashed var(--border)',
-                              color: 'var(--text-3)', fontSize: 13, opacity: 0.6,
-                            }}
-                          >
-                            —
-                            <button
-                              onClick={() => setDrawer({
-                                colabId: cand.id, colabNome: cand.nome,
-                                projetoId: p.id, projCodigo: p.codigo, projNome: p.nome,
-                                celula: null, saldo: saldoSintetico, ano, mes,
-                              })}
-                              title="Alocar candidato em macro/micro específica"
-                              className="opacity-0 group-hover:opacity-100"
-                              style={{
-                                position: 'absolute', top: 3, right: 3,
-                                background: 'var(--surface-1)', border: '1px solid var(--border)',
-                                borderRadius: 4, cursor: 'pointer', padding: '2px 4px',
-                                display: 'flex', alignItems: 'center',
-                                color: 'var(--brand-500)',
-                                transition: 'opacity 0.15s ease',
-                              }}
-                            >
-                              <List size={13} />
-                            </button>
-                          </td>
+                            celula={null}
+                            projetoId={p.id}
+                            defaultMacroId={p.defaultMacroId}
+                            defaultMicroId={p.defaultMicroId}
+                            colaboradorId={cand.id}
+                            colaboradorNome={cand.nome}
+                            totalGeral={saldoSintetico.totalGeral}
+                            ano={ano}
+                            mes={mes}
+                            token={token!}
+                            onSaved={() => { fetchGrid(true); fetchCandidatos(true); }}
+                            onSavedSilent={() => fetchCandidatos(true)}
+                            onOpenDrawer={setDrawer}
+                            onBlocked={() => fetchCandidatos(true)}
+                            projCodigo={p.codigo}
+                            projNome={p.nome}
+                            saldo={saldoSintetico}
+                            readonly={mesFechado}
+                          />
                         ))}
                       </tr>
                     );

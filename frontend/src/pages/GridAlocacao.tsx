@@ -92,6 +92,17 @@ interface ExtraLinha {
   saldo: Saldo;
 }
 
+// Candidato — resposta de GET /alocacoes/candidatos (faixa abaixo do grid)
+interface Candidato {
+  id: string;
+  nome: string;
+  email: string;
+  profissao: { id: string; nome: string } | null;
+  totalAlocado: string;
+  disponivel: string;
+  valorHora: string | null;
+}
+
 // ── Constantes ───────────────────────────────────────────────────────────────
 
 const TETO = 220;
@@ -1314,6 +1325,11 @@ export default function GridAlocacao() {
   const [profissoesFiltro, setProfissoesFiltro] = useState<{ id: string; nome: string }[]>([]);
   const [filtroProfissaoId, setFiltroProfissaoId] = useState('');
 
+  // Faixa de candidatos — só existe (no DOM) quando há filtroProfissaoId.
+  // Puramente exibição neste passo (4c-frontend); alocar é o passo seguinte.
+  const [candidatos, setCandidatos] = useState<Candidato[]>([]);
+  const [candidatosLoading, setCandidatosLoading] = useState(false);
+
   // Painel lateral de detalhamento
   const [drawer, setDrawer] = useState<DrawerInfo | null>(null);
 
@@ -1383,6 +1399,26 @@ export default function GridAlocacao() {
   }, [token]);
 
   useEffect(() => { fetchProfissoesFiltro(); }, [fetchProfissoesFiltro]);
+
+  // Busca os candidatos quando a profissão filtrada (ou o mês) muda.
+  // Sem profissão selecionada → limpa (a faixa nem existe no DOM nesse caso).
+  useEffect(() => {
+    if (!filtroProfissaoId) { setCandidatos([]); return; }
+    let cancelado = false;
+    setCandidatosLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/alocacoes/candidatos?profissaoId=${filtroProfissaoId}&ano=${ano}&mes=${mes}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!cancelado && res.ok) setCandidatos(await res.json());
+      } finally {
+        if (!cancelado) setCandidatosLoading(false);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [filtroProfissaoId, ano, mes, token]);
 
   // IDs já no grid (para filtrar os resultados da busca)
   const idsNoGrid = useMemo(() => new Set(todasLinhas.map(l => l.colaborador.id)), [todasLinhas]);
@@ -1798,6 +1834,99 @@ export default function GridAlocacao() {
               </tr>
             </tfoot>
           </table>
+        )}
+
+        {/* ── Faixa de candidatos — só existe quando há profissão filtrada ──
+            Seção separada, FORA do <tbody> dos alocados; não afeta saldo,
+            células nem o rodapé de custo de cima. Puramente exibição neste
+            passo (4c-frontend) — alocar a partir daqui é o passo seguinte. ── */}
+        {filtroProfissaoId && data && (
+          <div style={{ marginTop: 20, paddingTop: 14, borderTop: '2px dashed var(--border)' }}>
+            <h3 style={{
+              fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+              color: 'var(--text-3)', margin: '0 0 8px', paddingLeft: 4,
+            }}>
+              Candidatos disponíveis — {profissoesFiltro.find(p => p.id === filtroProfissaoId)?.nome ?? ''} ({candidatos.length})
+            </h3>
+
+            {candidatosLoading ? (
+              <div className="flex items-center gap-2" style={{ color: 'var(--text-3)', fontSize: 12, padding: '6px 4px' }}>
+                <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+                  <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                </svg>
+                Carregando candidatos…
+              </div>
+            ) : candidatos.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '6px 4px' }}>
+                Nenhum candidato disponível nesta profissão neste mês.
+              </div>
+            ) : (
+              <table style={{
+                borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed',
+                minWidth: COL_COLAB_W + COL_SALDO_W + data.projetos.length * COL_PROJ_W,
+              }}>
+                <colgroup>
+                  <col style={{ width: COL_COLAB_W }} />
+                  <col style={{ width: COL_SALDO_W }} />
+                  {data.projetos.map(p => <col key={p.id} style={{ width: COL_PROJ_W }} />)}
+                </colgroup>
+                <tbody>
+                  {candidatos.map((cand, idx) => {
+                    // Saldo sintético: do ponto de vista do gestor logado, o
+                    // candidato nunca tem horas "minhas" (por definição — é
+                    // candidato justamente por eu não tê-lo alocado ainda).
+                    const saldoSintetico: Saldo = {
+                      totalMeusProj: '0',
+                      totalOutros:   cand.totalAlocado,
+                      totalGeral:    cand.totalAlocado,
+                      disponivel:    cand.disponivel,
+                      custo:         null,
+                    };
+                    const rowBg = idx % 2 === 0 ? 'var(--surface-2)' : 'var(--surface-1)';
+                    return (
+                      <tr key={cand.id}>
+                        {/* Colaborador (sticky, "desidratado") */}
+                        <td style={{
+                          ...stickyColabStyle, background: rowBg, opacity: 0.85,
+                          borderBottom: '1px dashed var(--border)', verticalAlign: 'middle',
+                        }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cand.nome}>
+                            {cand.nome}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {cand.email}
+                          </div>
+                        </td>
+
+                        {/* Saldo (sticky, mesma BarraSaldo do grid — read-only) */}
+                        <td style={{
+                          ...stickySaldoStyle, background: rowBg, left: COL_COLAB_W, opacity: 0.85,
+                          borderBottom: '1px dashed var(--border)', borderRight: '2px dashed var(--border)', verticalAlign: 'middle',
+                        }}>
+                          <BarraSaldo saldo={saldoSintetico} />
+                          <div style={{ fontSize: 9, marginTop: 3, color: 'var(--text-3)', fontWeight: 600 }}>
+                            candidato · ainda não alocado
+                          </div>
+                        </td>
+
+                        {/* Células por projeto — inertes neste passo */}
+                        {data.projetos.map(p => (
+                          <td key={p.id} style={{
+                            textAlign: 'center', padding: '8px 6px', verticalAlign: 'middle',
+                            borderBottom: '1px dashed var(--border)', borderRight: '1px dashed var(--border)',
+                            color: 'var(--text-3)', fontSize: 13, opacity: 0.6,
+                          }}>
+                            —
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         )}
       </div>
 

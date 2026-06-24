@@ -10,6 +10,9 @@ const generateId = () => Math.random().toString(36).substring(2, 15);
 // Teto global de horas planejadas por colaborador/mês — constante de negócio
 const TETO_HORAS_MES = new Prisma.Decimal(220);
 
+// Limite de candidatos retornados por /candidatos
+const MAX_CANDIDATOS = 20;
+
 // ── Helper: verificar se um mês está fechado ──────────────────────────────────
 // Exportado pra ser reusado por outras rotas que também precisam bloquear
 // edição/remoção em mês fechado (ex.: macros.ts na exclusão em cascata).
@@ -415,6 +418,93 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     res.json({ projetos, linhas, fechado, custoPorProjeto });
   } catch (error) {
     console.error('Grid error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── GET /candidatos — colaboradores ATIVOS de uma profissão, ainda NÃO ──────
+// alocados por MIM (escopo igual ao do grid) naquele (ano,mes), com vaga
+// (disponivel > 0). SÓ LEITURA — não grava nada, não usa lock (o lock entra
+// no POST /alocacoes já existente, quando o gestor de fato alocar alguém).
+router.get('/candidatos', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+    const { profissaoId, ano, mes } = req.query as Record<string, string | undefined>;
+
+    if (!profissaoId) return res.status(400).json({ error: 'profissaoId é obrigatório' });
+    const anoN = parseInt(ano ?? '');
+    const mesN = parseInt(mes ?? '');
+    if (!anoN || anoN < 2020 || anoN > 2100) return res.status(400).json({ error: 'ano inválido' });
+    if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
+
+    // ── Escopo "meus projetos" — MESMO critério do GET /grid (projWhere) ────
+    const projWhere = role === 'gestor'
+      ? { gestorId: userId, status: 'ativo' }
+      : { status: 'ativo' };
+    const meusProjetos = await prisma.projeto.findMany({ where: projWhere, select: { id: true } });
+    const meusProjIds = [...new Set(meusProjetos.map(p => p.id))];
+
+    // ── Colaboradores ATIVOS da profissão ────────────────────────────────
+    const colaboradoresDaProfissao = await prisma.colaborador.findMany({
+      where: { profissaoId, ativo: true },
+      select: {
+        id: true, nome: true, email: true, valorHora: true,
+        profissao: { select: { id: true, nome: true } },
+      },
+    });
+    if (colaboradoresDaProfissao.length === 0) return res.json([]);
+
+    const colabIds = colaboradoresDaProfissao.map(c => c.id);
+
+    // ── Quem eu já aloquei nos MEUS projetos este mês — exclui da lista ─────
+    const minhasAlocsDoMes = await prisma.alocacao.findMany({
+      where: { colaboradorId: { in: colabIds }, projetoId: { in: meusProjIds }, ano: anoN, mes: mesN },
+      select: { colaboradorId: true },
+    });
+    const jaAlocadosPorMim = new Set(minhasAlocsDoMes.map(a => a.colaboradorId));
+
+    const candidatosBrutos = colaboradoresDaProfissao.filter(c => !jaAlocadosPorMim.has(c.id));
+    if (candidatosBrutos.length === 0) return res.json([]);
+
+    // ── totalAlocado = soma de TODAS as alocações (todos os gestores) no
+    // (ano,mes) — MESMA conta do saldo do grid (TETO_HORAS_MES - total),
+    // em lote (1 query), não N+1 ─────────────────────────────────────────
+    const candidatoIds = candidatosBrutos.map(c => c.id);
+    const todasAlocsDoMes = await prisma.alocacao.findMany({
+      where: { colaboradorId: { in: candidatoIds }, ano: anoN, mes: mesN },
+      select: { colaboradorId: true, horasPlanejadas: true },
+    });
+
+    const D0 = new Prisma.Decimal(0);
+    const totalPorColab = new Map<string, Prisma.Decimal>();
+    for (const a of todasAlocsDoMes) {
+      totalPorColab.set(a.colaboradorId, (totalPorColab.get(a.colaboradorId) ?? D0).plus(a.horasPlanejadas));
+    }
+
+    const candidatos = candidatosBrutos
+      .map(c => {
+        const totalAlocado = totalPorColab.get(c.id) ?? D0;
+        const disponivel   = Prisma.Decimal.max(TETO_HORAS_MES.minus(totalAlocado), D0);
+        return {
+          id:           c.id,
+          nome:         c.nome,
+          email:        c.email,
+          profissao:    c.profissao,
+          totalAlocado: totalAlocado.toString(),
+          disponivelNum: disponivel, // só pra ordenar — removido antes de responder
+          disponivel:   disponivel.toString(),
+          valorHora:    c.valorHora != null ? c.valorHora.toString() : null,
+        };
+      })
+      .filter(c => c.disponivelNum.greaterThan(D0))
+      .sort((a, b) => b.disponivelNum.comparedTo(a.disponivelNum))
+      .slice(0, MAX_CANDIDATOS)
+      .map(({ disponivelNum, ...rest }) => rest);
+
+    res.json(candidatos);
+  } catch (error) {
+    console.error('Candidatos error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

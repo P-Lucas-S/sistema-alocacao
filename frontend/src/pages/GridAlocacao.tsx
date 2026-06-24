@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { LayoutGrid, ChevronLeft, ChevronRight, Search, List, X } from 'lucide-react';
+import Combobox from '../components/Combobox';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -1308,6 +1309,11 @@ export default function GridAlocacao() {
   // Colaboradores adicionados manualmente (sem alocação nos meus projetos ainda)
   const [extrasColabs, setExtrasColabs] = useState<ExtraLinha[]>([]);
 
+  // Filtro de profissão — esconde linhas no cliente, NÃO refaz a query do grid
+  // (custoPorProjeto vem pronto do backend e não é afetado por este filtro).
+  const [profissoesFiltro, setProfissoesFiltro] = useState<{ id: string; nome: string }[]>([]);
+  const [filtroProfissaoId, setFiltroProfissaoId] = useState('');
+
   // Painel lateral de detalhamento
   const [drawer, setDrawer] = useState<DrawerInfo | null>(null);
 
@@ -1360,6 +1366,23 @@ export default function GridAlocacao() {
     return [...data.linhas, ...extras]
       .sort((a, b) => a.colaborador.nome.localeCompare(b.colaborador.nome, 'pt-BR'));
   }, [data, extrasColabs]);
+
+  // Linhas REALMENTE renderizadas — filtro de profissão por cima de todasLinhas.
+  // Puramente visual: saldo/células/totais por projeto seguem vindo intactos
+  // de todasLinhas/data, nada disso é recalculado aqui.
+  const linhasExibidas: Linha[] = useMemo(() => {
+    if (!filtroProfissaoId) return todasLinhas;
+    return todasLinhas.filter(l => l.colaborador.profissao?.id === filtroProfissaoId);
+  }, [todasLinhas, filtroProfissaoId]);
+
+  const fetchProfissoesFiltro = useCallback(async () => {
+    const res = await fetch('/api/profissoes?ativo=true', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) setProfissoesFiltro(await res.json());
+  }, [token]);
+
+  useEffect(() => { fetchProfissoesFiltro(); }, [fetchProfissoesFiltro]);
 
   // IDs já no grid (para filtrar os resultados da busca)
   const idsNoGrid = useMemo(() => new Set(todasLinhas.map(l => l.colaborador.id)), [todasLinhas]);
@@ -1526,6 +1549,31 @@ export default function GridAlocacao() {
               }
               onLocate={handleLocate}
             />
+            <div className="flex items-center gap-1.5" style={{ minWidth: 200, flexShrink: 0 }}>
+              <div style={{ minWidth: 170 }}>
+                <Combobox
+                  options={profissoesFiltro.map(p => ({ id: p.id, nome: p.nome }))}
+                  value={filtroProfissaoId}
+                  onChange={setFiltroProfissaoId}
+                  placeholder="Filtrar por profissão"
+                />
+              </div>
+              {filtroProfissaoId && (
+                <button
+                  onClick={() => setFiltroProfissaoId('')}
+                  title="Limpar filtro de profissão"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+                    border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-2)',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-3)'; e.currentTarget.style.color = 'var(--text-1)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.color = 'var(--text-2)'; }}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
             {!mesFechado && <button
               onClick={() => setConfirmCopiar(true)}
               style={{
@@ -1545,7 +1593,8 @@ export default function GridAlocacao() {
               </span>
             )}
             <span className="text-xs ml-auto" style={{ color: 'var(--text-3)' }}>
-              {todasLinhas.length} colaborador{todasLinhas.length !== 1 ? 'es' : ''} ·{' '}
+              {linhasExibidas.length} colaborador{linhasExibidas.length !== 1 ? 'es' : ''}
+              {filtroProfissaoId ? ` de ${todasLinhas.length}` : ''} ·{' '}
               {data.projetos.length} projeto{data.projetos.length !== 1 ? 's' : ''}
               {' '}· clique em célula para editar
             </span>
@@ -1587,8 +1636,15 @@ export default function GridAlocacao() {
             <p className="text-xs">Use <strong>/alocacoes</strong> para alocar colaboradores neste mês.</p>
           </div>
         )}
+        {!loading && !erro && data && todasLinhas.length > 0 && linhasExibidas.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-60 gap-2" style={{ color: 'var(--text-3)' }}>
+            <LayoutGrid size={40} strokeWidth={1} />
+            <p className="text-sm font-medium">Nenhum colaborador com essa profissão em {mesLabel}.</p>
+            <p className="text-xs">Limpe o filtro de profissão pra ver todas as linhas.</p>
+          </div>
+        )}
 
-        {!loading && !erro && data && todasLinhas.length > 0 && (
+        {!loading && !erro && data && linhasExibidas.length > 0 && (
           <table style={{
             borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed',
             minWidth: COL_COLAB_W + COL_SALDO_W + data.projetos.length * COL_PROJ_W,
@@ -1632,7 +1688,7 @@ export default function GridAlocacao() {
             </thead>
 
             <tbody>
-              {todasLinhas.map((linha, idx) => {
+              {linhasExibidas.map((linha, idx) => {
                 const totalG      = parseFloat(linha.saldo.totalGeral);
                 const pctTotal    = (totalG / TETO) * 100;
                 const cor         = corSaldo(pctTotal);

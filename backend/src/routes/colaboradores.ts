@@ -87,10 +87,11 @@ async function validarTarifas(tarifasRaw: unknown): Promise<ValidarTarifasResult
 // ── GET / ─────────────────────────────────────────────────────────────────
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { search, ativo } = req.query as Record<string, string | undefined>;
+    const { search, ativo, profissaoId } = req.query as Record<string, string | undefined>;
 
     const where: any = {};
     if (ativo !== undefined) where.ativo = ativo === 'true';
+    if (profissaoId) where.profissaoId = profissaoId;
     if (search) {
       where.OR = [
         { nome: { contains: search } },

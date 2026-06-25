@@ -9,7 +9,9 @@ const generateId = () => Math.random().toString(36).substring(2, 15);
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 // Compara datas à meia-noite UTC para não sofrer efeito de fuso
-function computeProxima(prestacoes: { id: string; data: Date }[]) {
+// Exportada pra ser reusada por outras rotas que também precisam da "próxima
+// prestação" (ex.: priorizacao.ts) — não reimplementar a mesma semântica.
+export function computeProxima(prestacoes: { id: string; data: Date }[]) {
   if (prestacoes.length === 0) return null;
 
   const hoje = new Date();

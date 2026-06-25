@@ -107,9 +107,11 @@ export default function Colaboradores() {
   const [novaProfPending, setNovaProfPending] = useState(false);
   const [novaProfSimilares, setNovaProfSimilares] = useState<{ id: string; nome: string; ativo: boolean }[]>([]);
 
-  // Tarifas por categoria (overrides) — categoriaId -> valor digitado (string, vazio = sem override)
+  // Tarifas por categoria — SÓ as exceções (Opção A): uma linha por override
+  // já cadastrado, não uma linha por categoria ativa do sistema.
   const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [excecoes, setExcecoes] = useState<{ categoriaId: string; valorHora: string }[]>([]);
+  const [addingExcecao, setAddingExcecao] = useState(false);
   const [tarifasLoading, setTarifasLoading] = useState(false);
   // tarifasCarregadas: só true quando é seguro mandar `tarifas` no PUT (criar não depende de fetch).
   // tarifasFetchErro: GET /:id falhou — overrides nos inputs não refletem a realidade, NÃO enviar.
@@ -252,19 +254,13 @@ export default function Colaboradores() {
     }
   }
 
-  function placeholderPadrao() {
-    const num = parseFloat(valorHora);
-    if (valorHora.trim() === '' || isNaN(num)) return 'padrão: —';
-    return `padrão: ${num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  }
-
   // ── Modal helpers ──────────────────────────────────────────────────────
 
   function openCreate() {
     setEditTarget(null);
     setNome(''); setEmail(''); setValorHora('');
     setProfissaoId(''); setProfissaoIdOriginal(''); setProfissaoInativaExtra(null);
-    setOverrides({});
+    setExcecoes([]); setAddingExcecao(false);
     setTarifasCarregadas(true); setTarifasFetchErro(false); // criar não depende de fetch — sempre seguro
     setError(''); setPending(null);
     setIsModalOpen(true);
@@ -286,25 +282,24 @@ export default function Colaboradores() {
       setProfissaoInativaExtra(null);
     }
 
-    setOverrides({});
+    setExcecoes([]); setAddingExcecao(false);
     setTarifasCarregadas(false); setTarifasFetchErro(false); // só fica true após o GET ter sucesso
     setError(''); setPending(null);
     setIsModalOpen(true);
 
-    // Busca o detalhe pra pré-preencher os overrides existentes (a lista não os traz).
+    // Busca o detalhe pra pré-preencher as exceções existentes (a lista não as traz).
     // Enquanto isso não terminar (ou se falhar), o PUT não pode mandar `tarifas` —
-    // senão um array vazio apagaria os overrides reais no backend.
+    // senão um array vazio apagaria as exceções reais no backend.
     setTarifasLoading(true);
     try {
       const res = await fetch(`/api/colaboradores/${c.id}`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const detail = await res.json();
         if (detail.valorHora != null) setValorHora(String(parseFloat(detail.valorHora)));
-        const map: Record<string, string> = {};
-        for (const t of detail.tarifas ?? []) {
-          map[t.categoriaId] = String(parseFloat(t.valorHora));
-        }
-        setOverrides(map);
+        setExcecoes((detail.tarifas ?? []).map((t: { categoriaId: string; valorHora: string }) => ({
+          categoriaId: t.categoriaId,
+          valorHora: String(parseFloat(t.valorHora)),
+        })));
         setTarifasCarregadas(true);
       } else {
         setTarifasFetchErro(true);
@@ -321,7 +316,7 @@ export default function Colaboradores() {
     setEditTarget(null);
     setPending(null);
     setError('');
-    setOverrides({});
+    setExcecoes([]); setAddingExcecao(false);
   }
 
   function cancelConfirmation() {
@@ -350,17 +345,23 @@ export default function Colaboradores() {
       return;
     }
 
-    // Monta tarifas só com os inputs preenchidos e válidos; em branco = sem override
+    // Monta tarifas a partir das exceções — TODAS precisam de valor preenchido
+    // (uma exceção sem valor não é enviada silenciosamente; bloqueia o submit
+    // pra deixar claro que falta preencher ou remover a linha).
     const tarifas: TarifaInput[] = [];
-    for (const cat of categorias) {
-      const raw = overrides[cat.id];
-      if (raw === undefined || raw.trim() === '') continue;
-      const num = parseFloat(raw);
-      if (isNaN(num) || num <= 0) {
-        setError(`Valor inválido para a categoria "${cat.nome}" — informe um número maior que zero ou deixe em branco.`);
+    for (const exc of excecoes) {
+      const nomeCat = categorias.find(c => c.id === exc.categoriaId)?.nome ?? 'selecionada';
+      const raw = exc.valorHora.trim();
+      if (!raw) {
+        setError(`Informe o valor/hora da exceção "${nomeCat}" ou remova a linha.`);
         return;
       }
-      tarifas.push({ categoriaId: cat.id, valorHora: num });
+      const num = parseFloat(raw);
+      if (isNaN(num) || num <= 0) {
+        setError(`Valor inválido para "${nomeCat}" — informe um número maior que zero.`);
+        return;
+      }
+      tarifas.push({ categoriaId: exc.categoriaId, valorHora: num });
     }
 
     setSaving(true);
@@ -715,42 +716,90 @@ export default function Colaboradores() {
                   />
                 </Field>
 
-                {categorias.length > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                      Tarifas por categoria (opcional)
-                    </label>
-                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                      Deixe em branco para usar o valor padrão. Preencha só as categorias com valor diferente.
-                    </p>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                    Tarifas por categoria (exceções)
+                  </label>
+                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                    O valor padrão acima vale pra tudo. Adicione uma exceção só onde o valor for diferente.
+                  </p>
 
-                    {tarifasLoading ? (
-                      <p className="text-xs" style={{ color: 'var(--text-3)' }}>Carregando tarifas…</p>
-                    ) : tarifasFetchErro ? (
-                      <p className="text-xs" style={{ color: '#b42318' }}>
-                        Não foi possível carregar as tarifas; salvar não vai alterá-las.
-                      </p>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {categorias.map(cat => (
-                          <div key={cat.id} className="flex items-center gap-3">
-                            <span className="text-sm flex-1 min-w-0 truncate" style={{ color: 'var(--text-1)' }}>
-                              {cat.nome}
+                  {tarifasLoading ? (
+                    <p className="text-xs" style={{ color: 'var(--text-3)' }}>Carregando tarifas…</p>
+                  ) : tarifasFetchErro ? (
+                    <p className="text-xs" style={{ color: '#b42318' }}>
+                      Não foi possível carregar as tarifas; salvar não vai alterá-las.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {excecoes.map(exc => {
+                        const cat = categorias.find(c => c.id === exc.categoriaId);
+                        return (
+                          <div key={exc.categoriaId} className="flex items-center gap-2">
+                            <span
+                              className="text-sm flex-1 min-w-0 truncate"
+                              style={{ color: cat ? 'var(--text-1)' : 'var(--text-3)' }}
+                            >
+                              {cat?.nome ?? '(programa desativado)'}
                             </span>
                             <Input
-                              type="number" min="0.01" step="0.01"
-                              placeholder={placeholderPadrao()}
-                              value={overrides[cat.id] ?? ''}
-                              onChange={e => setOverrides(prev => ({ ...prev, [cat.id]: e.target.value }))}
+                              type="number" required min="0.01" step="0.01" placeholder="valor/h"
+                              value={exc.valorHora}
+                              onChange={e => setExcecoes(prev => prev.map(x =>
+                                x.categoriaId === exc.categoriaId ? { ...x, valorHora: e.target.value } : x
+                              ))}
                               disabled={saving}
-                              style={{ width: 140 }}
+                              style={{ width: 110 }}
                             />
+                            <button
+                              type="button"
+                              onClick={() => setExcecoes(prev => prev.filter(x => x.categoriaId !== exc.categoriaId))}
+                              disabled={saving}
+                              title="Remover exceção"
+                              className="shrink-0"
+                              style={{ color: 'var(--text-3)', display: 'flex' }}
+                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#ef4444'}
+                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'}
+                            >
+                              <X size={14} />
+                            </button>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                        );
+                      })}
+
+                      {(() => {
+                        const disponiveis = categorias.filter(cat => !excecoes.some(e => e.categoriaId === cat.id));
+                        if (addingExcecao) {
+                          return (
+                            <Combobox
+                              options={disponiveis.map(cat => ({ id: cat.id, nome: cat.nome }))}
+                              value=""
+                              onChange={categoriaId => {
+                                if (!categoriaId) return;
+                                setExcecoes(prev => [...prev, { categoriaId, valorHora: '' }]);
+                                setAddingExcecao(false);
+                              }}
+                              placeholder="Selecione um programa"
+                              disabled={saving}
+                            />
+                          );
+                        }
+                        if (disponiveis.length === 0) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setAddingExcecao(true)}
+                            disabled={saving}
+                            className="flex items-center gap-1 text-xs font-medium"
+                            style={{ color: 'var(--brand-500)', alignSelf: 'flex-start' }}
+                          >
+                            <Plus size={13} /> Adicionar exceção
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex gap-3 pt-1">
                   <button type="button" onClick={closeModal} disabled={saving} className="flex-1 py-2 px-4 rounded-xl text-sm font-medium" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)' }}>

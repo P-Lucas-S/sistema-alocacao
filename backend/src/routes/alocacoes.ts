@@ -8,7 +8,9 @@ const router = express.Router();
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
 // Teto global de horas planejadas por colaborador/mês — constante de negócio
-const TETO_HORAS_MES = new Prisma.Decimal(220);
+// Exportada pra ser reusada por outras rotas que precisam da MESMA conta de
+// saldo (ex.: priorizacao.ts, sinal de capacidade) — não redefinir 220 de novo.
+export const TETO_HORAS_MES = new Prisma.Decimal(220);
 
 // Limite de candidatos retornados por /candidatos
 const MAX_CANDIDATOS = 20;

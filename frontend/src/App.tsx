@@ -10,7 +10,6 @@ import Profile from './pages/Profile';
 import Colaboradores from './pages/Colaboradores';
 import Projetos from './pages/Projetos';
 import ProjetoDetalhe from './pages/ProjetoDetalhe';
-import Alocacoes from './pages/Alocacoes';
 import GridAlocacao from './pages/GridAlocacao';
 import Remanejamento from './pages/Remanejamento';
 import Custos from './pages/Custos';
@@ -74,11 +73,11 @@ export default function App() {
                   <Layout><GridAlocacao /></Layout>
                 </ProtectedRoute>
               } />
-              <Route path="/alocacoes" element={
-                <ProtectedRoute>
-                  <Layout><Alocacoes /></Layout>
-                </ProtectedRoute>
-              } />
+              {/* Tela "Alocações" removida do menu (redundante com o Grid — mesmos
+                  endpoints, mesma trava de teto/mês-fechado no backend). Rota mantida
+                  como redirect pra não quebrar favoritos/links salvos. Alocacoes.tsx
+                  continua no disco, só desconectado da navegação ativa. */}
+              <Route path="/alocacoes" element={<Navigate to="/grid" replace />} />
               <Route path="/projetos/:id" element={
                 <ProtectedRoute>
                   <Layout><ProjetoDetalhe /></Layout>

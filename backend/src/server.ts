@@ -20,6 +20,7 @@ import relatoriosRoutes from './routes/relatorios.js';
 import categoriasRoutes from './routes/categorias.js';
 import profissoesRoutes from './routes/profissoes.js';
 import priorizacaoRoutes from './routes/priorizacao.js';
+import dashboardsRoutes from './routes/dashboards.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -44,6 +45,7 @@ app.use('/api/relatorios', relatoriosRoutes);
 app.use('/api/categorias', categoriasRoutes);
 app.use('/api/profissoes', profissoesRoutes);
 app.use('/api/priorizacao', priorizacaoRoutes);
+app.use('/api/dashboards', dashboardsRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', ambiente: process.env.NODE_ENV });

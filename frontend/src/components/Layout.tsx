@@ -5,13 +5,16 @@ import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, LayoutGrid, Moon
 import { NavLink } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 
+// Os 5 papéis do sistema — mesmas strings de backend/src/middleware/auth.ts (PAPEIS)
+type Role = 'admin' | 'chefe' | 'gestor' | 'coordenacao' | 'diretor';
+
 interface NavLeaf {
   to: string;
   label: string;
   icon: React.ElementType;
   end?: boolean;
-  adminOnly?: boolean;
-  gestorOrAdmin?: boolean;
+  // Lista de papéis que veem o item. Ausente = todos os 5 veem.
+  roles?: Role[];
 }
 
 interface NavGroup {
@@ -25,36 +28,40 @@ function isNavGroup(entry: NavEntry): entry is NavGroup {
   return 'groupLabel' in entry;
 }
 
-// Mesma regra de visibilidade de sempre — preservada à risca; o N1 só
-// reorganiza a POSIÇÃO dos itens (em grupos), não muda quem vê o quê.
+// N2: recorte fino por papel (5 papéis, não mais admin/gestor/resto).
+// roles ausente = visível pra todos; presente = só pros papéis listados.
 function isItemVisible(item: NavLeaf, role: string | undefined): boolean {
-  if (item.adminOnly)     return role === 'admin';
-  if (item.gestorOrAdmin) return role === 'admin' || role === 'gestor';
-  return true;
+  if (!item.roles) return true;
+  return item.roles.includes(role as Role);
 }
 
-// Estrutura agrupada (N1): grupos sempre expandidos, sem estado de
-// abrir/fechar. "Paineis" (dashboards) entra numa fase futura.
+// Estrutura agrupada (N1) + visibilidade por papel (N2). Grupos sempre
+// expandidos, sem estado de abrir/fechar. "Paineis" (dashboards) entra
+// numa fase futura — diretor ganha mais itens quando eles existirem.
 const NAV_ITEMS: NavEntry[] = [
-  { to: '/', label: 'Início', icon: LayoutDashboard, end: true },
+  { to: '/', label: 'Início', icon: LayoutDashboard, end: true }, // todos
   {
     groupLabel: 'Operação',
     items: [
-      { to: '/grid', label: 'Grid de Alocação', icon: LayoutGrid },
-      { to: '/remanejamento', label: 'Remanejamento', icon: ArrowLeftRight, gestorOrAdmin: true },
+      // Coordenação vê em leitura (o Grid já trata isso); diretor não vê ainda
+      { to: '/grid', label: 'Grid de Alocação', icon: LayoutGrid, roles: ['admin', 'chefe', 'gestor', 'coordenacao'] },
+      { to: '/remanejamento', label: 'Remanejamento', icon: ArrowLeftRight, roles: ['admin', 'chefe', 'gestor'] },
     ],
   },
-  { to: '/projetos', label: 'Projetos', icon: FolderOpen },
-  { to: '/custos', label: 'Custos', icon: DollarSign, gestorOrAdmin: true }, // transitório — vira drill-down do dashboard de Projetos numa fase futura
+  // Coordenação vê em leitura; diretor não vê ainda
+  { to: '/projetos', label: 'Projetos', icon: FolderOpen, roles: ['admin', 'chefe', 'gestor', 'coordenacao'] },
+  // Transitório — vira drill-down do dashboard de Projetos numa fase futura
+  { to: '/custos', label: 'Custos', icon: DollarSign, roles: ['admin', 'chefe', 'gestor'] },
   {
     groupLabel: 'Cadastros',
     items: [
-      { to: '/colaboradores', label: 'Colaboradores', icon: UserCheck },
-      { to: '/programas', label: 'Programas', icon: Tag, gestorOrAdmin: true },
-      { to: '/profissoes', label: 'Profissões', icon: IdCard, gestorOrAdmin: true },
+      // Coordenação vê em leitura; diretor não vê ainda
+      { to: '/colaboradores', label: 'Colaboradores', icon: UserCheck, roles: ['admin', 'chefe', 'gestor', 'coordenacao'] },
+      { to: '/programas', label: 'Programas', icon: Tag, roles: ['admin', 'chefe'] },
+      { to: '/profissoes', label: 'Profissões', icon: IdCard, roles: ['admin', 'chefe'] },
     ],
   },
-  { to: '/team', label: 'Equipe (Usuários)', icon: Users, adminOnly: true },
+  { to: '/team', label: 'Equipe (Usuários)', icon: Users, roles: ['admin'] },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

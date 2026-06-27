@@ -5,7 +5,7 @@ import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, LayoutGrid, Moon
 import { NavLink } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 
-interface NavItem {
+interface NavLeaf {
   to: string;
   label: string;
   icon: React.ElementType;
@@ -14,15 +14,46 @@ interface NavItem {
   gestorOrAdmin?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
+interface NavGroup {
+  groupLabel: string;
+  items: NavLeaf[];
+}
+
+type NavEntry = NavLeaf | NavGroup;
+
+function isNavGroup(entry: NavEntry): entry is NavGroup {
+  return 'groupLabel' in entry;
+}
+
+// Mesma regra de visibilidade de sempre — preservada à risca; o N1 só
+// reorganiza a POSIÇÃO dos itens (em grupos), não muda quem vê o quê.
+function isItemVisible(item: NavLeaf, role: string | undefined): boolean {
+  if (item.adminOnly)     return role === 'admin';
+  if (item.gestorOrAdmin) return role === 'admin' || role === 'gestor';
+  return true;
+}
+
+// Estrutura agrupada (N1): grupos sempre expandidos, sem estado de
+// abrir/fechar. "Paineis" (dashboards) entra numa fase futura.
+const NAV_ITEMS: NavEntry[] = [
   { to: '/', label: 'Início', icon: LayoutDashboard, end: true },
+  {
+    groupLabel: 'Operação',
+    items: [
+      { to: '/grid', label: 'Grid de Alocação', icon: LayoutGrid },
+      { to: '/remanejamento', label: 'Remanejamento', icon: ArrowLeftRight, gestorOrAdmin: true },
+    ],
+  },
   { to: '/projetos', label: 'Projetos', icon: FolderOpen },
-  { to: '/grid', label: 'Grid de Alocação', icon: LayoutGrid },
-  { to: '/colaboradores', label: 'Colaboradores', icon: UserCheck },
-  { to: '/remanejamento', label: 'Remanejamento', icon: ArrowLeftRight, gestorOrAdmin: true },
-  { to: '/custos', label: 'Custos', icon: DollarSign, gestorOrAdmin: true },
-  { to: '/programas', label: 'Programas', icon: Tag, gestorOrAdmin: true },
-  { to: '/profissoes', label: 'Profissões', icon: IdCard, gestorOrAdmin: true },
+  { to: '/custos', label: 'Custos', icon: DollarSign, gestorOrAdmin: true }, // transitório — vira drill-down do dashboard de Projetos numa fase futura
+  {
+    groupLabel: 'Cadastros',
+    items: [
+      { to: '/colaboradores', label: 'Colaboradores', icon: UserCheck },
+      { to: '/programas', label: 'Programas', icon: Tag, gestorOrAdmin: true },
+      { to: '/profissoes', label: 'Profissões', icon: IdCard, gestorOrAdmin: true },
+    ],
+  },
   { to: '/team', label: 'Equipe (Usuários)', icon: Users, adminOnly: true },
 ];
 
@@ -31,11 +62,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const initial = user?.name?.charAt(0).toUpperCase() ?? '?';
 
-  const visibleItems = NAV_ITEMS.filter(item => {
-    if (item.adminOnly)    return user?.role === 'admin';
-    if (item.gestorOrAdmin) return user?.role === 'admin' || user?.role === 'gestor';
-    return true;
-  });
+  const role = user?.role;
+
+  function renderNavLeaf({ to, label, icon: Icon, end }: NavLeaf) {
+    return (
+      <NavLink
+        key={to}
+        to={to}
+        end={end}
+        className={({ isActive }) =>
+          `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+            isActive ? 'nav-active' : 'hover:bg-[var(--surface-3)]'
+          }`
+        }
+        style={({ isActive }) => isActive ? {} : { color: 'var(--text-2)' }}
+      >
+        {({ isActive }) => (
+          <>
+            <Icon size={16} style={{ opacity: isActive ? 1 : 0.65 }} />
+            {label}
+          </>
+        )}
+      </NavLink>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden relative" style={{ background: 'var(--surface-2)', color: 'var(--text-1)' }}>
@@ -59,26 +109,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Nav */}
         <nav className="flex-1 px-2.5 py-3 space-y-0.5">
-          {visibleItems.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
-                  isActive ? 'nav-active' : 'hover:bg-[var(--surface-3)]'
-                }`
-              }
-              style={({ isActive }) => isActive ? {} : { color: 'var(--text-2)' }}
-            >
-              {({ isActive }) => (
-                <>
-                  <Icon size={16} style={{ opacity: isActive ? 1 : 0.65 }} />
-                  {label}
-                </>
-              )}
-            </NavLink>
-          ))}
+          {NAV_ITEMS.map(entry => {
+            if (isNavGroup(entry)) {
+              const visibleGroupItems = entry.items.filter(it => isItemVisible(it, role));
+              // Grupo sem nenhum item visível pro papel atual → cabeçalho some também
+              if (visibleGroupItems.length === 0) return null;
+              return (
+                <div key={entry.groupLabel}>
+                  <p
+                    className="px-2.5 pt-3 pb-1 text-[11px] font-semibold uppercase"
+                    style={{ color: 'var(--text-3)', letterSpacing: '0.06em' }}
+                  >
+                    {entry.groupLabel}
+                  </p>
+                  <div className="space-y-0.5 pl-1.5">
+                    {visibleGroupItems.map(renderNavLeaf)}
+                  </div>
+                </div>
+              );
+            }
+            if (!isItemVisible(entry, role)) return null;
+            return renderNavLeaf(entry);
+          })}
         </nav>
 
         {/* User footer */}

@@ -15,6 +15,7 @@ import Remanejamento from './pages/Remanejamento';
 import Custos from './pages/Custos';
 import Programas from './pages/Programas';
 import Profissoes from './pages/Profissoes';
+import Prioridades from './pages/Prioridades';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) => {
@@ -101,6 +102,11 @@ export default function App() {
               <Route path="/profissoes" element={
                 <ProtectedRoute>
                   <Layout><Profissoes /></Layout>
+                </ProtectedRoute>
+              } />
+              <Route path="/prioridades" element={
+                <ProtectedRoute>
+                  <Layout><Prioridades /></Layout>
                 </ProtectedRoute>
               } />
               <Route path="/profile" element={

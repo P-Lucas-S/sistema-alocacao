@@ -43,12 +43,25 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
 
     const tarifasMap = await carregarTarifas(todosColabIds);
 
-    // Agrega horasPlanejadas por (projetoId, colaboradorId) NO MÊS
+    // Agrega horasPlanejadas por (projetoId, colaboradorId) NO MÊS;
+    // aproveita o mesmo loop pra acumular horasRealizadas por projeto.
     const horasPorProjetoColab = new Map<string, Map<string, Prisma.Decimal>>();
+    const horasRealPorProjeto  = new Map<string, Prisma.Decimal>();
     for (const a of alocsDoMes) {
       if (!horasPorProjetoColab.has(a.projetoId)) horasPorProjetoColab.set(a.projetoId, new Map());
       const porColab = horasPorProjetoColab.get(a.projetoId)!;
       porColab.set(a.colaboradorId, (porColab.get(a.colaboradorId) ?? new Prisma.Decimal(0)).plus(a.horasPlanejadas));
+      if (a.horasRealizadas != null) {
+        horasRealPorProjeto.set(a.projetoId, (horasRealPorProjeto.get(a.projetoId) ?? new Prisma.Decimal(0)).plus(a.horasRealizadas));
+      }
+    }
+
+    // horasPlanejadas totais por projeto no mês (soma dos colaboradores)
+    const horasPlanejPorProjeto = new Map<string, Prisma.Decimal>();
+    for (const [projetoId, porColab] of horasPorProjetoColab) {
+      let soma = new Prisma.Decimal(0);
+      for (const h of porColab.values()) soma = soma.plus(h);
+      horasPlanejPorProjeto.set(projetoId, soma);
     }
 
     const custoPorProjeto = new Map<string, Prisma.Decimal | null>();
@@ -67,11 +80,15 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
 
     // ── Enriquece, preservando a ordem já priorizada pelo P1 ────────────────
     const resultado = itens.map(item => {
-      const custo = custoPorProjeto.get(item.projetoId) ?? null;
+      const custo      = custoPorProjeto.get(item.projetoId) ?? null;
+      const horasReal  = horasRealPorProjeto.get(item.projetoId) ?? null;
       return {
         ...item,
-        tamanhoEquipe:  colabsPorProjeto.get(item.projetoId)?.size ?? 0,
-        custoPlanejado: custo != null ? custo.toFixed(2) : null,
+        tamanhoEquipe:   colabsPorProjeto.get(item.projetoId)?.size ?? 0,
+        custoPlanejado:  custo != null ? custo.toFixed(2) : null,
+        horasPlanejadas: horasPlanejPorProjeto.get(item.projetoId)?.toString() ?? '0',
+        // null = sem nenhum apontamento no mês (tratado como "sem apontamento" no frontend)
+        horasRealizadas: (horasReal != null && horasReal.greaterThan(0)) ? horasReal.toString() : null,
       };
     });
 

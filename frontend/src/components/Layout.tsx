@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, LayoutGrid, Moon, Sun, ArrowLeftRight, DollarSign, Tag, IdCard } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, LayoutGrid, Moon, Sun, ArrowLeftRight, DollarSign, Tag, IdCard, BarChart2 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 
@@ -52,6 +52,13 @@ const NAV_ITEMS: NavEntry[] = [
   { to: '/projetos', label: 'Projetos', icon: FolderOpen, roles: ['admin', 'chefe', 'gestor', 'coordenacao'] },
   // Transitório — vira drill-down do dashboard de Projetos numa fase futura
   { to: '/custos', label: 'Custos', icon: DollarSign, roles: ['admin', 'chefe', 'gestor'] },
+  {
+    groupLabel: 'Painéis',
+    items: [
+      // Visível a todos os 5 papéis (incluindo diretor, que por ora só vê Início e Painéis)
+      { to: '/prioridades', label: 'Prioridades', icon: BarChart2 },
+    ],
+  },
   {
     groupLabel: 'Cadastros',
     items: [

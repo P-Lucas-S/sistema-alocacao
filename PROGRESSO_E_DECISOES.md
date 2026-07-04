@@ -2,7 +2,11 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** **Spec de papéis — passos 1 a 5 implementados; backend da spec COMPLETO.** Os cinco primeiros dos seis passos da `Spec_Papeis_Posse_Exclusao.md` estão fechados e no GitHub: **(1)** papéis `chefe` e `diretor` + `requireRole` tipado (`cae3015`); **(2)** `criadoPorId` no projeto + delegação na criação (`6861e87`); **(3)** override do chefe nas rotas de operação, teto provado sob concorrência chefe×gestor (`c07d6c7`); **(4)** re-delegação — chefe troca o `gestorId` + auditoria (`c5342d4`); **(5)** exclusão permanente — cascata + lápide + as 4 rotas do fluxo (`2e807d6` schema+cascata, `af2cbb3` rotas+conserto). Tudo provado por teste de API (papéis 11/11, delegação 16/16, override 15/15 + concorrência 8/8, re-delegação 23/23, cascata 36/36, fluxo 53/53). **Falta só o passo 6 — as telas (frontend) do chefe e do diretor + dashboards.** O `alocarComLock` e o teto de 220h ficaram intocados nos cinco passos. Antes desta leva: bug de macro/micro (`acb3383`, `21b44ec`), painel na célula vazia (`1a2b7bb`), tarifa por colaborador × categoria (§4-bis). **Fases 0 a 4 + tarifa + passos 1–5 dos papéis completos.** Depois do passo 6: **priorização → dashboards (3) → Fase 5** — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
+> **Última atualização:** **Priorização P1 + reorganização do menu (N1/N2) + dashboard Projetos (D1+D2) completos.** A **regra de priorização** (`Regra_Priorizacao_reconstruida.md`) foi implementada como `calcularPriorizacao()` exportada em `priorizacao.ts` (`996f271`) e está no núcleo do **dashboard de Projetos**: endpoint `GET /api/dashboards/projetos` enriquecido com equipe, custo mensal e horas realizadas (`83ccc4b`), e a tela **Prioridades** com badge de categoria, seletor de mês e tabela completa (`89b9bc6`). O menu lateral passou por 3 commits: remoção de Alocações (`7179587`), agrupamento em seções Operação/Painéis/Cadastros (`5f1260e`), e visibilidade fina por papel com `roles?: Role[]` (`44c45b1`). O bloco de **tarifa por colaborador × categoria** (§4-bis, último commit `d1dd8df`) fechou antes desta sessão. **Spec de papéis: passos 1–5 ✅ (backend); passo 6 (telas chefe/diretor) pendente.** **Fases 0–4 + tarifa + papéis 1–5 + feature Profissão + priorização P1 + dashboard Projetos completos.** Próximos: **passo 6 → dashboards Geral/Capacidade → priorização P2 (override, batch, config) → Fase 5** — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
+>
+> **Estado do código e do banco (importante pra próxima sessão):** código em **`89b9bc6`**, schema Prisma e banco **coerentes** — **16 migrations** aplicadas (sem migration nova nos commits N1/N2/P1/D1/D2 — são só código). O `tsc` passa limpo nos dois lados (verificado em `89b9bc6`). Novos arquivos desta sessão: `backend/src/routes/dashboards.ts` (montado em `/api/dashboards`), `frontend/src/pages/Prioridades.tsx`, `frontend/src/components/SeletorMes.tsx` (compartilhado; Grid tem cópia local separada — dívida técnica, ver §7). `calcularPriorizacao()` em `priorizacao.ts` é exportada e reusada pelo dashboard sem query extra ao banco.
+
+> **Os 5 passos da spec de papéis** estão fechados e no GitHub: **(1)** papéis `chefe` e `diretor` + `requireRole` tipado (`cae3015`); **(2)** `criadoPorId` no projeto + delegação na criação (`6861e87`); **(3)** override do chefe nas rotas de operação, teto provado sob concorrência chefe×gestor (`c07d6c7`); **(4)** re-delegação — chefe troca o `gestorId` + auditoria (`c5342d4`); **(5)** exclusão permanente — cascata + lápide + as 4 rotas do fluxo (`2e807d6` schema+cascata, `af2cbb3` rotas+conserto). Tudo provado por teste de API (papéis 11/11, delegação 16/16, override 15/15 + concorrência 8/8, re-delegação 23/23, cascata 36/36, fluxo 53/53).
 
 ---
 
@@ -23,7 +27,7 @@ O objetivo central é **comunicação entre gestores e documentação da equipe*
 - **`admin`** — administração técnica. Também é quem **fecha e reabre meses** (Fase 3).
 - **Colaborador NÃO é usuário** — é uma entidade de dados. Não tem login, não bate ponto. Tudo é cadastrado pelos gestores.
 
-> **Parcialmente implementado:** a `Spec_Papeis_Posse_Exclusao.md` (§4-ter) adiciona **`chefe`** (cria/delega projetos, opera qualquer projeto, aprova exclusão, **também** fecha/reabre mês) e **`diretor`** (leitura executiva, só dashboards), mantendo os três acima. **Os passos 1–4 já estão feitos** (papéis existem; chefe cria/delega/opera/re-delega — ver §4-ter): o `chefe` já loga e opera no backend. Falta o passo 5 (exclusão permanente) e o 6 (as **telas** do chefe e do diretor — hoje os dois papéis ainda não têm frontend próprio). A lista acima descreve os três papéis originais; chefe/diretor entram pela §4-ter.
+> **Parcialmente implementado:** a `Spec_Papeis_Posse_Exclusao.md` (§4-ter) adiciona **`chefe`** (cria/delega projetos, opera qualquer projeto, aprova exclusão, **também** fecha/reabre mês) e **`diretor`** (leitura executiva, só dashboards), mantendo os três acima. **Os passos 1–5 já estão feitos** (papéis, delegação, override, re-delegação, exclusão permanente — backend COMPLETO, ver §4-ter): o `chefe` já loga e opera no backend. Falta só o passo 6 (as **telas** do chefe e do diretor + dashboards — hoje os dois papéis ainda não têm frontend próprio). A lista acima descreve os três papéis originais; chefe/diretor entram pela §4-ter.
 
 ### Branches
 - **`feat/alocacao-fase-1`** — Fases 0, 1 e o C1 da Fase 2 (até o commit `65aea36`).
@@ -67,8 +71,11 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 3** | Fechamento mensal (read-only) + log de auditoria do planejado | ✅ Completa (`5aa52c4`, `0529b8d`, `af473ac`, `adc477b`) |
 | **Fase 4** | Remanejamento broadcast entre gestores | ✅ Completa — backend (`393596f`, `6e87355`, `1b5594a`) + frontend (`02e46fa`, `27ad941`, `bcce21b`, `aae171c`, `18964ed`) |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
-| **Pós-demo (1ª leva)** | Preparo do demo, custos, programas de fomento, **tarifa por colaborador × categoria**, regra de priorização — ver §4-bis | 🟡 Custos + programas + **tarifa** ✅; priorização aprovada (falta implementar); dashboard pendente |
-| **Pós-demo (2ª leva — Manual)** | Papéis novos (chefe/diretor) + delegação + exclusão permanente, bug macro/micro, e itens menores — ver §4-ter | 🟡 **Bug macro/micro ✅** (`acb3383`, `21b44ec`) + painel na célula vazia (`1a2b7bb`); **spec de papéis: passos 1–5 ✅** (`cae3015`, `6861e87`, `c07d6c7`, `c5342d4`, `2e807d6`, `af2cbb3`), **só o passo 6 (frontend) pendente** |
+| **Pós-demo (1ª leva)** | Preparo do demo, custos, programas de fomento, **tarifa por colaborador × categoria**, regra de priorização, **dashboard Projetos** — ver §4-bis e §4-sexies | 🟡 Custos + programas + **tarifa** ✅; **priorização P1** ✅ (`996f271`); **dashboard Projetos** ✅ (`83ccc4b`, `89b9bc6`); dashboards Geral e Capacidade pendentes |
+| **Pós-demo (2ª leva — Manual)** | Papéis novos (chefe/diretor) + delegação + exclusão permanente, bug macro/micro, e itens menores — ver §4-ter | 🟡 **Bug macro/micro ✅** (`acb3383`, `21b44ec`) + painel na célula vazia (`1a2b7bb`); **spec de papéis: passos 1–5 ✅** (`cae3015`, `6861e87`, `c07d6c7`, `c5342d4`, `2e807d6`, `af2cbb3`), **só o passo 6 (frontend) pendente**; **itens menores ✅**: Perfil tema claro (`be7848b`), GET /categorias pra chefe+diretor (`4f08a44`), Cargo em Custos (`0dc3cc7`) |
+| **Área de atuação** | Entidade administrável + FK no colaborador + telas — **construída e REVERTIDA** | ⏪ **Revertida** (decisão de produto — ver §4-quater). Código de volta em `0dc3cc7`; 4 commits salvos em `backup/areas-atuacao-58e3f20` |
+| **Profissão** | Entidade **plana** que **substitui** a `funcao` + montar equipe por profissão no grid (filtro, faixa de candidatos, alocação inline) — ver §4-quinquies | ✅ **Completa** (`f2395e0`, `e64e6ce`, `cece63c`, `887ac75`, `892721a`, `a8582be`, `efe1317`, `087d61c`, `e2e56ac`, `3f3e9d7`) |
+| **Priorização P1 + menu + dashboard Projetos** | `calcularPriorizacao()` exportada; menu N1/N2; tela Prioridades; grupo Painéis — ver §4-sexies | ✅ **Completos** (`7179587`, `5f1260e`, `44c45b1`, `996f271`, `83ccc4b`, `89b9bc6`) |
 | Transversal | Identidade visual geral | ✅ Reforma clara aplicada no preparo do demo (`c378876`, `db44f99`) |
 
 > **Fases 0–4 + tarifa + passos 1–5 dos papéis fechados.** A **2ª leva de pedidos** (via o `Manual`) tem **todo o backend estrutural implementado** — **papéis chefe/diretor, delegação, override, re-delegação e exclusão permanente** (passos 1–5, §4-ter), com o bug de macro/micro já corrigido (`acb3383`, `21b44ec`) e o arrumo no grid (`1a2b7bb`). O que falta na spec de papéis: só o **passo 6** (as telas do chefe e do diretor + dashboards — frontend). Depois dela: a **priorização** (regra fechada), os **dashboards (3)**, e a **Fase 5**.
@@ -99,7 +106,7 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 
 **B1 — Colaboradores** (commit `1e56947`)
 - `backend/src/routes/colaboradores.ts` + `frontend/src/pages/Colaboradores.tsx`.
-- Entidade Colaborador: `nome`, `email` (único), `funcao?`, `ativo`, auditoria.
+- Entidade Colaborador: `nome`, `email` (único), `profissaoId` (FK → `profissoes`; era `funcao?` string até a feature Profissão — §4-quinquies), `ativo`, auditoria.
 - **Fluxo de duplicata em dois estágios:** e-mail duplicado → 409 (trava dura, não contornável nem com flag). Nome similar/idêntico → resposta `{ needsConfirmation, similares[] }` SEM criar; o frontend mostra os colaboradores em conflito com `[Cadastrar mesmo assim]` / `[Cancelar]`; só com `confirmarSimilar: true` é que cria. Similaridade via distância de Levenshtein.
 - Coordenação lê, não cria.
 
@@ -409,25 +416,183 @@ Construído em 4 sub-passos (5a schema → 5b cascata → 5c rotas → 5d conser
 
 ### Bugs reportados no Manual (a tratar)
 - ~~**Macro/micro não apaga; não dá pra editar/excluir só a micro**~~ — **RESOLVIDO** (`acb3383`, `21b44ec`). Diagnóstico: o **backend estava correto e completo**; os dois bugs eram **só no frontend** (`ProjetoDetalhe.tsx`) — o `deleteMacro()` **engolia o erro do backend em silêncio** (macro com alocação ficava na lista sem aviso, parecendo "não apaga"), e a **edição de micro nunca tinha sido implementada** (a rota `PUT .../micros/:id` já existia). Conserto (`acb3383`): `deleteMacro` passou a checar `res.ok` e mostrar a mensagem do backend, e foi adicionada a edição de micro (lápis + modal, no mesmo padrão da macro). **Em cima disso**, a cliente pediu **apagar a macro mesmo com alocação** (em vez de só bloquear) → **cascata com confirmação** (`21b44ec`, Opção A): a 1ª chamada é um **pre-check** que devolve a contagem de alocações/horas **sem apagar**; só `?confirmar=true` apaga, numa **transação** que remove cada alocação (gravando log `removeu`, reusando o formato do `DELETE /alocacoes/:id`) → micros → macro. **Mês fechado bloqueia** o apagar (alocação em mês fechado é read-only — a macro só apaga depois de o mês reabrir). Owner-check intacto (gestor-dono/admin; coordenação 403); FKs seguem `RESTRICT` (deleção explícita e ordenada). A tela mostra **um único `confirm`** (com a contagem quando há alocações). Testado: `backend/test-apagar-macro-cascata.mjs` **35/35**.
-- **Perfil com cores ruins / ilegível** — já conhecido (a tela de Perfil foi feita pro tema **escuro**, quebra no claro). Conserto: retrabalhar pro tema claro.
+- ~~**Perfil com cores ruins / ilegível**~~ — **RESOLVIDO** (`be7848b`): a tela de Perfil era dark-first (`text-white`, `bg-white/5`, inputs transparentes) e quebrava no tema claro. Trocada pelos tokens do tema e classes utilitárias que o resto da app já usa (`var(--text-1/2/3)`, `.card`, `.form-input`, `.btn-brand`, `.btn-ghost`) — mesmo padrão do Login. Conserto 100% cosmético (nome/senha/avatar intocados). Validado no navegador nos dois temas.
 
 ### Decisões de nomenclatura / produto resolvidas
 - **Nomenclatura da classificação do projeto = "Programas"** (a cliente confirmou; **cancela** a ideia anterior de renomear pra "Categorias"). A entidade interna segue `CategoriaProjeto` (só nome de código).
 - **"Excluir projeto" = excluir de vez** (não arquivar), via pedido do gestor + aprovação do chefe — é o fluxo de exclusão permanente acima.
 
 ### Itens menores / melhorias (fila)
-- **`GET /api/categorias` não inclui `chefe` no `requireRole`** (hoje `admin`/`gestor`/`coordenacao`) — **achado no passo 4, agora IMINENTE.** O chefe cria/delega projetos e a criação exige escolher um programa, então a **tela de criação do chefe (passo 6, o próximo)** vai listar categorias e hoje tomaria 403. Correção de uma linha (adicionar `'chefe'` ao `requireRole`), a fazer **no início do passo 6**. *(Nos testes `test-redelegacao`/`test-exclusao-*` foi contornado buscando a categoria com token de gestor.)*
+- ~~**`GET /api/categorias` não inclui `chefe` no `requireRole`**~~ — **RESOLVIDO** (`4f08a44`): o GET de listagem passou a aceitar `chefe` e `diretor` (`requireRole('admin','gestor','coordenacao','chefe','diretor')`). Só a leitura mudou — POST/PATCH (escrita) seguem restritos a admin/gestor. Testado por API (chefe/diretor 200; coordenação segue 200; chefe POST segue 403). Remove a pendência que estava marcada como iminente pro passo 6.
 - **Remanejamento do chefe — DEFERIDO** (decisão de UX pendente, anotada no passo 3): o passo 3 **não** mexeu em `remanejamento.ts` — o chefe segue **403** lá. A cessão hoje é "o gestor cede as horas **dele**" (a rota `minhas-do-colaborador` devolve as alocações do próprio gestor); pro chefe, que não "tem" projetos no sentido de `gestorId`, **não está claro de onde ele cederia**. Precisa de uma decisão de UX antes de implementar. Sem isso, nada quebrado.
 - **Admin ainda cria projeto:** o `requireRole` do `POST /projetos` é `('admin','gestor','chefe')` — o passo 2 só **acrescentou** chefe, não removeu admin. O item do Manual "admin não precisa criar projeto" segue **em aberto** (ajuste de permissão — confirmar o exato com a cliente).
-- **Coluna de cargo na aba de Custos** (pequeno).
+- ~~**Coluna de cargo na aba de Custos**~~ — **RESOLVIDO** (`0dc3cc7`): "cargo" = o campo `funcao` que existia então. Adicionado ao `GET /api/relatorios/custos` (no select do colaborador que já era carregado) e à tabela de Custos no frontend, coluna entre Colaborador e Horas, com fallback "—". Sem tocar a agregação/somas/escopo. Validado no navegador. *(Atualização: com a feature Profissão — §4-quinquies — essa coluna passou a ler `profissao.nome` no lugar de `funcao`; o campo da resposta de Custos foi renomeado de `funcao` pra `profissao`. A coluna continua intitulada "Cargo".)*
 - **Gerar PDF de Declaração de HT da equipe por mês** (template editável pelo gestor) — a cliente vai mandar o template; fica pro fim.
 - **Notificação de solicitações de remanejamento** (dá pra reusar a infra de push do legado). *(O `notificationService.ts` tem um `role: { in: ['admin','coordenacao'] }` hardcoded pro broadcast de notificação — se chefe/diretor devem receber, decidir aqui.)*
 - **Data de início/fim por período em cada macro-entrega** (campos novos na macro).
 - **Hierarquia de visualização de dashboards/relatórios em PDF** — casa com o diretor + dashboards.
-- (possível) campo **"área de atuação"** no colaborador — confirmar com a cliente.
+- **Campo "área de atuação" no colaborador** — **construído e REVERTIDO** (ver §4-quater). A cliente quer que as **profissões sejam organizadas por área** (hierarquia Área → Profissão), não um campo solto. Decisão de escopo pendente com a cliente antes de retomar; os 4 commits ficam em `backup/areas-atuacao-58e3f20`.
 
 ### Cosmético (resolvido)
 - ~~**"Continuar" → "Salvar"** no botão do cadastro de colaborador~~ — **RESOLVIDO** (`460df17`): o botão diz "Salvar" (consistente com a edição); a confirmação de "parecido" no fluxo de duplicata segue igual.
+
+---
+
+## 4-quater. "Área de atuação" do colaborador — CONSTRUÍDA e REVERTIDA
+
+> **Resumo:** uma feature inteira foi construída, testada, aprovada no navegador e **commitada** (4 commits), e depois **revertida por decisão de produto** quando a cliente esclareceu o que realmente queria. Não é trabalho perdido — está preservada na branch `backup/areas-atuacao-58e3f20` e o aprendizado está registrado aqui. Esta seção existe pra que uma sessão futura **não reconstrua a feature do zero sem antes ler isto** (saber o que já existe, por que saiu, e qual o problema de modelagem a resolver com a cliente).
+
+### O que foi pedido e construído
+A cliente pediu um campo **"área de atuação"** no colaborador. Decidiu-se: **lista administrável** (clone do padrão de Programas/`CategoriaProjeto`), **obrigatória** na aplicação. Foi construída em 3 passos (A, B, C), todos validados e commitados:
+- **Passo A** (`8c2de65`): entidade `AreaAtuacao` (id cuid, nome unique, ativo) + CRUD em `/api/areas-atuacao` (clone fiel de `categorias.ts`: fluxo de duplicata idêntico/parecido, GET liberado pros 5 papéis, escrita admin/gestor) + 6 áreas no seed (Desenvolvimento, Design, Dados, Infraestrutura, Gestão, Conteúdo). Teste 22/22.
+- **Passo B** (`32afd11`): FK `colaborador.areaAtuacaoId` (nullable no banco, obrigatória na app, molde do `categoriaId` do projeto: POST exige, PUT preserva se omitida). GETs expõem `areaAtuacao {id,nome}`. Seed: ordem invertida (área antes de colaborador na criação, depois na limpeza), 30 colaboradores com área por função. Teste 21/21 (provou que editar só o nome preserva área E tarifas — sem regressão).
+- **Passo C1** (`b934c3a`): tela de gestão `/areas` (clone de Programas) + item no menu (ícone Briefcase, `gestorOrAdmin`). Validado no navegador (criar/renomear/ativar-desativar/aviso de parecido).
+- **Passo C2** (`58e3f20`): seletor de área obrigatório no form do colaborador (clone do seletor de programa do projeto: mostra a atual mesmo se inativa, só reenvia se mudou) + exibição na lista. Validado no navegador.
+
+### Por que foi revertida
+Depois do C2, a cliente esclareceu: **"as profissões fazem parte das áreas"** — ex.: "programador faz parte de Sistemas". Ou seja, ela **não** queria a área como campo solto do colaborador; queria uma **hierarquia Área → Profissão**, onde a área *organiza as profissões* e o colaborador aponta pra uma **profissão** (a área vem por transitividade). Isso é uma mudança de modelo, não um ajuste — `funcao` (hoje string) viraria entidade `Profissao` com FK pra área, e o colaborador trocaria `areaAtuacaoId` por `profissaoId`.
+
+Rodou-se um **brainstorm de 4 IAs** (enunciado completo na conversa que gerou esta seção): todas convergiram no mesmo modelo (Área → Profissão → Colaborador; Profissão como lista administrável; FKs RESTRICT; área derivada, não armazenada; seletor agrupado por `<optgroup>` no form) e nas mesmas recomendações pros pontos de produto (funcao some / tudo obrigatório / 1:N). 
+
+**A cliente, porém, decidiu DESISTIR da área por enquanto** ("era apenas para organizar, mas está dando dor de cabeça demais e resultados de menos; depois vejo o que é mais importante"). Daí a reversão ao estado pré-área (`0dc3cc7`).
+
+### Aprendizado a NÃO perder — o conflito função×área
+Antes de fechar a spec do modelo novo, rodou-se um **diagnóstico** (script `diag-funcao-area.mjs`, somente leitura) cruzando o par `(funcao, areaAtuacaoId)` que cada colaborador já tinha — porque esse par É "esta função pertence a esta área". O resultado **no seed** (30 colaboradores): **4 de 7 funções aparecem em mais de uma área** — "Desenvolvedor" em Desenvolvimento/Infraestrutura/Dados, "Motion Designer" em Design/Conteúdo, "Redatora" em Conteúdo/Gestão, "Social Media" em Conteúdo/Gestão. 
+
+**Ressalva importante:** esse conflito no seed foi em boa parte **artefato do seed** (o passo B distribuiu colaboradores pelas áreas de propósito pra "usar todas as 6 áreas"), não necessariamente um retrato da organização real. **Mas o conflito é estruturalmente possível** — então qualquer modelo 1:N futuro (uma profissão pertence a uma área só) **precisa de uma regra explícita** pro caso "mesma profissão, áreas diferentes": ou nome composto ("Desenvolvedor – Dados" como profissões distintas), ou a área mais frequente vence + loga os desviantes, ou a cliente define o mapa função→área na mão. **Quem decide o mapa real é a cliente, não o seed.** Esse é o ponto a resolver com ela antes de retomar.
+
+### Como foi revertida (referência técnica)
+Reversão limpa, código + banco, com salvaguarda:
+1. **Branch de backup** `backup/areas-atuacao-58e3f20` criada apontando pro C2 e empurrada pro GitHub (preserva os 4 commits).
+2. **`git reset --hard 0dc3cc7`** na `feat/alocacao-fase-2` + **force-push** (os 4 commits da área saem da branch de trabalho; o reset apagou também os arquivos das 2 migrations da área do disco).
+3. **`prisma migrate reset --force`** (com o gate de consentimento do Prisma) — apagou o banco e reaplicou só as **14 migrations** em disco (sem a área), repovoando via seed. Verificado direto no banco: 14 migrations / `areas_atuacao` não existe / `area_atuacao_id` não existe. *(Nota: o `prisma migrate status` dessa versão (6.19.2) NÃO sinaliza o descompasso de "migration aplicada mas ausente do disco" — foi preciso checar `_prisma_migrations` direto. Não confiar cegamente no texto da CLI.)*
+4. Validado: backend sobe, seed repovoa sem mencionar áreas, `tsc` limpo nos dois lados (sem referência órfã), `/api/areas-atuacao` → 404, `/api/colaboradores` sem o campo `areaAtuacao`. Tela de Colaboradores sem o seletor, menu sem o item Áreas.
+
+### Para retomar (se/quando a cliente decidir)
+- Recuperar de `backup/areas-atuacao-58e3f20` (ou reconstruir) — mas o modelo provavelmente muda pra **Área → Profissão → Colaborador** (não a área-direta que estava na backup).
+- **Decisão de produto pendente com a cliente:** (1) o mapa função→área (como resolver os conflitos); (2) `funcao`-string sai ou coexiste; (3) profissão/área obrigatórias?; (4) 1:N confirmado. O brainstorm de 4 IAs já desenhou o "como" técnico — falta a cliente cravar o "o quê".
+
+### Resíduo de limpeza (não urgente)
+- Scripts de diagnóstico `diag-funcao-area.mjs` e `diag-macro-micro.mjs` seguem **untracked** no `backend/` — `del` quando conveniente.
+- O `prisma/seed.ts` (órfão, importa `@prisma/adapter-mariadb` não instalado) falha no `migrate reset` — **não é o seed real** (que é `initDb()` em `db.ts`, via `server.ts`). Falha pré-existente e inócua; remover/consertar um dia.
+
+---
+
+## 4-quinquies. Feature "Profissão" — entidade plana + montar equipe por profissão no grid (COMPLETA)
+
+> **Resumo:** a `funcao`-string do colaborador virou uma entidade **Profissão** administrável e **plana** (sem área, sem hierarquia, sem ramos), e em cima dela foi construído o recurso de **montar equipe por profissão direto no grid**. É a continuação — e a versão que deu certo — da "área de atuação" revertida (§4-quater): cortar os **ramos** (a hierarquia Área→Profissão, que tinha explodido) foi o que tornou a feature viável e pequena. Tudo na `feat/alocacao-fase-2`, no método de sempre (pedaços pequenos, testados, commit + push; migrations mostradas antes; UI validada por print). Spec da parte do grid: **`Spec_Candidatos_Por_Profissao.md`** (saiu de brainstorm de 4 IAs). O `alocarComLock` e o teto de 220h **intocados**.
+
+### Por que "plana" (a lição da área)
+A área de atuação foi revertida porque a cliente queria **profissões organizadas por área** (hierarquia Área→Profissão), e os "ramos" viravam sessão atrás de sessão, fugindo do escopo (§4-quater). A decisão aqui foi **cortar os ramos**: Profissão é uma **lista administrável simples** (clone do padrão de Programas/`CategoriaProjeto`), igual a área já era — só que **substitui** a `funcao` em vez de ser um campo a mais. Sem área, o conflito "mesma profissão em áreas diferentes" desaparece. As features que o gestor realmente queria (filtrar e montar equipe por profissão) **não precisam dos ramos** — só precisam que a profissão seja um valor consistente. Os dados eram **fictícios/seed** (sem dado real da cliente), então **não houve migração de dados** — o seed reconstrói do zero com 20 profissões-padrão.
+
+### Passos 1–3 — a entidade Profissão substituindo `funcao`
+
+**Passo 1 — entidade + CRUD + tela + seed** (`f2395e0`)
+- Migration `add_profissao` (aditiva): `CREATE TABLE profissoes` (`id` cuid, `nome` unique, `ativo`) — sem FK, espelho do `areas_atuacao` da backup.
+- `backend/src/routes/profissoes.ts` (montado em `/api/profissoes`): clone do molde de `categorias`/`areas` — mesma função de similaridade (Levenshtein 30%), GET liberado pros 5 papéis, POST/PATCH admin/gestor, fluxo de duplicata (exato → 409; parecido → `needsConfirmation` 200). POST devolve `{ profissao }` embrulhado; PATCH direto.
+- `frontend/src/pages/Profissoes.tsx` (clone da tela de Programas, ícone IdCard) + rota `/profissoes` + item no menu (gestor/admin).
+- **Fix de scroll:** a tela clonada tinha `overflow: hidden` no wrapper da lista, que zerava o min-height do item flex e **cortava** a lista (não rolava) com 20+ itens. Removido → rola igual à de Colaboradores. (Mesmo bug latente existe na tela de Programas, só não aparece com 5 itens — anotado.)
+- Seed: 20 profissões-padrão (`prof-*`, cargos de inovação/tech/pesquisa). **Colaborador/`funcao` intocados** nesse passo. Teste `test-profissoes.mjs` **23/23**.
+
+**Passo 2 — substituir `funcao` por `profissaoId` (backend)** (`e64e6ce`)
+- Migration `replace_funcao_with_profissao`: `ADD profissao_id` (VARCHAR nullable) + FK `RESTRICT` pra `profissoes`, e **DROP da coluna `funcao`** na mesma migration (dados fictícios, seed reconstrói — **sem backfill**). `profissaoId` nullable no banco mas **obrigatória na app** (molde do `categoriaId`). *(O `migrate dev --create-only` travou pelo gate de perda de dados — 30 valores não-nulos em `funcao`; contornado com `migrate diff` gerando o SQL e o arquivo montado à mão, idêntico ao que o `--create-only` geraria.)*
+- Religados **todos** os pontos que usavam `funcao`: `colaboradores.ts` (selects dos GETs, validação obrigatória no POST, preserva-se-omitida no PUT, objeto `similares` passa a expor `profissao.nome`), `relatorios.ts` (a coluna **Cargo** de Custos passa a ler `profissao.nome` — campo da resposta renomeado de `funcao` pra `profissao`), e **`alocacoes.ts`** (2 selects que o mapa inicial não pegou — **o `tsc` os caçou** depois do DROP). Seed: 30 colaboradores ganham `profissaoId` mapeado; **ordem invertida** (profissões antes de colaboradores na criação, colaboradores antes de profissões na limpeza, por causa do RESTRICT). Filtro `?funcao=` removido. Teste `test-colaborador-profissao.mjs` **24/24** (inclui não-regressão: editar só o nome preserva profissão **e** tarifas).
+
+**Passo 3a — frontend usa profissão** (`cece63c`)
+- `Colaboradores.tsx`: removido o bloco inteiro da `funcao` (lista `FUNCOES_COMUNS`, `customFuncao`, `effectiveFuncao`, a opção "Outra (personalizada)") e posto um seletor de Profissão obrigatório (molde do seletor de programa). `Custos.tsx`: coluna Cargo lê `profissao` (título "Cargo" mantido). `GridAlocacao.tsx` e `Alocacoes.tsx`: o subtítulo da linha do colaborador / o select de colaborador exibiam `funcao`, agora `profissao.nome` — **achados pelo `tsc`, não pelo mapa**. `tsc` limpo, zero `funcao` no frontend.
+
+**Passo 3b — atalho de criar profissão no form** (`887ac75`)
+- Botão "+ Nova" ao lado do seletor, abre um **mini-modal** que cria profissão sem sair do form, consumindo o mesmo `POST /api/profissoes` e **replicando o fluxo de duplicata** (decisão: não deixar duplicata entrar sem aviso). **Renderizado como irmão** do modal do colaborador (não aninhado), então o clique no backdrop do mini-modal não propaga pro de baixo. Estados isolados (`novaProf*`) — o form do colaborador (campos já digitados) sobrevive intacto. Ao criar, a profissão é adicionada localmente + já fica selecionada + refetch em background.
+
+**Combobox reutilizável** (`892721a`)
+- `frontend/src/components/Combobox.tsx` — componente **genérico** (props `options`/`value`/`onChange`/`placeholder`/`disabled`/`required`, não sabe nada sobre profissão), feito na mão sem lib. Substituiu o `<select>` nativo de profissão (com 20+ itens, caçar numa lista nativa é chato; agora digita e filtra). Filtro ignora acento/caixa; clique-fora via listener de `mousedown` no document com ref no container, e as opções usam `onMouseDown`+`preventDefault` (não `onClick`) pra seleção acontecer antes do blur; teclado (setas/Enter/Escape) com o item destacado rolando à vista via `scrollIntoView({ block: 'nearest' })`; opção inativa marcada e ainda selecionável; dropdown `position: absolute` + `maxHeight` + `overflowY: auto` + z-index acima do modal. Como o select custom não honra `required` nativo, a obrigatoriedade virou checagem explícita no submit. **Reutilizável** — candidato a substituir o select de Programas e outros depois.
+
+### Passo 4 — montar equipe por profissão no grid
+
+**4b — filtro de profissão no grid** (`a8582be`)
+- Combobox de profissão no topo do grid (reusa o componente) que **esconde** as linhas de colaboradores que não são da profissão — filtro **client-side**. Backend: `GET /colaboradores` ganhou `?profissaoId=` (uma linha no `where`) que alimenta este filtro **e** a busca de adicionar colaborador. Frontend: `linhasExibidas` (useMemo derivado de `todasLinhas`) alimenta só o `.map` do tbody — `todasLinhas` continua intacto alimentando saldo/contadores, então **nenhum cálculo de teto/saldo foi tocado**. O total do rodapé (`custoPorProjeto`) vem pronto do backend sobre todos os colaboradores, então já é o valor **real**, alheio ao filtro. Contador "X de N"; caso vazio com aviso; botão limpar. Teste `test-colaborador-filtro-profissao.mjs` **7/7**.
+
+> **Mudança de objetivo descoberta no 4b:** o filtro de *esconder* (4b) não era o que o gestor queria de verdade — ele queria **ver quem NÃO está nos seus projetos pra alocar** (montar equipe). Isso virou uma decisão estrutural (muda o que o grid mostra, reabre escala 200+) → **brainstorm de 4 IAs** → `Spec_Candidatos_Por_Profissao.md`. O 4b ficou como a base (o combobox de profissão) e complemento (filtrar os alocados por profissão é útil junto da faixa).
+
+**Decisões da spec (do brainstorm + gestor):** a query do grid **não muda** (candidatos vêm de endpoint novo separado — consenso unânime das 4 IAs); profissão é **pré-requisito obrigatório** (limitador de escala nº 1); faixa de candidatos **no próprio grid**, abaixo dos alocados (não painel lateral — mantém o contexto das colunas-projeto); escala por **limite fixo (20) + esconder quem está em 220h** (`disponivel > 0`), ordenado por horas livres desc, sem paginação (quem quer um nome fora do top usa o picker de busca); alocar candidato passa pelo **mesmo `POST /alocacoes`/lock/teto** (consenso unânime); disponibilidade calculada **em lote** (não N+1); rodapé/saldo intocados. "Concorrência fantasma" (o saldo do candidato mudou enquanto ele esperava) é **aceita, não é bug** — é o lock funcionando (409 + refetch).
+
+**4c-backend — endpoint de candidatos** (`efe1317`)
+- `GET /api/alocacoes/candidatos?profissaoId=&ano=&mes=` (admin/gestor), **só leitura**. Lista colaboradores ativos da profissão que o gestor **não alocou** naquele mês, com disponibilidade. Reusa o **mesmo `projWhere`** do grid (escopo gestor/admin) pra montar a exclusão, a **mesma fórmula Decimal** do saldo e a constante `TETO_HORAS_MES` (não redefine 220, não reimplementa o saldo). Agregação **em lote** (2 queries, não N+1): exclusão + soma das alocações dos candidatos. Filtra `disponivel > 0`, ordena desc, corta em `MAX_CANDIDATOS = 20`. Teste `test-candidatos.mjs` **17/17** — parâmetros escolhidos **inspecionando o seed real** pra isolar os dois critérios de exclusão (Caso A: exclui quem eu já aloquei, e quem é de outro gestor NÃO some; Caso B: exclui quem está em 220h, isolado da posse — Enzo cheio por *outros* gestores some por teto, não por ser meu).
+
+**4c-frontend — a faixa de candidatos (exibição)** (`087d61c`)
+- Faixa abaixo do rodapé de custo, **só** quando há profissão filtrada (senão nem entra no DOM). Implementada como uma **segunda `<table>` irmã** (não dentro do tbody dos alocados), usando o **mesmo `<colgroup>`** (mesmas larguras) e o mesmo container de scroll — então as colunas ficam **pixel-alinhadas** com as de alocados **por construção**, e as colunas Colaborador/Saldo ficam sticky igual. Cada linha-candidato: nome + email, a `BarraSaldo` reusada (alimentada com saldo sintético — `totalMeusProj` 0 porque por definição nunca aloquei o candidato, `disponivel` do backend), células de projeto. Estilo **desidratado** (opacidade menor, bordas tracejadas vs sólidas) — distinção nas colunas sticky. Estados: loading, vazio (aviso distinto do 4b), lista. **Nada de cima tocado.**
+
+**4c-alocar — alocar candidato pela faixa** (`e2e56ac`)
+- Botão "+ Alocar" (hover) nas células dos candidatos abre o **mesmo `Drawer`** de alocação, com `celula: null` (mesmo valor de célula vazia de alocado) — sem ramificação condicional, o Drawer não sabe que é candidato. Grava pelo **mesmo `POST /alocacoes`** (lock/teto). Sucesso → refetch grid (vira alocado) + refetch faixa (some dos candidatos). 409 → novo callback `onBlocked` refaz só a faixa.
+
+**4d — alocação inline na célula do candidato + fix de ressync** (`3f3e9d7`)
+- A célula do candidato passa a usar o **mesmo componente `CelulaEditavel`** dos alocados (decisão do gestor: "o mais parecido possível com o grid normal"). A investigação confirmou que o `CelulaEditavel` **não tem acoplamento** com o colaborador já estar no grid — opera só com as props. Então a célula do candidato ganha **de graça**: clique vira input, Enter/blur grava na Geral, "máx Xh", popover de bloqueio 409, **e o botão de remanejamento** (que já estava no componente — por isso o "passo 4e" pedido pelo gestor já estava pronto sem código novo). O ícone de painel continua pro macro/micro detalhado. `defaultMacro/Micro` da Geral vem **por projeto** (não por colaborador), então o candidato tem acesso igual.
+- **Fix de ressync (bug achado pelo gestor):** alocar um candidato e depois **zerar** as horas fazia ele sumir de tudo (nem candidato nem alocado) até dar F5. Causa: o `CelulaEditavel` é renderizado em **dois pontos** — a linha do candidato (religada ao `fetchCandidatos` no 4d) e a **linha real/alocada** (que só chamava `fetchGrid`). Quando o candidato vira alocado, a célula dele passa a ser renderizada pelo ponto das linhas reais; zerar ali nunca refazia a faixa. Conserto: religar os callbacks das linhas reais (`onSaved`/`onSavedSilent`/`onBlocked`) pra também chamar `fetchCandidatos` (no-op seguro sem profissão filtrada). O timing já estava certo (callbacks após o `await`).
+
+### Estado da feature Profissão
+**Completa de ponta a ponta.** O gestor: cadastra profissões (tela própria ou atalho no form do colaborador), atribui ao colaborador (combobox com busca), filtra o grid por profissão, vê os **candidatos** daquela profissão (com disponibilidade), e os aloca **inline na célula ou pelo painel** — com o mesmo comportamento do grid normal (teto, lock, bloqueio 409, remanejamento). 10 commits: `f2395e0` (passo 1), `e64e6ce` (passo 2), `cece63c` (3a), `887ac75` (3b), `892721a` (combobox), `a8582be` (4b), `efe1317` (4c-backend), `087d61c` (4c-frontend), `e2e56ac` (4c-alocar), `3f3e9d7` (4d). Testes de API: profissões 23/23, colaborador-profissão 24/24, filtro 7/7, candidatos 17/17.
+
+### Resíduo anotado (não urgente)
+- A tela de **Programas** tem o mesmo bug latente de scroll (`overflow: hidden` no wrapper) — só não aparece com 5 itens; mesmo fix se aplicaria. E o **Combobox** novo é candidato a substituir o `<select>` de Programas (e outros) num passo de polimento futuro.
+- O `test-colaborador-area.mjs` da backup virou molde do `test-colaborador-profissao.mjs` — os testes da área seguem só na branch `backup/areas-atuacao-58e3f20`.
+
+---
+
+## 4-sexies. Priorização P1, reorganização do menu e dashboard Projetos (branch `feat/alocacao-fase-2`)
+
+> **Resumo:** em sequência à feature Profissão (`3f3e9d7`) e ao bloco de tarifa (§4-bis, último commit `d1dd8df`), esta sessão fechou três frentes em 5 commits, sem nenhuma migration nova: (1) **priorização P1** — o cálculo da `Regra_Priorizacao_reconstruida.md` virou `calcularPriorizacao()` exportada, provado em 25/25 testes sem alterar a resposta HTTP; (2) **reorganização do menu lateral** em 3 commits (remoção de Alocações, agrupamento em seções, visibilidade fina por papel); (3) **dashboard de Projetos D1+D2** — endpoint enriquecido que reutiliza o cálculo do P1 e a lib de tarifa, e a tela Prioridades. O `alocarComLock` e o teto de 220h **seguem intocados**.
+
+### a) Priorização P1 — cálculo + endpoint (`996f271`)
+
+A `Regra_Priorizacao.md`/`Regra_Priorizacao_reconstruida.md` definia a regra; faltava o código. O P1 implementa o cálculo **sem UX própria**, sem batch diário, sem override manual (ficam pra P2).
+
+**O que foi construído:**
+- `backend/src/routes/priorizacao.ts` reestruturado: a lógica saiu do handler e virou **`calcularPriorizacao({role, userId, ano, mes}): Promise<CalcularPriorizacaoResult>`**, exportada. O handler chama a função e devolve só `itens` — **a resposta HTTP de `GET /api/priorizacao` é idêntica à anterior** (regressão zero; provada nos 25/25 testes). O campo `categoriaId` do projeto é selecionado internamente mas **não vaza na resposta do endpoint**.
+- **`CalcularPriorizacaoResult`** expõe quatro membros para o dashboard reutilizar sem query nova: `itens` (lista ordenada), `categoriaIdPorProjeto` (Map projeto→categoria, para resolver a tarifa certa no custo), `colabsPorProjeto` (Map projeto→Set de colabIds, para `tamanhoEquipe`), `alocsDoMes` (alocações brutas do mês, para custo e horas).
+- **Regra de categorização:** prazo da próxima prestação → `alta` (vencida ou ≤7 dias) / `media` (8–30) / `baixa` (>30) / `sem_prazo` (sem data). Dentro de cada categoria, ordena por `horasPendentes` desc (planejado − realizado; sem realizado → usa o planejado inteiro). `sinalCapacidade` = `true` quando ≥95% do teto mensal — **só um flag, não afeta a ordenação** (conforme a regra: "sinal exibido, não fator de ordem").
+- **Escopo por papel:** gestor vê só seus projetos ativos; admin/chefe/coordenação/diretor veem todos (mesma lógica do grid).
+- `backend/test-priorizacao.mjs` **25/25** ✅.
+
+### b) Reorganização do menu lateral — três commits
+
+Tudo em `frontend/src/components/Layout.tsx`. Cada commit validado no navegador antes de fechar.
+
+**`7179587` — remove a tela Alocações do menu**
+- A rota `/alocacoes` era redundante com `/grid` (mesmo backend, mesmo lock). Removida do menu. **A rota `/alocacoes` foi mantida como redirect → `/grid`** para não quebrar favoritos/links salvos. `Alocacoes.tsx` segue no disco, desconectado da navegação ativa (não importado por ninguém).
+
+**`5f1260e` — menu agrupado em seções (N1)**
+- Estrutura de lista plana → 2 níveis: `NavLeaf | NavGroup`, com `isNavGroup()` como type guard. Grupos **sempre expandidos** (sem estado abrir/fechar — decisão deliberada: o menu é curto, toggle seria atrito desnecessário). Grupos criados: **Operação** (Grid + Remanejamento), **Painéis** (placeholder, recebe item no D2), **Cadastros** (Colaboradores + Programas + Profissões). Itens soltos: Início, Projetos, Custos, Equipe. Cabeçalho do grupo some se todos os seus itens forem invisíveis pro papel atual.
+
+**`44c45b1` — visibilidade por papel (N2)**
+- Substitui 2 flags binários (`adminOnly` / `gestorOrAdmin`) por `roles?: Role[]` por item — cobrindo os 5 papéis com precisão. `type Role = 'admin' | 'chefe' | 'gestor' | 'coordenacao' | 'diretor'`; `isItemVisible`: `roles` ausente → todos 5 veem; presente → filtro de inclusão.
+- **Tabela de visibilidade resultante:** Grid (admin/chefe/gestor/coordenação); Remanejamento (admin/chefe/gestor); Projetos (admin/chefe/gestor/coordenação); Custos (admin/chefe/gestor); **Prioridades/Painéis** (todos 5 — inclusive diretor, que por ora só vê Início e Painéis); Colaboradores (admin/chefe/gestor/coordenação); Programas/Profissões (admin/chefe); Equipe (Usuários) (admin).
+
+**Decisão de rótulos de papel (`ROLE_LABELS`) — tomada, implementação estacionada:** o footer da sidebar exibe `user?.position || user?.role`, então um diretor vê `"diretor"` (código interno). A decisão: mapa **fixo no código**, sem tela de configuração — `'chefe' → 'Coordenação'`, `'coordenacao' → 'Consulta'`, `'diretor' → 'Gerência'` (candidato, vindo do manual da cliente), `'admin' → 'Administrador'`, `'gestor' → 'Gestor'`. Implementação estacionada atrás do Planejamento Inteligente de Equipe (ver §7 — Estacionados).
+
+**Nota sobre chefe em Projetos/Colaboradores:** chefe aparece nessas telas pela visibilidade N2, mas elas usam `canWrite = role === 'admin' || role === 'gestor'` internamente — chefe não consegue criar/editar pela UI. O backend permite, a UI não expõe. Inconsistência a corrigir no passo 6.
+
+### c) Dashboard Projetos — D1 (endpoint) + D2 (tela + grupo Painéis)
+
+**D1 — endpoint (`83ccc4b`)**
+- Novo arquivo `backend/src/routes/dashboards.ts`, montado em `/api/dashboards` em `server.ts`. Endpoint `GET /api/dashboards/projetos?ano=&mes=` com `requireRole` abrindo para todos os 5 papéis.
+- **Chama `calcularPriorizacao()`** e obtém os 4 resultados sem query duplicada ao banco. Depois faz **uma query extra em lote** (`colaborador.findMany` para `valorHora`) e chama `carregarTarifas(colabIds)` + `resolverTarifa()` de `lib/tarifa.ts` — a **mesma resolução de tarifa do relatório de Custos**, escopada ao mês do dashboard (não o acumulado de `/relatorios/custos`, que é ALL-TIME sem filtro de mês).
+- **Loop único sobre `alocsDoMes`** acumula `horasPorProjetoColab` (Map de Maps: projeto→colab→horas) e `horasRealPorProjeto` (soma das realizadas não-nulas), sem query nova. Depois calcula `custoPorProjeto` iterando os Maps × tarifas. A resposta é `itens.map(...)` preservando a **ordem de priorização** do P1.
+- `horasRealizadas: null` = nenhuma micro do projeto tem apontamento no mês ("sem apontamento", distinto de "0h"). `custoPlanejado: null` = nenhum colaborador tem tarifa resolvível (defensivo; com padrão obrigatório, na prática não ocorre).
+- `backend/test-dashboard-projetos.mjs` **17/17** ✅ (tamanhoEquipe correto; custoPlanejado prova `carregarTarifas`/`resolverTarifa`; ordem = mesma da priorizacao; escopo gestor vs admin).
+
+**D2 — tela Prioridades (`89b9bc6`)**
+- `frontend/src/pages/Prioridades.tsx` — nova página, rota `/prioridades`. Busca em `[token, ano, mes]`.
+- **`frontend/src/components/SeletorMes.tsx`** — componente **extraído** para ser compartilhado pelas novas páginas (botões ◀▶ + select de mês + input de ano). O `GridAlocacao.tsx` **não foi tocado** — tem sua cópia local `SeletorMes` interna. **Dívida técnica** (ver §7).
+- Tabela: ordem + `BadgeCategoria` (alta=vermelho, média=âmbar, baixa=verde, sem_prazo=cinza, inline por item, sem componente novo); código+nome; porquê; próxima prestação (vermelha se `alta`); horas planejadas; horas realizadas (`null` → `"sem apontamento"` em cinza-suave); custo planejado; equipe (contagem); sinal de capacidade (`AlertTriangle` em `<span title="...">` — title direto no componente Lucide gera erro TS, envolvê-lo em `<span>` resolve).
+- Grupo **Painéis** adicionado ao menu com o item Prioridades (sem `roles` → todos 5 papéis).
+- `frontend/src/App.tsx`: rota `/prioridades` adicionada.
+- `tsc --noEmit` limpo nos dois lados; `test-priorizacao` 25/25 e `test-dashboard-projetos` 17/17 passando.
+
+### d) Tarifa por colaborador × categoria — fechamento do bloco (`d1dd8df`, anterior a esta sessão)
+
+O bloco de tarifa (§4-bis) fechou antes desta sessão com a **tela de edição de overrides** (`d1dd8df`): form do colaborador ganhou o campo de valor-hora padrão (obrigatório) no topo + seção "Tarifas por categoria" com as categorias ativas (em branco = usa o padrão). Blindagem anti-apagar-override: Salvar desabilitado enquanto as tarifas carregam; se o `GET :id` falhar, o PUT omite `tarifas` (backend preserva os overrides existentes). Esse é o último commit antes dos trabalhos desta sessão em P1/N1/N2/D1/D2.
+
+**Confirmado por `git log --oneline -25`:** não há commit de tarifa entre `3f3e9d7` (profissão 4d) e `996f271` (P1) — os dois aparecem adjacentes no log. O "ajuste de tarifas" desta sessão é o próprio `d1dd8df`, já registrado em §4-bis.
 
 ---
 
@@ -474,41 +639,64 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 
 ---
 
-## 7. Próximos passos (papéis → priorização → dashboards → Fase 5)
+## 7. Próximos passos
 
-Com as **Fases 0 a 4 + a tarifa completas** e os **passos 1–5 da spec de papéis fechados** (todo o backend da spec, §4-ter), a fila é:
+Com **Fases 0–4 + tarifa + papéis 1–5 + feature Profissão + priorização P1 + dashboard Projetos completos** e a prioridade redefinida pela cliente em 03/07, a fila atual é:
 
-1. **Spec de papéis — só o passo 6 (frontend) resta.** Os passos 1–5 (papéis, `criadoPorId`/delegação, override do chefe, re-delegação, exclusão permanente) **estão feitos** (`cae3015`, `6861e87`, `c07d6c7`, `c5342d4`, `2e807d6`, `af2cbb3`; detalhe no §4-ter). **O passo 6 é a frente de frontend:** as telas do **chefe** (ver/criar/delegar/re-delegar/excluir projetos — as 4 rotas de exclusão e a de re-delegação já existem no backend, sem UI) e do **diretor** (dashboards de alto nível; o diretor não acessa o grid). É validado por **print no navegador**, não por teste de API. **Duas pendências entram logo no começo:** (a) adicionar `'chefe'` ao `requireRole` de `GET /categorias` (a tela de criação do chefe precisa — correção de uma linha); (b) a **decisão de UX do remanejamento do chefe** (de onde o chefe cede horas — ver §4-ter). O passo 6 **casa com os dashboards** (item 3) — vale escopá-los juntos. Como é frontend grande e muda de natureza, **vale um desenho com calma** (possível brainstorm pros dashboards) antes do primeiro prompt.
-2. **Implementar a priorização** — regra fechada e aprovada (`Regra_Priorizacao.md`, resumo no §4-bis). Falta o cálculo (faixa de prazo → categoria; ordenação por horas pendentes; capacidade como sinal; override; batch diário; tabela de config) e uma tela. Estruturalmente pesada, mas a decisão difícil já passou pelo brainstorm.
-3. **Dashboards (3: Geral / Projetos / Capacidade)** (pedido #5, que cresceu pra três) — juntam tudo (custos, priorização, capacidade) e são as telas do **diretor**. O mais "de produto" e caro de refazer → **merece brainstorm de IAs ao escopá-lo**, antes do primeiro prompt.
-4. **Itens menores do Manual** (cargo na aba de Custos, PDF de Declaração de HT, notificação de remanejamento, datas na macro, Perfil pro tema claro) — encaixáveis entre os grandes; ver §4-ter.
+### PRIORIDADE ATIVA — Planejamento Inteligente de Equipe
 
-E, em paralelo ou depois, a **Fase 5**, voltada à **coordenação** e à **escala**:
+**Fonte:** `Spec_Planejamento_Inteligente.md` v1.2 (nos arquivos do projeto).
 
-- **Visão de capacidade global da coordenação:** agregada por padrão, com drill-down sob demanda e filtros obrigatórios. A coordenação é só-leitura e hoje abre o grid vazio (não é dona de projetos) — a visão dela mora aqui.
-- **Relatórios:** planejado vs. realizado, ociosidade e sobrecarga; exportação CSV; cópia de planejamento mês a mês.
-- **Virtualização + navegabilidade do grid:** a escala de 200+ colaboradores × 200+ projetos exige virtualização; junto dela, resolver a navegabilidade anotada logo abaixo (rolar na horizontal, achar um projeto, achar as células com alocação).
+**Por quê agora:** a cliente redefiniu a prioridade em 03/07. A dor central é que as horas alocadas não são validadas contra a **receita necessária do mês** (meta de apropriação de HT). O modelo foi **confirmado pela cliente em 03/07 às 14h34**: o projeto informa vigência + valor total + valor oficial; a meta mensal é derivada com 3 estratégias (inicial / proporcional / personalizada); ajuste manual "pina" o mês e os seguintes recalculam em cascata.
 
-É a fase mais "de produto" depois do núcleo — vale um desenho com calma antes do primeiro prompt, e dá pra quebrar em pedaços pequenos como sempre (ex.: a visão da coordenação primeiro, depois cada relatório, depois a virtualização). Os endpoints de leitura já existentes (grid, log) são a base; alguns vão precisar de variantes agregadas/paginadas.
+**Fila de implementação:**
+- **F0** — posse na escrita de alocação (pré-requisito de segurança; prompt pronto)
+- **F1** — campos financeiros no projeto (migration)
+- **F2** — meta mensal no backend
+- **F3** — seção no detalhe do projeto
+- **F4** — motor de sugestão
+- **F5** — wizard de configuração
+- **F6** — aplicação em massa
+- **F7** — polimentos
 
-> **Pré-implantação (segurança):** o `/auth/register` público **já foi fechado** (`777b37f`, ver §4-bis) — era a única pendência de **segurança** de pré-implantação, agora resolvida.
+### Estacionados (retomam depois da feature)
+
+- **Rótulos de papel (`ROLE_LABELS`) — DECIDIDOS, não implementados:** mapa fixo no código, sem tela de configuração: `'chefe' → 'Coordenação'`, `'coordenacao' → 'Consulta'`, `'diretor' → 'Gerência'` (candidato, vindo do manual da cliente), `'admin' → 'Administrador'`, `'gestor' → 'Gestor'`. Aguarda o Planejamento Inteligente.
+- **Filtro do chefe por gestor** — regra já decidida: backend ignora/rejeita `gestorId` vindo de gestor comum. Pedido independente da cliente — pode sair do estacionamento junto do passo 6 ou antes, se ela cobrar.
+- **D3 — drill-down de custos na tela Prioridades** (quando existir, "Custos" sai do menu e vira detalhe do dashboard).
+- **Dashboards Capacidade → Geral → Início** (em ordem de dependência; Início se torna o dashboard executivo quando existir conteúdo).
+- **Passo 6 dos papéis** — `canWrite` incluindo chefe nas telas de Projetos/Colaboradores; telas completas do chefe e do diretor; remanejamento do chefe (ver "Perguntas pendentes").
+
+### Perguntas pendentes com a cliente
+
+- **(a) Prorrogação de prestações de contas:** uma prestação vencida *legitimamente* (prorrogada formalmente) não deveria virar `alta` na tela Prioridades — precisaria de um `status` na prestação (ex.: `prorrogada`). Decidir antes de evoluir a regra de priorização (a fase futura P3 — configuração/fixar/pausar — ou via um status de prorrogação na prestação).
+- **(b) O papel "Consulta" (ex-coordenação) será de fato usado?** O manual da cliente lista 4 perfis e nenhum é leitura pura. Vale confirmar antes de construir tela dedicada.
+- **(c) Remanejamento do chefe:** de onde o chefe cede horas? A cessão hoje é "o gestor cede as horas *dele*" (`minhas-do-colaborador` devolve alocações do próprio gestor; admin recebe vazio). O chefe não tem `gestorId` próprio — precisa de decisão de UX antes do passo 6 (§4-ter).
+
+---
 
 ### Extra deferido da Fase 3 — Tela de histórico do log (E2-b)
-A captura do log (E2) está pronta; falta a **tela** pra visualizar o histórico de uma célula (quem alterou o planejado, quando, de quanto pra quanto). Já existe o `GET /api/alocacoes/:id/log`. Ideia: um "histórico" no painel lateral da célula. Ao montar, **decidir o acesso da coordenação ao log** (hoje o endpoint é admin/gestor → 403 pra coordenação; como transparência/relatório é o papel dela, faz sentido reavaliar). Também avaliar buscar o histórico **por contexto** (colaborador+projeto+micro+mês), não só por `alocacaoId`, pra cobrir o caso de uma alocação deletada e recriada (id novo).
+A captura do log (E2) está pronta; falta a **tela** para visualizar o histórico de uma célula (quem alterou o planejado, quando, de quanto pra quanto). Já existe o `GET /api/alocacoes/:id/log`. Ideia: "histórico" no painel lateral da célula. Ao montar, decidir: acesso da coordenação ao log (hoje 403 — mas transparência é o papel dela); buscar por contexto (colaborador+projeto+micro+mês) em vez de só por `alocacaoId`, para cobrir alocações deletadas e recriadas (id novo).
 
-### Item de navegabilidade do grid — PENDENTE (Fase 5 ou polimento dedicado)
-Apareceu no C2 e foi adiado. Com muitas colunas/projetos: (a) é difícil perceber que dá pra rolar na horizontal, (b) é difícil **achar um projeto específico** entre muitas colunas, (c) é difícil achar as células com alocação no meio das vazias. Tratar junto da virtualização da Fase 5 (a escala de 200+ colaboradores × projetos já exige virtualização lá). Ideias: filtro de colunas por nome/código; seletor "ir para o projeto" com scroll + flash; fixar/reordenar colunas. Decisão de UX estrutural — merece desenho com calma.
+### Item de navegabilidade do grid — PENDENTE (Fase 5)
+Com muitas colunas: (a) difícil perceber que dá pra rolar na horizontal; (b) difícil achar um projeto específico; (c) difícil achar células com alocação. Tratar junto da virtualização da Fase 5. **Nota:** a faixa de candidatos (§4-quinquies) é uma segunda `<table>` no mesmo container de scroll — virtualização precisa cobrir as duas juntas, preservando o alinhamento pelo `<colgroup>` compartilhado. Ideias: filtro de colunas por nome/código; seletor "ir para o projeto" com scroll + flash; fixar/reordenar colunas.
 
 ### Dívida técnica anotada (não urgente)
-1. ~~No C3, reavaliar se o lock precisa cobrir atualizações de realizado.~~ **RESOLVIDA:** o realizado ficou FORA do lock (PATCH `/:id/realizado` e o `copiar-realizado` via `$executeRaw` não tocam o `alocarComLock`); o `test-concorrencia` seguiu 8/8 durante C3 e Fase 3.
+1. ~~No C3, reavaliar se o lock precisa cobrir atualizações de realizado.~~ **RESOLVIDA:** realizado fica fora do lock; `test-concorrencia` seguiu 8/8.
 2. A busca de similaridade de nome (B1) carrega todos os colaboradores e compara um a um. Para 200–300 está ótimo; só seria um problema em escala de milhares.
-3. **Corrida do fechamento (TOCTOU) — adiada.** O check de "mês fechado" roda no **início** de cada caminho de escrita, mas há uma janela mínima entre o check e a escrita em que o admin poderia fechar o mês (existe nos 4 caminhos da Fase 3 e nos da cessão/Fase 4). Risco baixo e dano baixo numa ferramenta de **planejamento**. O conserto à prova de bala é um **lock de mês** em todos os caminhos de escrita — **tarefa transversal dedicada**, não pra fazer de passagem. Anotada para quando valer a pena.
-4. **Otimizações de escala do remanejamento (Fase 5, se a contenção doer):** (a) trocar o lock do **colaborador** por um lock de **(colaborador, mês)** — reduz contenção, mas mexe no mecanismo já provado do teto, então só com motivo forte; (b) **denormalizar `horasJaCedidas`** numa coluna em vez de SUM derivado — hoje o SUM sob lock + índice está ótimo na escala atual.
-5. A lista de **"recebidas"** (`GET /solicitacoes`) carrega as alocações do gestor e as solicitações abertas e filtra em JS — ok na escala atual, candidato a query mais enxuta na Fase 5 (mesma natureza do item 2). Há também `mesEstaFechado`/`generateId` duplicados por arquivo — vira helper compartilhado um dia (cosmético).
+3. **Corrida do fechamento (TOCTOU) — adiada.** Check de "mês fechado" no início de cada caminho de escrita, mas há janela mínima entre o check e a escrita. Risco baixo. Conserto à prova de bala: lock de mês em todos os caminhos — tarefa transversal dedicada.
+4. **Otimizações de escala do remanejamento (Fase 5, se a contenção doer):** (a) trocar lock do colaborador por lock de (colaborador, mês) — reduz contenção; (b) denormalizar `horasJaCedidas` em coluna.
+5. A lista de "recebidas" (`GET /solicitacoes`) filtra em JS — ok na escala atual, candidato a query mais enxuta na Fase 5. `mesEstaFechado`/`generateId` duplicados por arquivo — helper compartilhado um dia.
+6. **`SeletorMes` duplicado:** `frontend/src/components/SeletorMes.tsx` (novo, usado por Prioridades e futuras páginas) vs. a função `SeletorMes` interna em `GridAlocacao.tsx` (não tocada por restrição de escopo). Unificar no polimento do passo 6 ou Fase 5: o Grid importa o componente externo e remove a função local.
+7. **`canWrite = admin || gestor` em Projetos/Colaboradores não cobre chefe:** chefe aparece no menu N2, mas a UI não expõe criação/edição para ele. A corrigir no passo 6 (§4-sexies-b).
+8. **Programas tem bug latente de scroll** (o mesmo `overflow: hidden` corrigido na tela de Profissões — §4-quinquies, passo 1). Aparecerá se a lista de programas crescer. Fix idêntico ao de Profissões.
+9. **Testes antigos com payload obsoleto** (`test-c3a`, `test-e1a`): o setup cria colaboradores e projetos sem `valorHora`, `profissaoId` e `categoriaId` — campos hoje obrigatórios na app. Não foi verificado se ainda passam — a passada de limpeza confirma; o ponto é que o setup divergiu da realidade da app. Passada de limpeza tornaria os cenários mais representativos.
+10. **Conferir índice pra query quente das agregações sob demanda** (alocação por `projetoId + ano + mes`): `calcularPriorizacao()` e o dashboard filtram `alocsDoMes` por projeto após carregar o mês inteiro. A FK em `alocacoes(projeto_id)` provavelmente cobre — confirmar no `schema.prisma` e, se necessário, adicionar índice composto `(projeto_id, ano, mes)`.
+11. **`roles[]` no Layout como espelho manual das permissões de backend:** qualquer mudança de `requireRole` em uma rota exige atualizar manualmente o `roles[]` do item correspondente em `Layout.tsx`. Não há validação cruzada automática. Regra de manutenção: ao adicionar papel a uma rota, atualizar o `roles[]` do item de menu.
 
-### Parking-lot (anotado, fora de fase — tratar quando der / antes de implantar)
+### Parking-lot (anotado, fora de fase)
 - ~~**`ProjetoDetalhe.tsx`: `shrink` → `flexShrink`.**~~ **RESOLVIDO** em `af473ac`.
-- ~~**Fechar o `/auth/register` público antes de implantar.**~~ **RESOLVIDO** em `777b37f`: o endpoint agora responde 403 `Registro desabilitado` (não aceita mais `role` do cliente). Era a única pendência de segurança de pré-implantação.
+- ~~**Fechar o `/auth/register` público.**~~ **RESOLVIDO** em `777b37f`: responde 403 (era a única pendência de segurança de pré-implantação).
 
 ---
 
@@ -520,5 +708,12 @@ Apareceu no C2 e foi adiado. Com muitas colunas/projetos: (a) é difícil perceb
 - **`Regra_Priorizacao.md`** — a regra de priorização sintetizada e aprovada (spec da implementação futura; resumo no §4-bis). Saiu do brainstorm de 4 IAs.
 - **`Brainstorm_ValorHora_Categoria.md`** / **`Tarifa_Colaborador_Categoria_Spec.md`** — enunciado e spec (aprovada) da **tarifa por colaborador × categoria** (resumo no §4-bis). Saíram do brainstorm de 4 IAs.
 - **`Brainstorm_Papeis_Posse_Exclusao.md`** / **`Spec_Papeis_Posse_Exclusao.md`** — enunciado e **spec** (aprovada) dos **papéis novos (chefe/diretor), posse/delegação e exclusão permanente** (resumo no §4-ter). Saíram do brainstorm de 4 IAs. É a base dos prompts dos 6 passos.
+- **Área de atuação (revertida)** — não há documento de spec no projeto (a feature foi revertida antes de fechar a spec do modelo hierárquico). O enunciado do brainstorm de 4 IAs sobre a hierarquia Área → Profissão, as respostas, e o diagnóstico função×área estão na conversa que gerou o §4-quater. Os 4 commits da implementação (modelo área-direta) estão na branch `backup/areas-atuacao-58e3f20`. Ver §4-quater pro resumo completo.
+- **`Brainstorm_Montar_Equipe_Por_Profissao.md`** / **`Spec_Candidatos_Por_Profissao.md`** — enunciado e **spec** (aprovada) do recurso de **montar equipe por profissão no grid** (a faixa de candidatos — passo 4c/4d da feature Profissão, resumo no §4-quinquies). Saíram do brainstorm de 4 IAs. A entidade Profissão em si (passos 1–3) não teve spec formal — é o clone do padrão de Programas/`CategoriaProjeto`, decidido em conversa (ver §4-quinquies).
 - **`Manual_Sistema_de_Alocacao.md`** — manual de uso (gerado), depois anotado pela cliente com a 2ª leva de pedidos (a base do §4-ter).
+- **`Regra_Priorizacao_reconstruida.md`** — reconstrução da regra de priorização a partir das decisões da cliente (versão usada no P1; complementa/atualiza o `Regra_Priorizacao.md` mais antigo — resumo no §4-bis e §4-sexies-a).
+- **`Spec_Dashboards.md`** — spec do bloco de dashboards (3 planejados: Projetos, Geral, Capacidade); base dos prompts D1/D2 e dos próximos dashboards (item 3 do §7).
+- **`Spec_Navegacao.md`** — decisões da reorganização do menu lateral: remoção de Alocações, agrupamento em seções, visibilidade fina por papel (N1/N2 — detalhes em §4-sexies-b).
+- **`Mini_Brainstorm_Nome_Aba.md`** — registro do mini-brainstorm sobre nomes de abas/seções do menu e rótulos amigáveis de papel (`ROLE_LABELS` — ver §4-sexies-b e "Estacionados" no §7).
+- **`Spec_Planejamento_Inteligente.md` (v1.2)** — spec da **feature prioritária ativa**: meta mensal de apropriação de HT (planejado vs. receita necessária do projeto), motor de sugestão de alocação e aplicação em massa. Versão 1.2 confirmada pela cliente em 03/07.
 - **`PROGRESSO_E_DECISOES.md`** — este documento.

@@ -594,6 +594,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
     const { colaboradorId, projetoId, macroEntregaId, microEntregaId,
             ano, mes, horasPlanejadas } = req.body;
     const userId = req.user!.id;
+    const role   = req.user!.role;
 
     // ── Validações de entrada ─────────────────────────────────────────
     if (!colaboradorId || !projetoId || !macroEntregaId || !microEntregaId) {
@@ -635,6 +636,14 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
       return res.status(400).json({ error: 'MacroEntrega não pertence ao projeto informado' });
     }
 
+    // ── Pre-check de posse — antes do lock, sem tocar na mecânica do lock/teto ──
+    if (role === 'gestor') {
+      const proj = await prisma.projeto.findUnique({ where: { id: projetoId }, select: { gestorId: true } });
+      if (!proj || proj.gestorId !== userId) {
+        return res.status(403).json({ error: 'Você não é o gestor deste projeto' });
+      }
+    }
+
     // ── Transação com lock ────────────────────────────────────────────
     const { alocacao, somaFinal } = await alocarComLock({
       colaboradorId, projetoId, macroEntregaId, microEntregaId,
@@ -667,12 +676,11 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
 });
 
 // ── PATCH /:id/realizado — atualiza horasRealizadas (sem teto, sem lock) ──
-// Ownership: mesmo critério do POST — gestor pode editar qualquer alocação,
-// não só a dos próprios projetos (POST também não verifica ownership).
 router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const userId = req.user!.id;
+    const role   = req.user!.role;
 
     if (!('horasRealizadas' in req.body)) {
       return res.status(400).json({ error: 'horasRealizadas é obrigatório (número >= 0 ou null)' });
@@ -700,6 +708,13 @@ router.patch('/:id/realizado', authenticate, requireRole('admin', 'gestor', 'che
 
     const alocacao = await prisma.alocacao.findUnique({ where: { id } });
     if (!alocacao) return res.status(404).json({ error: 'Alocação não encontrada' });
+
+    if (role === 'gestor') {
+      const proj = await prisma.projeto.findUnique({ where: { id: alocacao.projetoId }, select: { gestorId: true } });
+      if (!proj || proj.gestorId !== userId) {
+        return res.status(403).json({ error: 'Você não é o gestor deste projeto' });
+      }
+    }
 
     if (await mesEstaFechado(alocacao.ano, alocacao.mes)) {
       return res.status(409).json({ error: 'Mês fechado', mesFechado: true });
@@ -794,8 +809,16 @@ router.delete('/:id', authenticate, requireRole('admin', 'gestor', 'chefe'), asy
   try {
     const { id } = req.params;
     const userId = req.user!.id;
+    const role   = req.user!.role;
     const alocacao = await prisma.alocacao.findUnique({ where: { id } });
     if (!alocacao) return res.status(404).json({ error: 'Alocação não encontrada' });
+
+    if (role === 'gestor') {
+      const proj = await prisma.projeto.findUnique({ where: { id: alocacao.projetoId }, select: { gestorId: true } });
+      if (!proj || proj.gestorId !== userId) {
+        return res.status(403).json({ error: 'Você não é o gestor deste projeto' });
+      }
+    }
 
     if (await mesEstaFechado(alocacao.ano, alocacao.mes)) {
       return res.status(409).json({ error: 'Mês fechado', mesFechado: true });

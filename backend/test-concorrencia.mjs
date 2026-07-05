@@ -36,14 +36,25 @@ async function getCategoriaId(token) {
   return categoriaIdCache;
 }
 
+let profissaoIdCache = null;
+async function getProfissaoId(token) {
+  if (profissaoIdCache) return profissaoIdCache;
+  const r = await fetch(`${API}/api/profissoes?ativo=true`, { headers: { Authorization: `Bearer ${token}` } });
+  const profs = await r.json();
+  profissaoIdCache = profs[0].id;
+  return profissaoIdCache;
+}
+
 async function setup(token) {
   const id = uid(); // único por rodada
-  const categoriaId = await getCategoriaId(token);
+  const categoriaId  = await getCategoriaId(token);
+  const profissaoId  = await getProfissaoId(token);
 
   const colab = await post('/api/colaboradores', {
     nome: `Corrida ${id}`,
     email: `cr${id}@teste.dev`,
     valorHora: 100,
+    profissaoId,
   }, token);
   if (colab.status !== 201)
     throw new Error(`Colaborador falhou (${colab.status}): ${JSON.stringify(colab.data)}`);

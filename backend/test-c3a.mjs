@@ -121,10 +121,9 @@ r = await req('PATCH', `/api/alocacoes/${alocacaoId}/realizado`, { horasRealizad
 if (r.status !== 403) fail('T6a', `esperado 403, got ${r.status}`);
 ok('T6a: coordenador → 403 (requireRole bloqueia)');
 
-// ── T6b: gestor2 em alocação do projeto do gestor1 ────────────────────────────
-// POST /api/alocacoes não verifica ownership → PATCH tampouco → deve ser 200
+// ── T6b: gestor2 em alocação do projeto do gestor1 → 403 (ownership F0) ─────
 r = await req('PATCH', `/api/alocacoes/${alocacaoId}/realizado`, { horasRealizadas: 30 }, tokenGestor2);
-if (r.status !== 200) fail('T6b', `esperado 200 (sem ownership check, igual ao POST), got ${r.status}: ${JSON.stringify(r.data)}`);
-ok('T6b: gestor2 em projeto do gestor1 → 200 (sem ownership check — mesmo critério do POST)');
+if (r.status !== 403) fail('T6b', `esperado 403 (ownership check F0), got ${r.status}: ${JSON.stringify(r.data)}`);
+ok('T6b: gestor2 em projeto do gestor1 → 403 (Posse na Escrita — F0)');
 
 console.log('\n─── Todos os testes C3-a passaram ✓ ───\n');

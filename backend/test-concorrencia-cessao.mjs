@@ -20,26 +20,32 @@ async function req(method, path, body, token) {
 // ── Setup uma vez ─────────────────────────────────────────────────────────────
 const id = uid();
 
-let r = await req('POST', '/api/auth/register', { name: `Admin CC ${id}`, email: `admin-cc-${id}@test.dev`, password: 'Teste123!', role: 'admin' });
-if (r.status !== 201) { console.error('register admin', r.data); process.exit(1); }
-const tokenAdmin = r.data.token;
+// Login com usuários do seed (registro desabilitado no ambiente)
+const _logins = await Promise.all([
+  req('POST', '/api/auth/login', { email: 'admin@sistema.dev',   password: 'admin123'   }, undefined),
+  req('POST', '/api/auth/login', { email: 'gestor1@sistema.dev', password: 'gestor123' }, undefined),
+  req('POST', '/api/auth/login', { email: 'gestor2@sistema.dev', password: 'gestor123' }, undefined),
+  req('POST', '/api/auth/login', { email: 'gestor3@sistema.dev', password: 'gestor123' }, undefined),
+]);
+for (const [label, res] of [['admin', _logins[0]], ['gestor1', _logins[1]], ['gestor2', _logins[2]], ['gestor3', _logins[3]]]) {
+  if (!res.data.token) { console.error(`login ${label} falhou`, res.data); process.exit(1); }
+}
+const tokenAdmin = _logins[0].data.token;
+const tokenGA    = _logins[1].data.token; // gestor1 — solicitante (recebe no destino)
+const tokenGB1   = _logins[2].data.token; // gestor2 — cedente 1
+const tokenGB2   = _logins[3].data.token; // gestor3 — cedente 2
 
-const ga = uid(), gb1 = uid(), gb2 = uid();
+// Categoria e profissão (obrigatórios desde atualização do schema)
+let r = await req('GET', '/api/categorias?ativo=true', undefined, tokenAdmin);
+if (r.status !== 200 || !r.data[0]) { console.error('categorias', r.data); process.exit(1); }
+const categoriaId = r.data[0].id;
 
-r = await req('POST', '/api/auth/register', { name: `GA CC ${ga}`, email: `ga-cc-${ga}@test.dev`, password: 'Teste123!', role: 'gestor' });
-if (r.status !== 201) { console.error('register gA', r.data); process.exit(1); }
-const tokenGA = r.data.token;
-
-r = await req('POST', '/api/auth/register', { name: `GB1 CC ${gb1}`, email: `gb1-cc-${gb1}@test.dev`, password: 'Teste123!', role: 'gestor' });
-if (r.status !== 201) { console.error('register gB1', r.data); process.exit(1); }
-const tokenGB1 = r.data.token;
-
-r = await req('POST', '/api/auth/register', { name: `GB2 CC ${gb2}`, email: `gb2-cc-${gb2}@test.dev`, password: 'Teste123!', role: 'gestor' });
-if (r.status !== 201) { console.error('register gB2', r.data); process.exit(1); }
-const tokenGB2 = r.data.token;
+r = await req('GET', '/api/profissoes?ativo=true', undefined, tokenAdmin);
+if (r.status !== 200 || !r.data[0]) { console.error('profissoes', r.data); process.exit(1); }
+const profissaoId = r.data[0].id;
 
 // Projetos fixos (reutilizados em cada rodada)
-r = await req('POST', '/api/projetos', { codigo: `CCA${ga.slice(0,4)}`, nome: `Proj A CC`, prestacoesContas: ['2027-01-31'] }, tokenGA);
+r = await req('POST', '/api/projetos', { codigo: `CCSA${id}`, nome: 'Proj A CC', prestacoesContas: ['2027-01-31'], categoriaId }, tokenGA);
 if (r.status !== 201) { console.error('proj A', r.data); process.exit(1); }
 const projetoAId = r.data.id;
 r = await req('POST', `/api/projetos/${projetoAId}/macros`, { nome: 'Macro A' }, tokenGA);
@@ -47,7 +53,7 @@ if (r.status !== 201) { console.error('macro A', r.data); process.exit(1); }
 const macroAId = r.data.id;
 const microAId = r.data.microEntregas[0].id;
 
-r = await req('POST', '/api/projetos', { codigo: `CCB1${gb1.slice(0,3)}`, nome: `Proj B1 CC`, prestacoesContas: ['2027-01-31'] }, tokenGB1);
+r = await req('POST', '/api/projetos', { codigo: `CCSB1${id}`, nome: 'Proj B1 CC', prestacoesContas: ['2027-01-31'], categoriaId }, tokenGB1);
 if (r.status !== 201) { console.error('proj B1', r.data); process.exit(1); }
 const projetoB1Id = r.data.id;
 r = await req('POST', `/api/projetos/${projetoB1Id}/macros`, { nome: 'Macro B1' }, tokenGB1);
@@ -55,7 +61,7 @@ if (r.status !== 201) { console.error('macro B1', r.data); process.exit(1); }
 const macroB1Id = r.data.id;
 const microB1Id = r.data.microEntregas[0].id;
 
-r = await req('POST', '/api/projetos', { codigo: `CCB2${gb2.slice(0,3)}`, nome: `Proj B2 CC`, prestacoesContas: ['2027-01-31'] }, tokenGB2);
+r = await req('POST', '/api/projetos', { codigo: `CCSB2${id}`, nome: 'Proj B2 CC', prestacoesContas: ['2027-01-31'], categoriaId }, tokenGB2);
 if (r.status !== 201) { console.error('proj B2', r.data); process.exit(1); }
 const projetoB2Id = r.data.id;
 r = await req('POST', `/api/projetos/${projetoB2Id}/macros`, { nome: 'Macro B2' }, tokenGB2);
@@ -67,14 +73,14 @@ const RODADAS = 8;
 let rodadasOk = 0;
 const ANO = 2025;
 
-console.log(`\nToken obtido. Rodando ${RODADAS} rodadas...\n`);
+console.log(`\nTokens obtidos. Rodando ${RODADAS} rodadas...\n`);
 
 for (let rodada = 1; rodada <= RODADAS; rodada++) {
   // Mês diferente a cada rodada para evitar conflito de alocações únicas
   const MES = rodada;
 
   // Colaborador novo a cada rodada (garante isolamento total)
-  r = await req('POST', '/api/colaboradores', { nome: `CC Colab R${rodada} ${uid()}`, email: `cc-r${rodada}-${uid()}@test.dev` }, tokenAdmin);
+  r = await req('POST', '/api/colaboradores', { nome: `CC Colab R${rodada} ${uid()}`, email: `cc-r${rodada}-${uid()}@test.dev`, valorHora: 50, profissaoId }, tokenAdmin);
   if (r.status !== 201) fail(`R${rodada} colab`, JSON.stringify(r.data));
   const colabId = r.data.colaborador.id;
 

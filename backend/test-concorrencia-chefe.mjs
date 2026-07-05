@@ -37,16 +37,27 @@ async function getCategoriaId(token) {
   return categoriaIdCache;
 }
 
+let profissaoIdCache = null;
+async function getProfissaoId(token) {
+  if (profissaoIdCache) return profissaoIdCache;
+  const r = await fetch(`${API}/api/profissoes?ativo=true`, { headers: { Authorization: `Bearer ${token}` } });
+  const profs = await r.json();
+  profissaoIdCache = profs[0].id;
+  return profissaoIdCache;
+}
+
 // Setup feito pelo gestor1 (dono "natural") — colaborador + projeto base.
 // O chefe vai operar esse MESMO colaborador/projeto por override, sem ser dono.
 async function setup(tokenGestor) {
   const id = uid();
   const categoriaId = await getCategoriaId(tokenGestor);
+  const profissaoId = await getProfissaoId(tokenGestor);
 
   const colab = await post('/api/colaboradores', {
     nome: `CorridaChefe ${id}`,
     email: `crc${id}@teste.dev`,
     valorHora: 100,
+    profissaoId,
   }, tokenGestor);
   if (colab.status !== 201)
     throw new Error(`Colaborador falhou (${colab.status}): ${JSON.stringify(colab.data)}`);

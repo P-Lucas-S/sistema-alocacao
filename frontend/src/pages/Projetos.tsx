@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, FolderPlus, Calendar, Archive, ArchiveRestore, Pencil, X, Plus, AlertTriangle, Layers } from 'lucide-react';
+import { InputMoeda } from '../components/InputMoeda';
 
 interface PrestacaoContas {
   id: string;
@@ -30,6 +31,11 @@ interface Projeto {
   categoria: Categoria | null;
   prestacoesContas: PrestacaoContas[];
   proximaPrestacao: ProximaPrestacao | null;
+  valorTotal: string | null;
+  valorOficial: string | null;
+  estrategiaOficial: string;
+  vigenciaInicio: string | null;
+  vigenciaFim: string | null;
 }
 
 // timeZone:'UTC' garante que "2026-12-31T00:00:00.000Z" mostre "31/12/2026", não "30/12/2026"
@@ -98,6 +104,13 @@ export default function Projetos() {
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Campos financeiros (F1) — number | null (reais)
+  const [valorTotal, setValorTotal]               = useState<number | null>(null);
+  const [valorOficial, setValorOficial]           = useState<number | null>(null);
+  const [estrategiaOficial, setEstrategiaOficial] = useState<'inicial' | 'proporcional'>('inicial');
+  const [vigenciaInicio, setVigenciaInicio]       = useState('');
+  const [vigenciaFim, setVigenciaFim]             = useState('');
+
   const navigate   = useNavigate();
   const canWrite   = user?.role === 'admin' || user?.role === 'gestor';
   const showGestor = user?.role === 'admin' || user?.role === 'coordenacao';
@@ -148,6 +161,8 @@ export default function Projetos() {
     setEditTarget(null);
     setCodigo(''); setNome(''); setDatas([]); setNovaData('');
     setCategoriaId(''); setCategoriaIdOriginal(''); setCategoriaInativaExtra(null);
+    setValorTotal(null); setValorOficial(null); setEstrategiaOficial('inicial');
+    setVigenciaInicio(''); setVigenciaFim('');
     setError(''); setDatasError('');
     setIsModalOpen(true);
   }
@@ -170,6 +185,11 @@ export default function Projetos() {
       setCategoriaInativaExtra(null);
     }
 
+    setValorTotal(p.valorTotal ? parseFloat(p.valorTotal) : null);
+    setValorOficial(p.valorOficial ? parseFloat(p.valorOficial) : null);
+    setEstrategiaOficial((p.estrategiaOficial as 'inicial' | 'proporcional') ?? 'inicial');
+    setVigenciaInicio(p.vigenciaInicio ? toInputDate(p.vigenciaInicio) : '');
+    setVigenciaFim(p.vigenciaFim ? toInputDate(p.vigenciaFim) : '');
     setError(''); setDatasError('');
     setIsModalOpen(true);
   }
@@ -188,6 +208,10 @@ export default function Projetos() {
       setDatasError('Adicione pelo menos uma data de prestação de contas.');
       return;
     }
+    if (valorTotal !== null && valorOficial !== null && valorOficial > valorTotal) {
+      setError('Valor Oficial não pode ser maior que o Valor Total (o Valor HT ficaria negativo).');
+      return;
+    }
     setError(''); setDatasError(''); setSaving(true);
     try {
       const body: Record<string, unknown> = editTarget
@@ -199,6 +223,13 @@ export default function Projetos() {
       if (editTarget && categoriaId !== categoriaIdOriginal) {
         body.categoriaId = categoriaId;
       }
+
+      // Campos financeiros — sempre incluídos (null quando vazios)
+      body.valorTotal   = valorTotal;
+      body.valorOficial = valorOficial;
+      body.estrategiaOficial  = estrategiaOficial;
+      body.vigenciaInicio     = vigenciaInicio || null;
+      body.vigenciaFim        = vigenciaFim || null;
 
       const res = await fetch(editTarget ? `/api/projetos/${editTarget.id}` : '/api/projetos', {
         method: editTarget ? 'PUT' : 'POST',
@@ -546,6 +577,59 @@ export default function Projetos() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* ── Financeiro (opcional) ── */}
+              <div className="flex items-center gap-2 pt-1">
+                <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+                <span className="text-[10px] font-semibold uppercase tracking-wider px-1" style={{ color: 'var(--text-3)' }}>Financeiro · opcional</span>
+                <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Valor Total">
+                  <InputMoeda value={valorTotal} onChange={setValorTotal} disabled={saving} />
+                </Field>
+                <Field label="Valor Oficial">
+                  <InputMoeda value={valorOficial} onChange={setValorOficial} disabled={saving} />
+                </Field>
+              </div>
+
+              {valorTotal !== null && valorOficial !== null && valorOficial > valorTotal && (
+                <div className="flex items-start gap-2 p-3 rounded-xl text-xs" style={{ background: 'hsl(38 92% 50% / 0.1)', color: 'hsl(38 80% 45%)', border: '1px solid hsl(38 92% 50% / 0.25)' }}>
+                  <span style={{ flexShrink: 0 }}>⚠</span>
+                  Valor Oficial maior que o Valor Total — o Valor HT ficaria negativo.
+                </div>
+              )}
+
+              <Field label="Distribuição do valor oficial">
+                <Select
+                  value={estrategiaOficial}
+                  onChange={e => setEstrategiaOficial(e.target.value as 'inicial' | 'proporcional')}
+                  disabled={saving}
+                >
+                  <option value="inicial">Priorizar meses iniciais</option>
+                  <option value="proporcional">Distribuir proporcionalmente</option>
+                </Select>
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Vigência Início">
+                  <Input
+                    type="date"
+                    value={vigenciaInicio}
+                    onChange={e => setVigenciaInicio(e.target.value)}
+                    disabled={saving}
+                  />
+                </Field>
+                <Field label="Vigência Fim">
+                  <Input
+                    type="date"
+                    value={vigenciaFim}
+                    onChange={e => setVigenciaFim(e.target.value)}
+                    disabled={saving}
+                  />
+                </Field>
               </div>
 
               {/* Botões */}

@@ -155,6 +155,12 @@ model Projeto {
   exclusaoSolicitadaPorId String?  @map("exclusao_solicitada_por_id") @db.VarChar(191)
   motivoExclusao          String?  @map("motivo_exclusao") @db.Text
   statusAnteriorExclusao  String?  @map("status_anterior_exclusao") @db.VarChar(50)
+  // ── Campos financeiros (F1 — Planejamento Inteligente) ──────────────────
+  valorTotal        Decimal?  @map("valor_total")        @db.Decimal(10, 2)
+  valorOficial      Decimal?  @map("valor_oficial")      @db.Decimal(10, 2)
+  estrategiaOficial String    @default("inicial")        @map("estrategia_oficial") @db.VarChar(50)
+  vigenciaInicio    DateTime? @map("vigencia_inicio")    @db.Date
+  vigenciaFim       DateTime? @map("vigencia_fim")       @db.Date
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 

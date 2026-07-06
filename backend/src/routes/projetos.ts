@@ -55,6 +55,11 @@ function serializeProjeto(p: any) {
     proximaPrestacao: computeProxima(
       (p.prestacoesContas ?? []).map((pc: any) => ({ id: pc.id, data: pc.data }))
     ),
+    valorTotal: p.valorTotal != null ? p.valorTotal.toString() : null,
+    valorOficial: p.valorOficial != null ? p.valorOficial.toString() : null,
+    estrategiaOficial: p.estrategiaOficial,
+    vigenciaInicio: p.vigenciaInicio instanceof Date ? p.vigenciaInicio.toISOString() : (p.vigenciaInicio ?? null),
+    vigenciaFim: p.vigenciaFim instanceof Date ? p.vigenciaFim.toISOString() : (p.vigenciaFim ?? null),
   };
 }
 
@@ -77,6 +82,58 @@ function sortProjetos(projetos: ReturnType<typeof serializeProjeto>[]) {
 function parseDatas(raw: unknown): Date[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   return raw.map((d: string) => new Date(d));
+}
+
+function parseDecimal(v: unknown): number | null | 'invalid' {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  return isNaN(n) || n < 0 ? 'invalid' : n;
+}
+
+function parseISODate(v: unknown): Date | null | 'invalid' {
+  if (v === undefined || v === null || v === '') return null;
+  const d = new Date(v as string);
+  return isNaN(d.getTime()) ? 'invalid' : d;
+}
+
+type FinanceiroData = {
+  valorTotal: number | null;
+  valorOficial: number | null;
+  estrategiaOficial: string;
+  vigenciaInicio: Date | null;
+  vigenciaFim: Date | null;
+};
+
+function parseFinanceiros(body: any): { error: string } | { data: FinanceiroData } {
+  const vt = parseDecimal(body.valorTotal);
+  if (vt === 'invalid') return { error: 'valorTotal deve ser um número >= 0' };
+
+  const vo = parseDecimal(body.valorOficial);
+  if (vo === 'invalid') return { error: 'valorOficial deve ser um número >= 0' };
+
+  if (vt !== null && vo !== null && vo > vt) {
+    return { error: 'valorOficial não pode ser maior que valorTotal' };
+  }
+
+  let est = 'inicial';
+  if (body.estrategiaOficial != null && body.estrategiaOficial !== '') {
+    if (!['inicial', 'proporcional'].includes(body.estrategiaOficial as string)) {
+      return { error: 'estrategiaOficial deve ser "inicial" ou "proporcional"' };
+    }
+    est = body.estrategiaOficial as string;
+  }
+
+  const vi = parseISODate(body.vigenciaInicio);
+  if (vi === 'invalid') return { error: 'vigenciaInicio inválida' };
+
+  const vf = parseISODate(body.vigenciaFim);
+  if (vf === 'invalid') return { error: 'vigenciaFim inválida' };
+
+  if (vi !== null && vf !== null && vf < vi) {
+    return { error: 'vigenciaFim deve ser >= vigenciaInicio' };
+  }
+
+  return { data: { valorTotal: vt, valorOficial: vo, estrategiaOficial: est, vigenciaInicio: vi, vigenciaFim: vf } };
 }
 
 // ── GET /:id — detalhe de um projeto ──────────────────────────────────────
@@ -154,6 +211,10 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
     if (!codigo?.trim()) return res.status(400).json({ error: 'codigo é obrigatório' });
     if (!nome?.trim())   return res.status(400).json({ error: 'nome é obrigatório' });
 
+    const finResult = parseFinanceiros(req.body);
+    if ('error' in finResult) return res.status(400).json({ error: finResult.error });
+    const fin = finResult.data;
+
     const datas = parseDatas(prestacoesContas);
     if (!datas) {
       return res.status(400).json({ error: 'Pelo menos uma data de prestação de contas é obrigatória' });
@@ -188,7 +249,11 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
 
     const projeto = await prisma.$transaction(async (tx) => {
       await tx.projeto.create({
-        data: { id: projetoId, codigo: codigoNorm, nome: nome.trim(), gestorId, criadoPorId, categoriaId, status: 'ativo' },
+        data: {
+          id: projetoId, codigo: codigoNorm, nome: nome.trim(), gestorId, criadoPorId, categoriaId, status: 'ativo',
+          valorTotal: fin.valorTotal, valorOficial: fin.valorOficial, estrategiaOficial: fin.estrategiaOficial,
+          vigenciaInicio: fin.vigenciaInicio, vigenciaFim: fin.vigenciaFim,
+        },
       });
       await tx.prestacaoContas.createMany({
         data: datas.map(d => ({ id: generateId(), projetoId, data: d })),
@@ -245,12 +310,27 @@ router.put('/:id', authenticate, requireRole('admin', 'gestor', 'chefe'), async 
       if (!categoria.ativo)  return res.status(400).json({ error: 'Programa inativo' });
     }
 
+    // Campos financeiros: só processa se ao menos um veio no body
+    const hasFinanceiros = ['valorTotal', 'valorOficial', 'estrategiaOficial', 'vigenciaInicio', 'vigenciaFim']
+      .some(k => k in req.body);
+    let finData: FinanceiroData | null = null;
+    if (hasFinanceiros) {
+      const finResult = parseFinanceiros(req.body);
+      if ('error' in finResult) return res.status(400).json({ error: finResult.error });
+      finData = finResult.data;
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       await tx.projeto.update({
         where: { id },
         data: {
           ...(nome?.trim() ? { nome: nome.trim() } : {}),
           ...(categoriaId !== undefined ? { categoriaId } : {}),
+          ...(finData ? {
+            valorTotal: finData.valorTotal, valorOficial: finData.valorOficial,
+            estrategiaOficial: finData.estrategiaOficial,
+            vigenciaInicio: finData.vigenciaInicio, vigenciaFim: finData.vigenciaFim,
+          } : {}),
         },
       });
 

@@ -20,6 +20,11 @@ interface Projeto {
   categoria: Categoria | null;
   prestacoesContas: PrestacaoContas[];
   proximaPrestacao: ProximaPrestacao | null;
+  valorTotal: string | null;
+  valorOficial: string | null;
+  estrategiaOficial: string;
+  vigenciaInicio: string | null;
+  vigenciaFim: string | null;
 }
 
 interface MicroEntrega {
@@ -37,6 +42,10 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR', {
     timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric',
   });
+}
+
+function fmtMoeda(v: string | number): string {
+  return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 const inputStyle: React.CSSProperties = {
@@ -232,6 +241,12 @@ export default function ProjetoDetalhe() {
 
   const proxima = projeto.proximaPrestacao;
 
+  const valorTotalNum   = projeto.valorTotal   != null ? parseFloat(projeto.valorTotal)   : null;
+  const valorOficialNum = projeto.valorOficial  != null ? parseFloat(projeto.valorOficial) : null;
+  const valorHTNum      = valorTotalNum != null && valorOficialNum != null
+    ? valorTotalNum - valorOficialNum
+    : null;
+
   return (
     <div className="p-6 flex flex-col gap-6 max-w-3xl">
       {/* Breadcrumb + header */}
@@ -294,6 +309,36 @@ export default function ProjetoDetalhe() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* ── Resumo Financeiro ────────────────────────────────────────────── */}
+      <div
+        className="rounded-2xl p-4 flex flex-col gap-3"
+        style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
+      >
+        <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+          Resumo Financeiro
+        </h2>
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: 'Valor Total', value: valorTotalNum },
+            { label: 'Valor Oficial', value: valorOficialNum },
+            { label: 'A Apropriar (HT)', value: valorHTNum, negative: valorHTNum !== null && valorHTNum < 0 },
+          ].map(({ label, value, negative }) => (
+            <div key={label}>
+              <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>{label}</p>
+              {value != null
+                ? <p className="text-base font-bold" style={{ color: negative ? '#f87171' : 'var(--text-1)' }}>{fmtMoeda(value)}</p>
+                : <p className="text-sm" style={{ color: 'var(--text-3)' }}>—</p>
+              }
+            </div>
+          ))}
+        </div>
+        {(projeto.vigenciaInicio || projeto.vigenciaFim) && (
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+            Vigência: {projeto.vigenciaInicio ? fmtDate(projeto.vigenciaInicio) : '?'} → {projeto.vigenciaFim ? fmtDate(projeto.vigenciaFim) : '?'}
+          </p>
+        )}
       </div>
 
       {/* Macros section */}

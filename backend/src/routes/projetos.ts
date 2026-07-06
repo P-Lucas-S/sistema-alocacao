@@ -1,7 +1,9 @@
 import express from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../prisma.js';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
 import { precheckExclusao, executarExclusaoCascata, ExclusaoBloqueadaError } from '../lib/exclusaoProjeto.js';
+import { carregarTarifas, resolverTarifa } from '../lib/tarifa.js';
 
 const router = express.Router();
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -135,6 +137,159 @@ function parseFinanceiros(body: any): { error: string } | { data: FinanceiroData
 
   return { data: { valorTotal: vt, valorOficial: vo, estrategiaOficial: est, vigenciaInicio: vi, vigenciaFim: vf } };
 }
+
+function gerarMeses(inicio: Date, fim: Date): { ano: number; mes: number }[] {
+  const result: { ano: number; mes: number }[] = [];
+  let ano = inicio.getUTCFullYear();
+  let mes = inicio.getUTCMonth() + 1;
+  const fimAno = fim.getUTCFullYear();
+  const fimMes = fim.getUTCMonth() + 1;
+  while (ano < fimAno || (ano === fimAno && mes <= fimMes)) {
+    result.push({ ano, mes });
+    mes++;
+    if (mes > 12) { mes = 1; ano++; }
+  }
+  return result;
+}
+
+// ── GET /:id/meta-apropriacao — Meta Mensal de Apropriação (F2a) ──────────
+// READ-ONLY. Computa sob demanda a meta de HT por mês da vigência + receita
+// já planejada, reusando carregarTarifas/resolverTarifa de lib/tarifa.ts
+// (mesma conta do dashboard D1). Escopo: igual ao GET /:id — gestor só vê o
+// próprio projeto; admin/chefe/coordenacao/diretor veem qualquer um.
+router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({
+      where: { id },
+      select: {
+        id: true, gestorId: true, categoriaId: true,
+        valorTotal: true, valorOficial: true,
+        estrategiaOficial: true,
+        vigenciaInicio: true, vigenciaFim: true,
+      },
+    });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    // Sem vigência ou valorTotal → projeto não configurado para meta
+    if (!projeto.vigenciaInicio || !projeto.vigenciaFim || projeto.valorTotal == null) {
+      return res.json({ configurado: false });
+    }
+
+    const D0           = new Prisma.Decimal(0);
+    const valorTotal   = projeto.valorTotal;
+    const valorOficial = projeto.valorOficial ?? D0;
+    const valorHT      = valorTotal.minus(valorOficial);
+    const estrategia   = projeto.estrategiaOficial;
+
+    const meses    = gerarMeses(projeto.vigenciaInicio, projeto.vigenciaFim);
+    const numMeses = meses.length;
+    if (numMeses === 0) return res.json({ configurado: false });
+
+    // Medição uniforme — último mês absorve resíduo de arredondamento,
+    // garantindo soma(medicao) = valorTotal EXATO (sem centavo faltando).
+    const medicaoBase = valorTotal.dividedBy(numMeses).toDecimalPlaces(2);
+    const medicoes: Prisma.Decimal[] = meses.map((_, i) =>
+      i < numMeses - 1
+        ? medicaoBase
+        : valorTotal.minus(medicaoBase.times(numMeses - 1))
+    );
+
+    // ── Distribuição do oficial por mês ──────────────────────────────────────
+    let oficialAlocados: Prisma.Decimal[];
+    if (estrategia === 'proporcional') {
+      // Último mês absorve resíduo: soma(oficialAlocado) = valorOficial EXATO
+      const oficialBase = valorOficial.dividedBy(numMeses).toDecimalPlaces(2);
+      oficialAlocados = meses.map((_, i) =>
+        i < numMeses - 1
+          ? oficialBase
+          : valorOficial.minus(oficialBase.times(numMeses - 1))
+      );
+    } else {
+      // 'inicial': guloso por medicao do mês; saldo Decimal consumido exatamente
+      let saldo = valorOficial;
+      oficialAlocados = medicoes.map((med) => {
+        if (saldo.greaterThanOrEqualTo(med)) {
+          const oa = med; saldo = saldo.minus(med); return oa;
+        } else if (saldo.greaterThan(D0)) {
+          const oa = saldo; saldo = D0; return oa;
+        }
+        return D0;
+      });
+    }
+
+    const metasHT = medicoes.map((med, i) => med.minus(oficialAlocados[i]));
+
+    // ── Receita planejada por mês — reusa carregarTarifas/resolverTarifa ────
+    // 1 query alocações + 1 colaboradores + 1 tarifas (sem N+1 por mês)
+    const alocs = await prisma.alocacao.findMany({
+      where: {
+        projetoId: id,
+        OR: meses.map(({ ano, mes }) => ({ ano, mes })),
+      },
+      select: { colaboradorId: true, ano: true, mes: true, horasPlanejadas: true },
+    });
+
+    const colabIds = [...new Set(alocs.map(a => a.colaboradorId))];
+    const [colaboradores, tarifasMap] = await Promise.all([
+      colabIds.length > 0
+        ? prisma.colaborador.findMany({ where: { id: { in: colabIds } }, select: { id: true, valorHora: true } })
+        : Promise.resolve([]),
+      carregarTarifas(colabIds),
+    ]);
+    const valorHoraPorColab = new Map(colaboradores.map(c => [c.id, c.valorHora]));
+    const categoriaId = projeto.categoriaId ?? null;
+
+    const receitaPorMes = new Map<string, Prisma.Decimal>();
+    for (const a of alocs) {
+      const key       = `${a.ano}-${a.mes}`;
+      const valorHora = valorHoraPorColab.get(a.colaboradorId) ?? null;
+      const { valor } = resolverTarifa(tarifasMap, { id: a.colaboradorId, valorHora }, categoriaId);
+      if (valor == null) continue;
+      const parcela = a.horasPlanejadas.times(valor);
+      receitaPorMes.set(key, (receitaPorMes.get(key) ?? D0).plus(parcela));
+    }
+
+    // ── Monta resposta ───────────────────────────────────────────────────────
+    const mesesResp = meses.map(({ ano, mes }, i) => {
+      const key              = `${ano}-${mes}`;
+      const metaHT           = metasHT[i];
+      const receitaPlanejada = receitaPorMes.get(key) ?? D0;
+      const deficit          = metaHT.greaterThan(receitaPlanejada)
+        ? metaHT.minus(receitaPlanejada)
+        : D0;
+      return {
+        ano, mes,
+        medicao:          medicoes[i].toFixed(2),
+        oficialAlocado:   oficialAlocados[i].toFixed(2),
+        metaHT:           metaHT.toFixed(2),
+        receitaPlanejada: receitaPlanejada.toFixed(2),
+        deficit:          deficit.toFixed(2),
+      };
+    });
+
+    return res.json({
+      configurado: true,
+      resumo: {
+        valorTotal:        valorTotal.toFixed(2),
+        valorOficial:      valorOficial.toFixed(2),
+        valorHT:           valorHT.toFixed(2),
+        numeroMeses:       numMeses,
+        estrategiaOficial: estrategia,
+      },
+      meses: mesesResp,
+    });
+  } catch (error) {
+    console.error('Meta apropriacao error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // ── GET /:id — detalhe de um projeto ──────────────────────────────────────
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {

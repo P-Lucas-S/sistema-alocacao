@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Logs de execução (ngrok, vite, backend — gerados localmente, descartáveis)
+*-log.txt
+*-err.txt
+
+# Scripts de diagnóstico pontual (descartáveis, nunca versionados)
+diag-*.mjs

@@ -4,6 +4,7 @@ import prisma from '../prisma.js';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
 import { precheckExclusao, executarExclusaoCascata, ExclusaoBloqueadaError } from '../lib/exclusaoProjeto.js';
 import { carregarTarifas, resolverTarifa } from '../lib/tarifa.js';
+import { mesEstaFechado } from './alocacoes.js';
 
 const router = express.Router();
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -152,6 +153,97 @@ function gerarMeses(inicio: Date, fim: Date): { ano: number; mes: number }[] {
   return result;
 }
 
+// ── PUT /:id/meta-apropriacao/pino — cria/atualiza pino de meta (F2b-i) ───
+// Escopo: gestor dono/chefe/admin. Mês deve estar dentro da vigência e aberto.
+router.put('/:id/meta-apropriacao/pino', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({
+      where: { id },
+      select: { gestorId: true, vigenciaInicio: true, vigenciaFim: true },
+    });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const { ano, mes, metaHT: metaHTBody } = req.body;
+    const anoN = Number.isInteger(ano) ? ano : parseInt(ano);
+    const mesN = Number.isInteger(mes) ? mes : parseInt(mes);
+    if (!Number.isInteger(anoN) || anoN < 2020 || anoN > 2100) {
+      return res.status(400).json({ error: 'ano inválido' });
+    }
+    if (!Number.isInteger(mesN) || mesN < 1 || mesN > 12) {
+      return res.status(400).json({ error: 'mes deve ser 1–12' });
+    }
+
+    const metaHTN = Number(metaHTBody);
+    if (isNaN(metaHTN) || metaHTN < 0) {
+      return res.status(400).json({ error: 'metaHT deve ser um número >= 0' });
+    }
+
+    if (!projeto.vigenciaInicio || !projeto.vigenciaFim) {
+      return res.status(400).json({ error: 'Projeto sem vigência definida — configure a vigência antes de pinar' });
+    }
+    const mesesVigencia = gerarMeses(projeto.vigenciaInicio, projeto.vigenciaFim);
+    if (!mesesVigencia.some(m => m.ano === anoN && m.mes === mesN)) {
+      return res.status(400).json({ error: `Mês ${mesN}/${anoN} fora da vigência do projeto` });
+    }
+
+    if (await mesEstaFechado(anoN, mesN)) {
+      return res.status(409).json({ error: 'Mês fechado — não é possível pinar meta em mês com fechamento registrado' });
+    }
+
+    const pino = await prisma.metaMensalAjuste.upsert({
+      where:  { projetoId_ano_mes: { projetoId: id, ano: anoN, mes: mesN } },
+      update: { metaHT: metaHTN },
+      create: { projetoId: id, ano: anoN, mes: mesN, metaHT: metaHTN },
+    });
+
+    res.json({ projetoId: pino.projetoId, ano: pino.ano, mes: pino.mes, metaHT: pino.metaHT.toFixed(2) });
+  } catch (error) {
+    console.error('Pino meta upsert error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /:id/meta-apropriacao/pino/:ano/:mes — remove pino (F2b-i) ──────
+// Sem pino → 404. Com pino → 200 + {removed:true}.
+router.delete('/:id/meta-apropriacao/pino/:ano/:mes', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id, ano: anoStr, mes: mesStr } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id }, select: { gestorId: true } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const anoN = parseInt(anoStr);
+    const mesN = parseInt(mesStr);
+    if (isNaN(anoN) || isNaN(mesN)) {
+      return res.status(400).json({ error: 'ano/mes inválidos na URL' });
+    }
+
+    const deleted = await prisma.metaMensalAjuste.deleteMany({
+      where: { projetoId: id, ano: anoN, mes: mesN },
+    });
+    if (deleted.count === 0) {
+      return res.status(404).json({ error: 'Pino não encontrado para esse mês' });
+    }
+
+    res.json({ removed: true, ano: anoN, mes: mesN });
+  } catch (error) {
+    console.error('Delete pino error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── GET /:id/meta-apropriacao — Meta Mensal de Apropriação (F2a) ──────────
 // READ-ONLY. Computa sob demanda a meta de HT por mês da vigência + receita
 // já planejada, reusando carregarTarifas/resolverTarifa de lib/tarifa.ts
@@ -256,10 +348,24 @@ router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) 
       receitaPorMes.set(key, (receitaPorMes.get(key) ?? D0).plus(parcela));
     }
 
+    // ── Lê pinos (F2b-i): 1 query, indexado por "ano-mes" ───────────────────
+    const pinosRaw = await prisma.metaMensalAjuste.findMany({
+      where: { projetoId: id },
+      select: { ano: true, mes: true, metaHT: true },
+    });
+    const pinosPorMes = new Map<string, Prisma.Decimal>(
+      pinosRaw.map(p => [`${p.ano}-${p.mes}`, p.metaHT])
+    );
+    const temPinos = pinosPorMes.size > 0;
+
     // ── Monta resposta ───────────────────────────────────────────────────────
+    let somaMetaHT = D0;
     const mesesResp = meses.map(({ ano, mes }, i) => {
       const key              = `${ano}-${mes}`;
-      const metaHT           = metasHT[i];
+      const pinoValor        = pinosPorMes.get(key);
+      const pinado           = pinoValor !== undefined;
+      const metaHT           = pinado ? pinoValor! : metasHT[i];
+      somaMetaHT             = somaMetaHT.plus(metaHT);
       const receitaPlanejada = receitaPorMes.get(key) ?? D0;
       const deficit          = metaHT.greaterThan(receitaPlanejada)
         ? metaHT.minus(receitaPlanejada)
@@ -269,10 +375,14 @@ router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) 
         medicao:          medicoes[i].toFixed(2),
         oficialAlocado:   oficialAlocados[i].toFixed(2),
         metaHT:           metaHT.toFixed(2),
+        pinado,
         receitaPlanejada: receitaPlanejada.toFixed(2),
         deficit:          deficit.toFixed(2),
       };
     });
+
+    // cascataPendente: pinos existem mas redistribuição ainda não rodou (F2b-ii)
+    const cascataPendente = temPinos && !somaMetaHT.equals(valorHT);
 
     return res.json({
       configurado: true,
@@ -280,6 +390,8 @@ router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) 
         valorTotal:        valorTotal.toFixed(2),
         valorOficial:      valorOficial.toFixed(2),
         valorHT:           valorHT.toFixed(2),
+        somaMetaHT:        somaMetaHT.toFixed(2),
+        cascataPendente,
         numeroMeses:       numMeses,
         estrategiaOficial: estrategia,
       },

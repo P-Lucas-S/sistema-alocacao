@@ -171,6 +171,7 @@ model Projeto {
   macroEntregas                    MacroEntrega[]
   prestacoesContas                 PrestacaoContas[]
   alocacoes                        Alocacao[]
+  metaMensalAjustes                MetaMensalAjuste[]
   solicitacoesDestinoRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoProjetoDestino")
 
   @@map("projetos")
@@ -251,6 +252,24 @@ model Alocacao {
   // Índice crítico: toda verificação de teto soma por (colaborador, ano, mes)
   @@index([colaboradorId, ano, mes])
   @@map("alocacoes")
+}
+
+// ─── F2b-i: Pino de meta mensal de apropriação ───────────────────
+
+model MetaMensalAjuste {
+  id        String   @id @default(cuid())
+  projetoId String   @map("projeto_id") @db.VarChar(191)
+  ano       Int
+  mes       Int
+  metaHT    Decimal  @map("meta_ht") @db.Decimal(10, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  projeto Projeto @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+
+  @@unique([projetoId, ano, mes])
+  @@index([projetoId])
+  @@map("meta_mensal_ajustes")
 }
 
 // ─── Fase 3: Fechamento mensal (read-only lock) + log de auditoria ─

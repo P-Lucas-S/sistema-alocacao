@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, FolderOpen, Plus, ChevronDown, ChevronRight,
-  Pencil, Trash2, X, Layers, GitBranch,
+  Pencil, Trash2, X, Layers, GitBranch, BarChart2,
 } from 'lucide-react';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -36,6 +36,21 @@ interface MacroEntrega {
   microEntregas: MicroEntrega[];
 }
 
+interface MetaMes {
+  ano: number; mes: number;
+  medicao: string; oficialAlocado: string; metaHT: string;
+  pinado: boolean; fechado: boolean;
+  receitaPlanejada: string; deficit: string;
+}
+interface MetaResumo {
+  valorTotal: string; valorOficial: string; valorHT: string; somaMetaHT: string;
+  cascataPendente: boolean; numeroMeses: number; estrategiaOficial: string;
+  saldoNaoPlanejado?: string;
+}
+type MetaData =
+  | { configurado: false }
+  | { configurado: true; resumo: MetaResumo; meses: MetaMes[] };
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
@@ -47,6 +62,22 @@ function fmtDate(iso: string) {
 function fmtMoeda(v: string | number): string {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
+
+const MESES_ABR = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+function fmtMes(ano: number, mes: number): string {
+  return `${MESES_ABR[mes - 1]}/${String(ano).slice(2)}`;
+}
+
+const thMeta: React.CSSProperties = {
+  padding: '8px 12px', fontSize: 11, fontWeight: 700,
+  textTransform: 'uppercase', letterSpacing: '0.05em',
+  color: 'var(--text-3)', borderBottom: '1px solid var(--border)',
+  textAlign: 'left', whiteSpace: 'nowrap',
+};
+const tdMeta: React.CSSProperties = {
+  padding: '8px 12px', fontSize: 13, color: 'var(--text-1)',
+  borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
+};
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10,
@@ -72,10 +103,12 @@ export default function ProjetoDetalhe() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
 
-  const [projeto, setProjeto]     = useState<Projeto | null>(null);
-  const [macros, setMacros]       = useState<MacroEntrega[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [expanded, setExpanded]   = useState<Set<string>>(new Set());
+  const [projeto, setProjeto]         = useState<Projeto | null>(null);
+  const [macros, setMacros]           = useState<MacroEntrega[]>([]);
+  const [metaData, setMetaData]       = useState<MetaData | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [expanded, setExpanded]       = useState<Set<string>>(new Set());
+  const [estrategiaSaving, setEstrategiaSaving] = useState(false);
 
   // Macro modal
   const [macroModal, setMacroModal] = useState<{
@@ -105,9 +138,14 @@ export default function ProjetoDetalhe() {
     if (res.ok) setMacros(await res.json());
   }, [token, projetoId]);
 
+  const fetchMeta = useCallback(async () => {
+    const res = await fetch(`/api/projetos/${projetoId}/meta-apropriacao`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) setMetaData(await res.json());
+  }, [token, projetoId]);
+
   useEffect(() => {
-    Promise.all([fetchProjeto(), fetchMacros()]).finally(() => setLoading(false));
-  }, [fetchProjeto, fetchMacros]);
+    Promise.all([fetchProjeto(), fetchMacros(), fetchMeta()]).finally(() => setLoading(false));
+  }, [fetchProjeto, fetchMacros, fetchMeta]);
 
   // ── Macro actions ─────────────────────────────────────────────────────
 
@@ -213,6 +251,27 @@ export default function ProjetoDetalhe() {
     const data = await res.json();
     if (!res.ok) { alert(data.error); return; }
     fetchMacros();
+  }
+
+  async function handleEstrategiaChange(novaEstrategia: string) {
+    if (!projeto) return;
+    setEstrategiaSaving(true);
+    try {
+      const res = await fetch(`/api/projetos/${projetoId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          estrategiaOficial: novaEstrategia,
+          valorTotal:     projeto.valorTotal,
+          valorOficial:   projeto.valorOficial,
+          vigenciaInicio: projeto.vigenciaInicio,
+          vigenciaFim:    projeto.vigenciaFim,
+        }),
+      });
+      if (res.ok) await Promise.all([fetchProjeto(), fetchMeta()]);
+    } finally {
+      setEstrategiaSaving(false);
+    }
   }
 
   function toggleExpand(macroId: string) {
@@ -338,6 +397,141 @@ export default function ProjetoDetalhe() {
           <p className="text-xs" style={{ color: 'var(--text-3)' }}>
             Vigência: {projeto.vigenciaInicio ? fmtDate(projeto.vigenciaInicio) : '?'} → {projeto.vigenciaFim ? fmtDate(projeto.vigenciaFim) : '?'}
           </p>
+        )}
+      </div>
+
+      {/* ── Meta de Apropriação ──────────────────────────────────────── */}
+      <div
+        className="rounded-2xl p-4 flex flex-col gap-4"
+        style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
+      >
+        <h2 className="text-xs font-semibold uppercase tracking-wide flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
+          <BarChart2 size={13} />
+          Meta de Apropriação
+        </h2>
+
+        {metaData == null ? (
+          <div className="text-sm" style={{ color: 'var(--text-3)' }}>Carregando…</div>
+        ) : !metaData.configurado ? (
+          <div
+            className="flex flex-col items-center justify-center py-8 gap-2 rounded-xl"
+            style={{ border: '1px dashed var(--border)', color: 'var(--text-3)' }}
+          >
+            <BarChart2 size={28} strokeWidth={1} />
+            <p className="text-sm text-center px-4">
+              Configure a vigência e os valores do projeto para ver a meta de apropriação.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Seletor de estratégia */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                Distribuição do oficial
+              </label>
+              <select
+                value={projeto.estrategiaOficial}
+                disabled={!canWrite || estrategiaSaving}
+                onChange={e => handleEstrategiaChange(e.target.value)}
+                style={{
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  borderRadius: 8, padding: '5px 10px', color: 'var(--text-1)', fontSize: 13,
+                  outline: 'none', opacity: estrategiaSaving ? 0.6 : 1,
+                  cursor: canWrite && !estrategiaSaving ? 'pointer' : 'default',
+                }}
+              >
+                <option value="proporcional">Distribuir proporcionalmente</option>
+                <option value="inicial">Priorizar meses iniciais</option>
+              </select>
+              {estrategiaSaving && (
+                <span className="text-xs" style={{ color: 'var(--text-3)' }}>Salvando…</span>
+              )}
+            </div>
+
+            {/* Mini-resumo */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
+                  A Apropriar (HT)
+                </p>
+                <p className="text-base font-bold" style={{ color: 'var(--text-1)' }}>
+                  {fmtMoeda(metaData.resumo.valorHT)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
+                  Soma Meta Mensal
+                </p>
+                <p className="text-base font-bold" style={{ color: metaData.resumo.cascataPendente ? '#f59e0b' : 'var(--text-1)' }}>
+                  {fmtMoeda(metaData.resumo.somaMetaHT)}
+                </p>
+              </div>
+            </div>
+
+            {metaData.resumo.cascataPendente && (
+              <div
+                className="px-3 py-2 rounded-xl text-xs"
+                style={{ background: 'hsl(38 92% 50% / 0.1)', color: 'hsl(38 92% 50%)', border: '1px solid hsl(38 92% 50% / 0.2)' }}
+              >
+                Cascata pendente — a soma dos meses não fecha com o valorHT. Ajuste os pinos.
+              </div>
+            )}
+
+            {/* Tabela por mês */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thMeta}>Mês</th>
+                    <th style={{ ...thMeta, textAlign: 'right' }}>Medição</th>
+                    <th style={{ ...thMeta, textAlign: 'right' }}>Oficial</th>
+                    <th style={{ ...thMeta, textAlign: 'right' }}>Meta HT</th>
+                    <th style={{ ...thMeta, textAlign: 'right' }}>Rec. Planejada</th>
+                    <th style={{ ...thMeta, textAlign: 'right' }}>Déficit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metaData.meses.map(m => {
+                    const def = parseFloat(m.deficit);
+                    return (
+                      <tr key={`${m.ano}-${m.mes}`}>
+                        <td style={tdMeta}>
+                          <span className="font-medium">{fmtMes(m.ano, m.mes)}</span>
+                          {m.pinado && (
+                            <span
+                              className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ background: 'var(--brand-500)15', color: 'var(--brand-500)' }}
+                            >
+                              pin
+                            </span>
+                          )}
+                          {m.fechado && (
+                            <span
+                              className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ background: 'hsl(0 0% 50% / 0.12)', color: 'var(--text-3)' }}
+                            >
+                              fechado
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.medicao)}</td>
+                        <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.oficialAlocado)}</td>
+                        <td style={{ ...tdMeta, textAlign: 'right', fontWeight: 600 }}>{fmtMoeda(m.metaHT)}</td>
+                        <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.receitaPlanejada)}</td>
+                        <td style={{
+                          ...tdMeta, textAlign: 'right',
+                          fontWeight: def > 0 ? 600 : undefined,
+                          color: def > 0 ? '#f87171' : 'var(--text-3)',
+                        }}>
+                          {def > 0 ? fmtMoeda(m.deficit) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

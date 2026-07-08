@@ -358,31 +358,170 @@ router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) 
     );
     const temPinos = pinosPorMes.size > 0;
 
+    // ── Lê fechamentos dos meses da vigência (1 query batch, F2b-ii) ─────────
+    const fechamentosRaw = await prisma.fechamentoMensal.findMany({
+      where: { OR: meses.map(({ ano, mes }) => ({ ano, mes })) },
+      select: { ano: true, mes: true },
+    });
+    const mesesFechadosSet = new Set<string>(fechamentosRaw.map(f => `${f.ano}-${f.mes}`));
+
+    // ── Classifica meses (F2b-ii) ─────────────────────────────────────────────
+    // Intocáveis: pinados OU fechados. Editáveis: os demais.
+    const classificados = meses.map(({ ano, mes }, i) => {
+      const key       = `${ano}-${mes}`;
+      const pinoValor = pinosPorMes.get(key);
+      const pinado    = pinoValor !== undefined;
+      const fechado   = mesesFechadosSet.has(key);
+      return {
+        i, key, ano, mes, pinado, fechado,
+        editavel:   !pinado && !fechado,
+        baseMetaHT: metasHT[i],
+        pinoValor:  pinoValor as Prisma.Decimal | undefined,
+      };
+    });
+
+    // ── Cascata simétrica (F2b-ii) ────────────────────────────────────────────
+    // Princípio único: nunca criar/piorar déficit automaticamente.
+    //   LIBERAR (pins reduziram HT net): distribui proporcional ao déficit dos editáveis com déficit.
+    //   PUXAR   (pins aumentaram HT net): retira greedy por folga desc, cap = folga de cada um.
+    //   Fallback LIBERAR: nenhum editável tem déficit → saldoNaoPlanejado (não distribui).
+    //   Fallback PUXAR  : folga total < falta → precisaDecisaoManual (não distribui).
+    const somaIntocaveis = classificados
+      .filter(m => !m.editavel)
+      .reduce((acc, m) => acc.plus(m.pinado ? m.pinoValor! : m.baseMetaHT), D0);
+
+    const editaveis     = classificados.filter(m => m.editavel);
+    const saldoEditavel = valorHT.minus(somaIntocaveis);
+
+    const ajustes = new Map<number, Prisma.Decimal>(); // i → delta (+acréscimo / -retirada)
+    let saldoNaoPlanejado:   Prisma.Decimal | null = null;
+    let precisaDecisaoManual: {
+      faltam: string;
+      folgaPorMes: { ano: number; mes: number; folga: string }[];
+    } | null = null;
+
+    if (temPinos && editaveis.length > 0) {
+      const baseEditavelTotal = editaveis.reduce((acc, m) => acc.plus(m.baseMetaHT), D0);
+      const diferenca         = saldoEditavel.minus(baseEditavelTotal);
+      // diferenca > 0 → LIBERAR; diferenca < 0 → PUXAR; = 0 → sem cascata necessária
+
+      if (diferenca.greaterThan(D0)) {
+        // ── LIBERAR: proporcional ao déficit ──────────────────────────────
+        const saldo      = diferenca;
+        const candidatos = editaveis
+          .map(m => ({ m, deficit: m.baseMetaHT.minus(receitaPorMes.get(m.key) ?? D0) }))
+          .filter(({ deficit }) => deficit.greaterThan(D0));
+
+        if (candidatos.length === 0) {
+          saldoNaoPlanejado = saldo;
+        } else {
+          const totalDeficit = candidatos.reduce((acc, { deficit }) => acc.plus(deficit), D0);
+          let alocado = D0;
+          candidatos.forEach(({ m, deficit }, ci) => {
+            const parcela = ci < candidatos.length - 1
+              ? saldo.times(deficit).dividedBy(totalDeficit).toDecimalPlaces(2)
+              : saldo.minus(alocado); // último absorve resíduo de arredondamento
+            ajustes.set(m.i, parcela);
+            alocado = alocado.plus(parcela);
+          });
+        }
+
+      } else if (diferenca.lessThan(D0)) {
+        // ── PUXAR: proporcional à folga, com teto iterativo ──────────────
+        // Cada mês editável cede proporcional à sua folga. Se a cota exceder
+        // a folga disponível (salvaguarda para arredondamento), o mês é
+        // capado na folga e o restante é redistribuído na próxima rodada.
+        const falta      = diferenca.negated();
+        const candidatos = editaveis
+          .map(m => ({ m, folga: (receitaPorMes.get(m.key) ?? D0).minus(m.baseMetaHT) }))
+          .filter(({ folga }) => folga.greaterThan(D0));
+
+        const folgaTotal = candidatos.reduce((acc, { folga }) => acc.plus(folga), D0);
+
+        if (folgaTotal.lessThan(falta)) {
+          precisaDecisaoManual = {
+            faltam:      falta.minus(folgaTotal).toFixed(2),
+            folgaPorMes: candidatos.map(({ m, folga }) => ({
+              ano: m.ano, mes: m.mes, folga: folga.toFixed(2),
+            })),
+          };
+        } else {
+          const retiradasMap = new Map<number, Prisma.Decimal>();
+          let ativosArr = candidatos.map((c, ci) => ({ ...c, ci, folgaDisp: c.folga }));
+          let restante  = falta;
+
+          while (restante.greaterThan(D0) && ativosArr.length > 0) {
+            const folgaAtivos = ativosArr.reduce((acc, a) => acc.plus(a.folgaDisp), D0);
+            const proxAtivos: typeof ativosArr = [];
+            let houveCapado = false;
+
+            for (const a of ativosArr) {
+              const cota = restante.times(a.folgaDisp).dividedBy(folgaAtivos).toDecimalPlaces(2);
+              if (cota.greaterThan(a.folgaDisp)) {
+                // Capado: cede toda a folga disponível e sai desta rodada
+                retiradasMap.set(a.ci, (retiradasMap.get(a.ci) ?? D0).plus(a.folgaDisp));
+                restante = restante.minus(a.folgaDisp);
+                houveCapado = true;
+              } else {
+                proxAtivos.push(a);
+              }
+            }
+
+            if (!houveCapado) {
+              // Sem caps: distribuição final, último absorve resíduo de arredondamento
+              let alocado = D0;
+              proxAtivos.forEach(({ ci, folgaDisp }, ni) => {
+                const cota = ni < proxAtivos.length - 1
+                  ? restante.times(folgaDisp).dividedBy(folgaAtivos).toDecimalPlaces(2)
+                  : restante.minus(alocado);
+                retiradasMap.set(ci, (retiradasMap.get(ci) ?? D0).plus(cota));
+                alocado = alocado.plus(cota);
+              });
+              restante = D0;
+              break;
+            }
+
+            ativosArr = proxAtivos;
+          }
+
+          for (const [ci, retirada] of retiradasMap) {
+            ajustes.set(candidatos[ci].m.i, retirada.negated());
+          }
+        }
+      }
+    }
+
     // ── Monta resposta ───────────────────────────────────────────────────────
     let somaMetaHT = D0;
-    const mesesResp = meses.map(({ ano, mes }, i) => {
-      const key              = `${ano}-${mes}`;
-      const pinoValor        = pinosPorMes.get(key);
-      const pinado           = pinoValor !== undefined;
-      const metaHT           = pinado ? pinoValor! : metasHT[i];
-      somaMetaHT             = somaMetaHT.plus(metaHT);
+    const mesesResp = classificados.map(({ i, ano, mes, pinado, fechado, baseMetaHT, pinoValor, key }) => {
+      let metaHT: Prisma.Decimal;
+      if (pinado) {
+        metaHT = pinoValor!;
+      } else {
+        // fechado → ajuste=0 (intocável); editável → ajuste da cascata (0 se sem cascata)
+        metaHT = baseMetaHT.plus(ajustes.get(i) ?? D0);
+      }
+      somaMetaHT = somaMetaHT.plus(metaHT);
       const receitaPlanejada = receitaPorMes.get(key) ?? D0;
       const deficit          = metaHT.greaterThan(receitaPlanejada)
-        ? metaHT.minus(receitaPlanejada)
-        : D0;
+        ? metaHT.minus(receitaPlanejada) : D0;
       return {
         ano, mes,
         medicao:          medicoes[i].toFixed(2),
         oficialAlocado:   oficialAlocados[i].toFixed(2),
         metaHT:           metaHT.toFixed(2),
         pinado,
+        fechado,
         receitaPlanejada: receitaPlanejada.toFixed(2),
         deficit:          deficit.toFixed(2),
       };
     });
 
-    // cascataPendente: pinos existem mas redistribuição ainda não rodou (F2b-ii)
-    const cascataPendente = temPinos && !somaMetaHT.equals(valorHT);
+    const cascataPendente = temPinos && (
+      saldoNaoPlanejado !== null ||
+      precisaDecisaoManual !== null ||
+      !somaMetaHT.equals(valorHT)
+    );
 
     return res.json({
       configurado: true,
@@ -394,6 +533,8 @@ router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) 
         cascataPendente,
         numeroMeses:       numMeses,
         estrategiaOficial: estrategia,
+        ...(saldoNaoPlanejado    !== null ? { saldoNaoPlanejado: saldoNaoPlanejado.toFixed(2) } : {}),
+        ...(precisaDecisaoManual !== null ? { precisaDecisaoManual }                             : {}),
       },
       meses: mesesResp,
     });

@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, FolderOpen, Plus, ChevronDown, ChevronRight,
-  Pencil, Trash2, X, Layers, GitBranch, BarChart2,
+  Pencil, Trash2, X, Layers, GitBranch, BarChart2, AlertTriangle, Info,
 } from 'lucide-react';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ interface MetaResumo {
   valorTotal: string; valorOficial: string; valorHT: string; somaMetaHT: string;
   cascataPendente: boolean; numeroMeses: number; estrategiaOficial: string;
   saldoNaoPlanejado?: string;
+  precisaDecisaoManual?: { faltam: string; folgaPorMes: { ano: number; mes: number; folga: string }[] };
 }
 type MetaData =
   | { configurado: false }
@@ -496,7 +497,29 @@ export default function ProjetoDetalhe() {
               </div>
             </div>
 
-            {metaData.resumo.cascataPendente && (
+            {metaData.resumo.saldoNaoPlanejado && (
+              <div
+                className="flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
+                style={{ background: 'hsl(220 80% 56% / 0.1)', color: 'hsl(220 80% 50%)', border: '1px solid hsl(220 80% 56% / 0.2)' }}
+              >
+                <Info size={13} className="shrink-0 mt-0.5" />
+                <span>
+                  {fmtMoeda(metaData.resumo.saldoNaoPlanejado)} ficaram disponíveis após o ajuste. Todos os meses já atingiram a meta de apropriação.
+                </span>
+              </div>
+            )}
+            {metaData.resumo.precisaDecisaoManual && (
+              <div
+                className="flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
+                style={{ background: 'hsl(38 92% 50% / 0.1)', color: 'hsl(38 92% 45%)', border: '1px solid hsl(38 92% 50% / 0.2)' }}
+              >
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                <span>
+                  Não há saldo disponível nos demais meses para este aumento sem comprometer a cobertura financeira (faltam {fmtMoeda(metaData.resumo.precisaDecisaoManual.faltam)}).
+                </span>
+              </div>
+            )}
+            {metaData.resumo.cascataPendente && !metaData.resumo.saldoNaoPlanejado && !metaData.resumo.precisaDecisaoManual && (
               <div
                 className="px-3 py-2 rounded-xl text-xs"
                 style={{ background: 'hsl(38 92% 50% / 0.1)', color: 'hsl(38 92% 50%)', border: '1px solid hsl(38 92% 50% / 0.2)' }}

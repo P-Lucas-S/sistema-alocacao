@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { NumericFormat } from 'react-number-format';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -122,6 +123,9 @@ export default function ProjetoDetalhe() {
 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+
+  const [editingMeta, setEditingMeta] = useState<{ ano: number; mes: number; valor: number | null } | null>(null);
+  const [savingPino, setSavingPino] = useState(false);
 
   const canWrite = user?.role === 'admin' ||
     (user?.role === 'gestor' && projeto?.gestorId === user.id);
@@ -272,6 +276,30 @@ export default function ProjetoDetalhe() {
     } finally {
       setEstrategiaSaving(false);
     }
+  }
+
+  async function savePino(ano: number, mes: number, valor: number | null) {
+    if (valor === null || valor < 0) { setEditingMeta(null); return; }
+    setSavingPino(true);
+    try {
+      const res = await fetch(`/api/projetos/${projetoId}/meta-apropriacao/pino`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ano, mes, metaHT: valor }),
+      });
+      if (res.ok) await fetchMeta();
+    } finally {
+      setSavingPino(false);
+      setEditingMeta(null);
+    }
+  }
+
+  async function removePino(ano: number, mes: number) {
+    const res = await fetch(`/api/projetos/${projetoId}/meta-apropriacao/pino/${ano}/${mes}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) await fetchMeta();
   }
 
   function toggleExpand(macroId: string) {
@@ -491,43 +519,120 @@ export default function ProjetoDetalhe() {
                   </tr>
                 </thead>
                 <tbody>
-                  {metaData.meses.map(m => {
-                    const def = parseFloat(m.deficit);
-                    return (
-                      <tr key={`${m.ano}-${m.mes}`}>
-                        <td style={tdMeta}>
-                          <span className="font-medium">{fmtMes(m.ano, m.mes)}</span>
-                          {m.pinado && (
-                            <span
-                              className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ background: 'var(--brand-500)15', color: 'var(--brand-500)' }}
-                            >
-                              pin
-                            </span>
-                          )}
-                          {m.fechado && (
-                            <span
-                              className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ background: 'hsl(0 0% 50% / 0.12)', color: 'var(--text-3)' }}
-                            >
-                              fechado
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.medicao)}</td>
-                        <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.oficialAlocado)}</td>
-                        <td style={{ ...tdMeta, textAlign: 'right', fontWeight: 600 }}>{fmtMoeda(m.metaHT)}</td>
-                        <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.receitaPlanejada)}</td>
-                        <td style={{
-                          ...tdMeta, textAlign: 'right',
-                          fontWeight: def > 0 ? 600 : undefined,
-                          color: def > 0 ? '#f87171' : 'var(--text-3)',
-                        }}>
-                          {def > 0 ? fmtMoeda(m.deficit) : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {(() => {
+                    const temPinos = metaData.meses.some(m => m.pinado);
+                    return metaData.meses.map(m => {
+                      const def = parseFloat(m.deficit);
+                      const baseCents = Math.round(parseFloat(m.medicao) * 100) - Math.round(parseFloat(m.oficialAlocado) * 100);
+                      const metaCents = Math.round(parseFloat(m.metaHT) * 100);
+                      const ajustado  = !m.pinado && !m.fechado && temPinos && metaCents !== baseCents;
+                      const isEditing = editingMeta?.ano === m.ano && editingMeta?.mes === m.mes;
+                      return (
+                        <tr key={`${m.ano}-${m.mes}`}>
+                          <td style={tdMeta}>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">{fmtMes(m.ano, m.mes)}</span>
+                              {m.pinado && (
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                  style={{ background: 'color-mix(in srgb, var(--brand-500) 15%, transparent)', color: 'var(--brand-500)' }}
+                                >
+                                  pin
+                                </span>
+                              )}
+                              {m.pinado && canWrite && (
+                                <button
+                                  onClick={() => removePino(m.ano, m.mes)}
+                                  disabled={savingPino}
+                                  title="Remover pino"
+                                  className="w-4 h-4 rounded flex items-center justify-center shrink-0 transition-colors"
+                                  style={{ color: 'var(--text-3)' }}
+                                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#f87171'}
+                                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'}
+                                >
+                                  <X size={10} />
+                                </button>
+                              )}
+                              {m.fechado && (
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                  style={{ background: 'hsl(0 0% 50% / 0.12)', color: 'var(--text-3)' }}
+                                >
+                                  fechado
+                                </span>
+                              )}
+                              {ajustado && (
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                  style={{ background: 'hsl(38 92% 50% / 0.12)', color: 'hsl(38 92% 45%)' }}
+                                >
+                                  ajust.
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.medicao)}</td>
+                          <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.oficialAlocado)}</td>
+                          <td
+                            style={{ ...tdMeta, textAlign: 'right', fontWeight: 600, padding: isEditing ? '4px 8px' : tdMeta.padding, cursor: (!m.fechado && canWrite && !isEditing && !savingPino) ? 'pointer' : undefined }}
+                            onClick={() => {
+                              if (!canWrite || m.fechado || isEditing || savingPino) return;
+                              setEditingMeta({ ano: m.ano, mes: m.mes, valor: parseFloat(m.metaHT) });
+                            }}
+                          >
+                            {isEditing ? (
+                              <NumericFormat
+                                value={editingMeta!.valor ?? ''}
+                                thousandSeparator="."
+                                decimalSeparator=","
+                                decimalScale={2}
+                                fixedDecimalScale
+                                prefix="R$ "
+                                allowNegative={false}
+                                onValueChange={({ floatValue }) =>
+                                  setEditingMeta(e => e ? { ...e, valor: floatValue ?? null } : null)
+                                }
+                                onBlur={() => savePino(m.ano, m.mes, editingMeta!.valor)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') { e.currentTarget.blur(); }
+                                  if (e.key === 'Escape') { setEditingMeta(null); }
+                                }}
+                                autoFocus
+                                disabled={savingPino}
+                                style={{
+                                  background: 'var(--surface-2)',
+                                  border: '1px solid var(--brand-500)',
+                                  borderRadius: 6,
+                                  padding: '4px 8px',
+                                  color: 'var(--text-1)',
+                                  fontSize: 13,
+                                  outline: 'none',
+                                  width: 150,
+                                  textAlign: 'right',
+                                  fontWeight: 600,
+                                }}
+                              />
+                            ) : (
+                              <div className={`flex items-center justify-end gap-1.5${canWrite && !m.fechado ? ' group' : ''}`}>
+                                <span>{fmtMoeda(m.metaHT)}</span>
+                                {canWrite && !m.fechado && (
+                                  <Pencil size={10} className="opacity-0 group-hover:opacity-40 transition-opacity shrink-0" />
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.receitaPlanejada)}</td>
+                          <td style={{
+                            ...tdMeta, textAlign: 'right',
+                            fontWeight: def > 0 ? 600 : undefined,
+                            color: def > 0 ? '#f87171' : 'var(--text-3)',
+                          }}>
+                            {def > 0 ? fmtMoeda(m.deficit) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>

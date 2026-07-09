@@ -2,9 +2,9 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** **Priorização P1 + reorganização do menu (N1/N2) + dashboard Projetos (D1+D2) completos.** A **regra de priorização** (`Regra_Priorizacao_reconstruida.md`) foi implementada como `calcularPriorizacao()` exportada em `priorizacao.ts` (`996f271`) e está no núcleo do **dashboard de Projetos**: endpoint `GET /api/dashboards/projetos` enriquecido com equipe, custo mensal e horas realizadas (`83ccc4b`), e a tela **Prioridades** com badge de categoria, seletor de mês e tabela completa (`89b9bc6`). O menu lateral passou por 3 commits: remoção de Alocações (`7179587`), agrupamento em seções Operação/Painéis/Cadastros (`5f1260e`), e visibilidade fina por papel com `roles?: Role[]` (`44c45b1`). O bloco de **tarifa por colaborador × categoria** (§4-bis, último commit `d1dd8df`) fechou antes desta sessão. **Spec de papéis: passos 1–5 ✅ (backend); passo 6 (telas chefe/diretor) pendente.** **Fases 0–4 + tarifa + papéis 1–5 + feature Profissão + priorização P1 + dashboard Projetos completos.** Próximos: **passo 6 → dashboards Geral/Capacidade → priorização P2 (override, batch, config) → Fase 5** — ver §7. A tela de histórico do log (E2-b) segue como extra deferido.
+> **Última atualização:** **Planejamento Inteligente de Equipe — metade financeira COMPLETA (F0→F3).** A cliente redefiniu a prioridade (03/07): a dor central é validar as horas alocadas contra a receita necessária do mês (a "meta de apropriação de HT"). Toda a fila anterior (passo 6 dos papéis, priorização, dashboards, Fase 5) foi **estacionada**. Construída a metade financeira da feature: **posse na escrita de alocação (F0), campos financeiros do projeto (F1), o motor de meta mensal com cascata simétrica (F2), e a tela da Meta de Apropriação (F3)** — tudo no GitHub, `feat/alocacao-fase-2`, 8 commits (`3310d02` → `29a243f`), ver **§4-septies**. O `alocarComLock`/teto de 220h seguem **intocados**. Fonte da verdade: `Spec_Planejamento_Inteligente.md` **v1.4**. Próximo bloco: o **motor de sugestão de equipe (F4→F6)** — ver §7. As frentes antigas (papéis/priorização/dashboards) seguem estacionadas.
 >
-> **Estado do código e do banco (importante pra próxima sessão):** código em **`89b9bc6`**, schema Prisma e banco **coerentes** — **16 migrations** aplicadas (sem migration nova nos commits N1/N2/P1/D1/D2 — são só código). O `tsc` passa limpo nos dois lados (verificado em `89b9bc6`). Novos arquivos desta sessão: `backend/src/routes/dashboards.ts` (montado em `/api/dashboards`), `frontend/src/pages/Prioridades.tsx`, `frontend/src/components/SeletorMes.tsx` (compartilhado; Grid tem cópia local separada — dívida técnica, ver §7). `calcularPriorizacao()` em `priorizacao.ts` é exportada e reusada pelo dashboard sem query extra ao banco.
+> **Estado do código e do banco (importante pra próxima sessão):** código em **`d3f4aba`** (último: sincronização da spec v1.4), tudo pushed. Schema e banco **coerentes** — as migrations da feature (`f1_campos_financeiros_projeto`, `f2b_i_pino_meta_mensal`) aplicadas via `migrate deploy` sem reset. `tsc` limpo nos dois lados. **Entidades novas da feature:** 5 campos financeiros em `projetos` (valor_total, valor_oficial, estrategia_oficial, vigencia_inicio, vigencia_fim) e a tabela `meta_mensal_ajustes` (os pinos). Dependência nova no frontend: `react-number-format` (máscara de moeda). **Gotcha recorrente:** backend zumbi pegou 2× nesta frente (reiniciar do diretório errado → processo velho na :3001 servindo código antigo; o /api/health responde ok mesmo assim) — sempre reiniciar de `backend/` e provar que é o processo novo.
 
 > **Os 5 passos da spec de papéis** estão fechados e no GitHub: **(1)** papéis `chefe` e `diretor` + `requireRole` tipado (`cae3015`); **(2)** `criadoPorId` no projeto + delegação na criação (`6861e87`); **(3)** override do chefe nas rotas de operação, teto provado sob concorrência chefe×gestor (`c07d6c7`); **(4)** re-delegação — chefe troca o `gestorId` + auditoria (`c5342d4`); **(5)** exclusão permanente — cascata + lápide + as 4 rotas do fluxo (`2e807d6` schema+cascata, `af2cbb3` rotas+conserto). Tudo provado por teste de API (papéis 11/11, delegação 16/16, override 15/15 + concorrência 8/8, re-delegação 23/23, cascata 36/36, fluxo 53/53).
 
@@ -75,6 +75,7 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Pós-demo (2ª leva — Manual)** | Papéis novos (chefe/diretor) + delegação + exclusão permanente, bug macro/micro, e itens menores — ver §4-ter | 🟡 **Bug macro/micro ✅** (`acb3383`, `21b44ec`) + painel na célula vazia (`1a2b7bb`); **spec de papéis: passos 1–5 ✅** (`cae3015`, `6861e87`, `c07d6c7`, `c5342d4`, `2e807d6`, `af2cbb3`), **só o passo 6 (frontend) pendente**; **itens menores ✅**: Perfil tema claro (`be7848b`), GET /categorias pra chefe+diretor (`4f08a44`), Cargo em Custos (`0dc3cc7`) |
 | **Área de atuação** | Entidade administrável + FK no colaborador + telas — **construída e REVERTIDA** | ⏪ **Revertida** (decisão de produto — ver §4-quater). Código de volta em `0dc3cc7`; 4 commits salvos em `backup/areas-atuacao-58e3f20` |
 | **Profissão** | Entidade **plana** que **substitui** a `funcao` + montar equipe por profissão no grid (filtro, faixa de candidatos, alocação inline) — ver §4-quinquies | ✅ **Completa** (`f2395e0`, `e64e6ce`, `cece63c`, `887ac75`, `892721a`, `a8582be`, `efe1317`, `087d61c`, `e2e56ac`, `3f3e9d7`) |
+| **Planejamento Inteligente** | Meta de apropriação de HT: campos financeiros + meta mensal derivada + cascata simétrica + tela — ver §4-septies. Metade financeira (F0→F3). Motor de sugestão (F4→F6) pendente | 🟡 **F0→F3 ✅** (`3310d02`, `1b06ead`, `2047c71`, `9728b4e`, `58b49ec`, `f48dc50`, `aa9fd39`, `29a243f`); F4→F6 (motor de sugestão) pendente |
 | **Priorização P1 + menu + dashboard Projetos** | `calcularPriorizacao()` exportada; menu N1/N2; tela Prioridades; grupo Painéis — ver §4-sexies | ✅ **Completos** (`7179587`, `5f1260e`, `44c45b1`, `996f271`, `83ccc4b`, `89b9bc6`) |
 | Transversal | Identidade visual geral | ✅ Reforma clara aplicada no preparo do demo (`c378876`, `db44f99`) |
 
@@ -596,6 +597,39 @@ O bloco de tarifa (§4-bis) fechou antes desta sessão com a **tela de edição 
 
 ---
 
+## 4-septies. Planejamento Inteligente de Equipe (a frente ATIVA — meta financeira: F0→F3 feitas)
+
+**A virada de prioridade (03/07/2026).** A cliente redefiniu a prioridade: a dor central não é dashboard/acesso, é que **as horas alocadas não são validadas contra a receita necessária do mês**. O sistema garante o teto, mas não diz se as horas de um mês geram receita suficiente pra cobrir as despesas daquele mês (a "meta de apropriação de Horas Técnicas"). Toda a fila anterior (passo 6 dos papéis, priorização estrutural, dashboards, Fase 5) foi **estacionada**; esta virou a frente ativa. Fonte da verdade: **`Spec_Planejamento_Inteligente.md` v1.4** (no projeto). Concebida via brainstorm de 4 IAs + várias iterações com a cliente.
+
+**O modelo, confirmado pela cliente (03/07 14h34).** O projeto informa **3 números** (vigência, valorTotal, valorOficial) e o sistema **deriva** a meta mensal — SEM cadastro de despesas mês a mês (a cliente matou isso: "o cronograma é resultado, não origem"). `valorHT = valorTotal − valorOficial` (só o que depende de apropriação de HT; o oficial é pago direto pelo financiador). A meta de cada mês é computada sob demanda (medição uniforme − distribuição do oficial), nunca materializada — mesma filosofia da priorização/dashboards.
+
+**A feature inteira (visão).** Metade **financeira** (meta de apropriação — F1→F3, FEITA): cadastrar os valores, ver/ajustar a meta mensal, validar cobertura. Metade **motor** (sugestão de equipe — F4→F6, PENDENTE): dado o déficit da meta, o sistema sugere quem alocar (camadas fixados→equipe-atual→externos, consumindo R$ por mês), o gestor revisa e aplica pelas escritas guardadas de hoje. A metade financeira está no ar; o motor é o próximo bloco.
+
+**O que está FEITO (backend provado por teste, frontend por print; tudo na `feat/alocacao-fase-2`, pushed):**
+
+- **F0 — Posse na escrita de alocação** (`3310d02`). O furo: `POST/PATCH/DELETE` de alocação não validavam dono — qualquer gestor operava projeto alheio via API (a UI restringia, o teto/lock seguiam seguros). Pré-requisito de segurança da feature (a aplicação em massa não pode nascer herdando o furo). Pré-check `role==='gestor' && projeto.gestorId!==userId → 403` (chefe/admin passam), ANTES da transação/lock. Remanejamento escreve por fora das rotas de alocação (Prisma direto, posse já validada nas duas pontas) — não afetado, confirmado por `test-concorrencia-cessao` 8/8. `test-posse-alocacao` 12/12; os 3 testes de concorrência 8/8 (portão do teto intacto). Também abateu dívida: corrigido o setup dos testes de concorrência (payload obsoleto sem profissaoId/valorHora).
+
+- **F1 — Campos financeiros do Projeto** (`1b06ead`). Migration aditiva (mostrada antes de aplicar): `valor_total`/`valor_oficial` DECIMAL(10,2) nullable, `estrategia_oficial` VARCHAR default 'inicial', `vigencia_inicio`/`vigencia_fim` DATE nullable (não existiam). `estrategiaOficial` é string-constante (não enum Prisma — segue o padrão da casa). POST/PUT validam os 5 campos (oficial>total rejeitado; PUT só processa financeiros se ao menos um vier — preserva ao editar). Frontend: seção Financeiro no form + resumo no detalhe (HT derivado = total−oficial; "—" quando null). **Máscara de moeda:** `react-number-format` (`^5.4.5`), edição livre (selecionar/colar/cursor no meio), entrega número puro (`floatValue`) ao form. O `InputMoeda` virou wrapper fino disso (a versão manual estilo caixa-eletrônico foi substituída — engessava a edição).
+
+- **F2a — Cálculo da meta mensal** (backend, read-only) (`2047c71`). `GET /api/projetos/:id/meta-apropriacao` (posse manual como GET /:id). Por mês: medição (valorTotal÷nº meses), oficialAlocado (por estratégia: 'inicial' esgota nos primeiros meses / 'proporcional' reparte igual), metaHT (medição−oficial), receitaPlanejada (**reusa `carregarTarifas`/`resolverTarifa` de `lib/tarifa.ts` — a MESMA conta do custoPlanejado do dashboard**), deficit. Projeto sem dados → `{configurado:false}`. **Precisão exata:** o ÚLTIMO mês absorve o resíduo de arredondamento → soma(medição)=valorTotal, soma(oficial)=valorOficial, soma(metaHT)=valorHT EXATO ao centavo (invariante testado sem margem). Tudo Prisma.Decimal. `test-meta-apropriacao` 46/46.
+
+- **F2b-i — Persistência do pino** (sem cascata) (`9728b4e`). Migration aditiva: entidade `MetaMensalAjuste` (projetoId FK onDelete Cascade, ano, mes, metaHT Decimal(10,2), UNIQUE(projetoId,ano,mes)) — segue o padrão de PrestacaoContas. Esparsa: só onde o gestor pinou. `PUT /:id/meta-apropriacao/pino {ano,mes,metaHT}` (upsert; valida metaHT≥0, mês na vigência, mês não fechado) e `DELETE .../:ano/:mes`. O GET lê: `metaHTFinal = pino ?? calculado`; cada mês indica `pinado`. Estado intermediário honesto: `somaMetaHT` + `cascataPendente:true` quando há pino e a soma não fecha. `test-pino-meta` 27/27.
+
+- **F2b-ii — Cascata simétrica** (backend, computada sob demanda no GET) (`58b49ec`). O algoritmo mais delicado da feature. Princípio único da cliente: **nunca criar/piorar déficit automaticamente**. Meses editáveis = não-fechados E não-pinados (fechados via `FechamentoMensal`, 1 query batch). Ao pinar o mês M: **LIBERAR** (pino abaixo→sobra saldo): distribui aos editáveis COM DÉFICIT, proporcional ao déficit; sem déficit em nenhum → `saldoNaoPlanejado` reportado. **PUXAR** (pino acima→falta saldo): retira dos editáveis COM FOLGA, proporcional à folga, com TETO na folga (nunca reduz abaixo da receita); folga total insuficiente → `precisaDecisaoManual` reportado. Método: **proporcional-com-teto iterativo** (o mês que estoura a cota é capado e sai, o excedente realoca). Soma fecha EXATO após a cascata (último mês ajustado absorve resíduo). **Correção na revisão:** o CC implementou PUXAR como greedy (drena maior folga primeiro), mas a cliente especificou proporcional; o teste inicial mascarou a diferença (caso onde coincidem) — reescrito pra proporcional + teste que os separa (12k/12k puxar 10k → 5k/5k, não 10k/0). `test-cascata-meta` 87/87.
+
+- **F3a — Seção "Meta de Apropriação" no detalhe** (leitura) (`f48dc50`). Tabela mês/medição/oficial/metaHT/receita/déficit + seletor de estratégia (persiste via PUT ao trocar; a estratégia é decisão do gestor) + resumo (valorHT, somaMetaHT). Estado neutro pra `configurado:false`. Déficit em vermelho; badges pin/fechado. Validado por print: soma=632.000 nas duas estratégias, mês parcial da inicial (32.000,01), resíduo no último mês, troca não corrompe valores.
+
+- **F3b — Edição inline + cascata na tela** (`aa9fd39`). Coluna Meta HT editável (hover→lápis→input com máscara→Enter→PUT pino→refetch→a tabela reflete a cascata). Despino (o `×`→DELETE pino→volta ao automático). Indicador de mês ajustado pela cascata (badge `ajust.` âmbar, distinto de `pin`/`fechado`). Só meses não-fechados editam. Validado por print com projeto de déficits desiguais: pinar Jan liberando saldo → os editáveis sobem PROPORCIONAL ao déficit (meses com receita sobem menos), soma continua = valorHT.
+
+- **F3c — Avisos dos estados-limite** (`29a243f`). Os dois estados que a F2b-ii reporta viram banners: `saldoNaoPlanejado` (banner azul informativo, "R$ X disponíveis, todos os meses já atingiram a meta"); `precisaDecisaoManual` (banner âmbar de alerta, "faltam R$ Y", + Soma Meta âmbar). SEM botões de ação — a UI de decisão manual (escolher meses/forçar déficit/cancelar) é fase futura; aqui só o aviso. Condicionais (os campos só vêm no JSON quando o estado é ativo → somem ao despinar). Validado por print com os dois números exatos (âmbar faltam 2.000, azul 2.000 disponíveis).
+
+**Gotchas recorrentes desta frente (registrar pra próxima sessão):**
+- **Backend zumbi (pegou 2×):** reiniciar do diretório errado (`frontend/` em vez de `backend/`) faz o `node --import tsx/esm src/server.ts` morrer em silêncio (tsx não está no frontend), e o processo ANTIGO segue na porta 3001 servindo código velho. O `/api/health` responde `ok` mesmo sendo o zumbi. Sempre matar via `Get-NetTCPConnection -LocalPort 3001` e reiniciar de `backend/`; após reiniciar, PROVAR que o backend é o novo (não só que responde). **Quick-win pendente:** boot-timestamp no `/api/health` pra detecção trivial de zumbi.
+- **`prisma generate` prematuro quebra o boot:** gerar o client (com `--create-only` ainda não aplicado) deixa o client à frente do banco → P2022 no seed → backend não sobe. Nos prompts de migration: NÃO regenerar o client até o SQL ser aprovado e aplicado.
+- **Aspas duplas em here-string PowerShell (`@'...'@`) quebram o commit** (o PS re-divide nelas → `pathspec`/`unknown switch`). Alternativa robusta adotada: `git commit -m "..." -m "..."` múltiplo (um `-m` por parágrafo; aspas duplas OK fora do here-string; tirar `$` dos valores — escrever "2000 reais" não "R$ 2.000").
+
+---
+
 ## 5. Sobre alocar "no nível da macro" (sem descer até micro)
 
 Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem escolher uma micro?*
@@ -639,39 +673,27 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 
 ---
 
-## 7. Próximos passos
+## 7. Próximos passos e prioridade
 
-Com **Fases 0–4 + tarifa + papéis 1–5 + feature Profissão + priorização P1 + dashboard Projetos completos** e a prioridade redefinida pela cliente em 03/07, a fila atual é:
+**PRIORIDADE ATIVA: Planejamento Inteligente de Equipe** (a cliente redefiniu em 03/07 — ver §4-septies; fonte da verdade: `Spec_Planejamento_Inteligente.md` v1.4). A **metade financeira está FEITA e no ar** (F0→F3: posse, campos, motor de meta com cascata, tela). Falta a **metade motor**:
 
-### PRIORIDADE ATIVA — Planejamento Inteligente de Equipe
+1. **F4 — Motor de sugestão** (backend, read-only). Dado o déficit da meta por mês, distribui equipe em camadas (fixados → quem já está no projeto → externos por disponibilidade), consumindo R$ por mês (horas × tarifa resolvida, NUNCA tarifa média), determinístico. Alvo = déficit. É a lógica mais complexa da feature — comparável à cascata. **Vale esforço máximo no CC e uma spec/desenho detalhado antes do primeiro prompt.**
+2. **F5 — Wizard de sugestão** (2 passos: parâmetros + revisão editável pessoas×meses). NOTA: "editar não recalcula as outras linhas" vale pra tabela de REVISÃO da sugestão — DIFERENTE da cascata da meta.
+3. **F6 — Aplicação em massa:** loop pelo `POST /alocacoes` existente, célula a célula (nunca um caminho novo de escrita em lote), com relatório bloqueante das falhas (teto/corrida, mês fechado). A F0 garantiu a posse por chamada.
 
-**Fonte:** `Spec_Planejamento_Inteligente.md` v1.2 (nos arquivos do projeto).
+**ESTACIONADO (retoma depois da feature):**
+- **Passo 6 dos papéis** (frontend chefe/diretor) + os **dashboards (3)** — casam entre si; brainstorm ao escopá-los. Duas pendências no começo: `'chefe'` no `requireRole` de `GET /categorias`; a decisão de UX do remanejamento do chefe.
+- **Priorização estrutural** (regra fechada em `Regra_Priorizacao.md`; falta cálculo + tela — a tela Prioridades D2 já existe como base).
+- **Filtro do chefe por gestor** (pedido da cliente; backend ignora/rejeita gestorId de gestor comum).
+- **Fase 5** (visão da coordenação, relatórios, virtualização + navegabilidade do grid).
+- **Itens menores do Manual** (PDF Declaração de HT, notificação de remanejamento, datas na macro).
 
-**Por quê agora:** a cliente redefiniu a prioridade em 03/07. A dor central é que as horas alocadas não são validadas contra a **receita necessária do mês** (meta de apropriação de HT). O modelo foi **confirmado pela cliente em 03/07 às 14h34**: o projeto informa vigência + valor total + valor oficial; a meta mensal é derivada com 3 estratégias (inicial / proporcional / personalizada); ajuste manual "pina" o mês e os seguintes recalculam em cascata.
+**DECISÕES DE DESIGN PENDENTES COM A CLIENTE** (surgiram montando os testes da F3):
+- **Macro automática na criação do projeto?** Projeto nasce sem macro, e sem macro não há onde alocar. A F6 (aplicação da sugestão) vai precisar de uma macro destino — então essa decisão volta em breve. Perguntar à cliente se o projeto deve nascer com uma macro "Geral".
+- **O grid deve validar a vigência do projeto?** Hoje o grid não conhece vigência (conceito novo da F1) — deixa alocar em qualquer mês aberto, inclusive fora da vigência. Alinhar se deve restringir ou avisar.
+- **Texto obsoleto no grid vazio:** "Use /alocacoes para alocar" referencia a tela Alocações que foi removida na reorganização do menu. O caminho certo hoje é a busca "Adicionar colaborador". Uma linha a corrigir.
 
-**Fila de implementação:**
-- **F0** — posse na escrita de alocação (pré-requisito de segurança; prompt pronto)
-- **F1** — campos financeiros no projeto (migration)
-- **F2** — meta mensal no backend
-- **F3** — seção no detalhe do projeto
-- **F4** — motor de sugestão
-- **F5** — wizard de configuração
-- **F6** — aplicação em massa
-- **F7** — polimentos
-
-### Estacionados (retomam depois da feature)
-
-- **Rótulos de papel (`ROLE_LABELS`) — DECIDIDOS, não implementados:** mapa fixo no código, sem tela de configuração: `'chefe' → 'Coordenação'`, `'coordenacao' → 'Consulta'`, `'diretor' → 'Gerência'` (candidato, vindo do manual da cliente), `'admin' → 'Administrador'`, `'gestor' → 'Gestor'`. Aguarda o Planejamento Inteligente.
-- **Filtro do chefe por gestor** — regra já decidida: backend ignora/rejeita `gestorId` vindo de gestor comum. Pedido independente da cliente — pode sair do estacionamento junto do passo 6 ou antes, se ela cobrar.
-- **D3 — drill-down de custos na tela Prioridades** (quando existir, "Custos" sai do menu e vira detalhe do dashboard).
-- **Dashboards Capacidade → Geral → Início** (em ordem de dependência; Início se torna o dashboard executivo quando existir conteúdo).
-- **Passo 6 dos papéis** — `canWrite` incluindo chefe nas telas de Projetos/Colaboradores; telas completas do chefe e do diretor; remanejamento do chefe (ver "Perguntas pendentes").
-
-### Perguntas pendentes com a cliente
-
-- **(a) Prorrogação de prestações de contas:** uma prestação vencida *legitimamente* (prorrogada formalmente) não deveria virar `alta` na tela Prioridades — precisaria de um `status` na prestação (ex.: `prorrogada`). Decidir antes de evoluir a regra de priorização (a fase futura P3 — configuração/fixar/pausar — ou via um status de prorrogação na prestação).
-- **(b) O papel "Consulta" (ex-coordenação) será de fato usado?** O manual da cliente lista 4 perfis e nenhum é leitura pura. Vale confirmar antes de construir tela dedicada.
-- **(c) Remanejamento do chefe:** de onde o chefe cede horas? A cessão hoje é "o gestor cede as horas *dele*" (`minhas-do-colaborador` devolve alocações do próprio gestor; admin recebe vazio). O chefe não tem `gestorId` próprio — precisa de decisão de UX antes do passo 6 (§4-ter).
+**PERGUNTAS ANTIGAS PENDENTES:** prorrogação de prestações (vencida legítima não deveria virar "alta" na priorização — futuro status na prestação); se o papel Consulta (ex-coordenacao) será usado; rótulos de exibição dos papéis (Coordenação/Consulta/Gerência — DECIDIDOS, não implementados).
 
 ---
 
@@ -715,5 +737,6 @@ Com muitas colunas: (a) difícil perceber que dá pra rolar na horizontal; (b) d
 - **`Spec_Dashboards.md`** — spec do bloco de dashboards (3 planejados: Projetos, Geral, Capacidade); base dos prompts D1/D2 e dos próximos dashboards (item 3 do §7).
 - **`Spec_Navegacao.md`** — decisões da reorganização do menu lateral: remoção de Alocações, agrupamento em seções, visibilidade fina por papel (N1/N2 — detalhes em §4-sexies-b).
 - **`Mini_Brainstorm_Nome_Aba.md`** — registro do mini-brainstorm sobre nomes de abas/seções do menu e rótulos amigáveis de papel (`ROLE_LABELS` — ver §4-sexies-b e "Estacionados" no §7).
-- **`Spec_Planejamento_Inteligente.md` (v1.2)** — spec da **feature prioritária ativa**: meta mensal de apropriação de HT (planejado vs. receita necessária do projeto), motor de sugestão de alocação e aplicação em massa. Versão 1.2 confirmada pela cliente em 03/07.
+- **`Spec_Planejamento_Inteligente.md` (v1.4)** — spec da **feature prioritária ativa**: meta de apropriação de HT + motor de sugestão de equipe. Versão v1.4 é a fonte da verdade do arco F0→F6 (ver §4-septies).
+- **`Brainstorm_Planejamento_Inteligente.md`** — o enunciado do brainstorm de 4 IAs que deu origem ao modelo financeiro da feature.
 - **`PROGRESSO_E_DECISOES.md`** — este documento.

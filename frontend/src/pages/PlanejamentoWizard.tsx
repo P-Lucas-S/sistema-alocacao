@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -45,6 +45,16 @@ interface Resultado {
   totaisPorMes: TotalMes[];
   remanescentes: RemMes[];
   avisos: string[];
+}
+
+interface PessoaMatriz {
+  colaboradorId: string;
+  nome: string;
+  profissao: string;
+  camada: 'fixado' | 'equipe' | 'novo';
+  explicacao: string;
+  tarifa: string;
+  mesesData: Map<string, { horasOriginal: number; disponibilidadeVista: number }>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -147,6 +157,10 @@ export default function PlanejamentoWizard() {
   const [resultado,  setResultado]  = useState<Resultado | null>(null);
   const [erroMotor,  setErroMotor]  = useState('');
 
+  // ── matrix local edits (F5b) ─────────────────────────────────────────────
+  const [edicoes,   setEdicoes]   = useState<Map<string, Map<string, number>>>(new Map());
+  const [removidos, setRemovidos] = useState<Set<string>>(new Set());
+
   // ── load ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!projetoId || !token) return;
@@ -203,8 +217,66 @@ export default function PlanejamentoWizard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesesSel]);
 
+  // Novo resultado → descarta edições locais da matriz anterior
+  useEffect(() => {
+    setEdicoes(new Map());
+    setRemovidos(new Set());
+  }, [resultado]);
+
   // ref para o container scrollável — permite voltar ao topo no Limpar
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ── F5b: pivotar linhas → matriz por pessoa ──────────────────────────────
+  const pessoasMatriz = useMemo<PessoaMatriz[]>(() => {
+    if (!resultado || resultado.configurado === false) return [];
+    const map = new Map<string, PessoaMatriz>();
+    for (const l of resultado.linhas) {
+      if (!map.has(l.colaboradorId)) {
+        map.set(l.colaboradorId, {
+          colaboradorId: l.colaboradorId,
+          nome: l.nome, profissao: l.profissao, camada: l.camada,
+          explicacao: l.explicacao, tarifa: l.tarifa,
+          mesesData: new Map(),
+        });
+      }
+      map.get(l.colaboradorId)!.mesesData.set(l.mes, {
+        horasOriginal: l.horas,
+        disponibilidadeVista: l.disponibilidadeVista,
+      });
+    }
+    return Array.from(map.values());
+  }, [resultado]);
+
+  const mesesCol = useMemo(() => {
+    if (!resultado || resultado.configurado === false) return [];
+    return resultado.totaisPorMes.map(t => t.mes);
+  }, [resultado]);
+
+  // Recalcula totais por mês com as edições locais.
+  // INVARIANTE: só os totais mudam — as outras linhas NÃO são recalculadas.
+  const totaisEfetivos = useMemo(() => {
+    if (!resultado || resultado.configurado === false) return resultado?.totaisPorMes ?? [];
+    return resultado.totaisPorMes.map(t => {
+      let coberto = 0;
+      for (const p of pessoasMatriz) {
+        if (removidos.has(p.colaboradorId)) continue;
+        const orig = p.mesesData.get(t.mes)?.horasOriginal ?? 0;
+        const h    = edicoes.get(p.colaboradorId)?.get(t.mes) ?? orig;
+        coberto += h * parseFloat(p.tarifa);
+      }
+      const deficit = parseFloat(t.deficit);
+      return {
+        ...t,
+        coberto:              coberto.toFixed(2),
+        sobra:                Math.max(0, coberto - deficit).toFixed(2),
+        deficitRemanescente:  Math.max(0, deficit - coberto).toFixed(2),
+      };
+    });
+  }, [resultado, pessoasMatriz, edicoes, removidos]);
+
+  const ageMins = resultado
+    ? Math.floor((Date.now() - new Date(resultado.geradoEm).getTime()) / 60000)
+    : 0;
 
   // ── gerar ─────────────────────────────────────────────────────────────────
   async function handleGerar(e: React.FormEvent) {
@@ -776,109 +848,201 @@ export default function PlanejamentoWizard() {
                 </div>
               )}
 
-              {/* Resumo por mês */}
-              {resultado.totaisPorMes.length > 0 && (
-                <div style={card}>
-                  <p style={{ ...secLabel, marginBottom: 12 }}>Resumo por mês</p>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr>
-                          <th style={thSt}>Mês</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Meta HT</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Déficit</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Coberto</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Sobra</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Remanescente</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {resultado.totaisPorMes.map(t => {
-                          const rem = parseFloat(t.deficitRemanescente);
-                          const def = parseFloat(t.deficit);
-                          return (
-                            <tr key={t.mes}>
-                              <td style={tdSt}>{fmtMes(t.mes)}</td>
-                              <td style={{ ...tdSt, textAlign: 'right' }}>{fmtMoeda(t.metaHT)}</td>
-                              <td style={{ ...tdSt, textAlign: 'right', color: def > 0 ? '#f87171' : 'var(--text-3)' }}>
-                                {def > 0 ? fmtMoeda(t.deficit) : '—'}
-                              </td>
-                              <td style={{ ...tdSt, textAlign: 'right', color: 'hsl(142 60% 38%)', fontWeight: 600 }}>
-                                {fmtMoeda(t.coberto)}
-                              </td>
-                              <td style={{ ...tdSt, textAlign: 'right', color: 'var(--text-3)' }}>
-                                {parseFloat(t.sobra) > 0 ? fmtMoeda(t.sobra) : '—'}
-                              </td>
-                              <td style={{
-                                ...tdSt, textAlign: 'right',
-                                color: rem > 0 ? '#f87171' : 'var(--text-3)',
-                                fontWeight: rem > 0 ? 600 : undefined,
-                              }}>
-                                {rem > 0 ? fmtMoeda(t.deficitRemanescente) : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Linhas */}
+              {/* ── Matriz de revisão (F5b) ─────────────────────────────── */}
               <div style={card}>
-                <div className="flex items-center justify-between mb-3">
-                  <p style={secLabel}>
-                    Sugestão de equipe — {resultado.linhas.length} linha{resultado.linhas.length !== 1 ? 's' : ''}
-                  </p>
-                  <span className="text-xs" style={{ color: 'var(--text-3)' }}>
-                    {new Date(resultado.geradoEm).toLocaleTimeString('pt-BR')}
-                  </span>
+                {/* Cabeçalho do card */}
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div>
+                    <p style={secLabel}>
+                      Matriz de equipe —{' '}
+                      {pessoasMatriz.filter(p => !removidos.has(p.colaboradorId)).length} pessoa
+                      {pessoasMatriz.filter(p => !removidos.has(p.colaboradorId)).length !== 1 ? 's' : ''}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: ageMins > 5 ? 'hsl(38 92% 42%)' : 'var(--text-3)' }}>
+                      Sugestão gerada {ageMins === 0 ? 'agora mesmo' : `há ${ageMins} min`}
+                      {ageMins > 5 && ' · disponibilidade pode ter mudado'}
+                    </p>
+                  </div>
+                  <button
+                    disabled
+                    title="Aplicação disponível em breve (F6)"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                    style={{ background: 'var(--surface-3)', border: '1px solid var(--border)', color: 'var(--text-3)', cursor: 'not-allowed', opacity: 0.55 }}
+                  >
+                    <Check size={12} /> Aplicar alocações
+                  </button>
                 </div>
-                {resultado.linhas.length === 0 ? (
+
+                {pessoasMatriz.length === 0 ? (
                   <div className="flex flex-col items-center py-8 gap-2" style={{ color: 'var(--text-3)' }}>
                     <AlertTriangle size={24} strokeWidth={1} />
                     <p className="text-sm">Nenhuma sugestão gerada.</p>
                     <p className="text-xs">Verifique as tarifas dos candidatos e os parâmetros.</p>
                   </div>
+                ) : pessoasMatriz.filter(p => !removidos.has(p.colaboradorId)).length === 0 ? (
+                  <div className="flex flex-col items-center py-8 gap-2" style={{ color: 'var(--text-3)' }}>
+                    <X size={24} strokeWidth={1} />
+                    <p className="text-sm">Todas as pessoas foram removidas.</p>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                      style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)', cursor: 'pointer' }}
+                      onClick={() => setRemovidos(new Set())}
+                    >
+                      Restaurar todas
+                    </button>
+                  </div>
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table style={{ borderCollapse: 'collapse', minWidth: '100%' }}>
+                      {/* ── Cabeçalho ─────────────────────────────── */}
                       <thead>
                         <tr>
-                          <th style={thSt}>Colaborador</th>
-                          <th style={thSt}>Profissão</th>
-                          <th style={thSt}>Mês</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Horas</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Tarifa/h</th>
-                          <th style={{ ...thSt, textAlign: 'right' }}>Receita</th>
-                          <th style={thSt}>Camada</th>
+                          <th style={{ ...thSt, position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface-1)', minWidth: 210, maxWidth: 210 }}>
+                            Colaborador
+                          </th>
+                          {mesesCol.map(m => (
+                            <th key={m} style={{ ...thSt, textAlign: 'right', minWidth: 72, width: 72 }}>
+                              {fmtMes(m)}
+                            </th>
+                          ))}
+                          <th style={{ ...thSt, textAlign: 'right', minWidth: 64 }}>Total h</th>
+                          <th style={{ ...thSt, textAlign: 'right', minWidth: 100 }}>Receita</th>
+                          <th style={{ ...thSt, width: 32 }} />
                         </tr>
                       </thead>
+
+                      {/* ── Linhas por pessoa ─────────────────────── */}
                       <tbody>
-                        {resultado.linhas.map((l, i) => (
-                          <tr key={i}>
-                            <td style={{ ...tdSt, whiteSpace: 'normal', minWidth: 160, maxWidth: 220 }}>
-                              <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>{l.nome}</div>
-                              {l.explicacao && (
-                                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 400, marginTop: 2, lineHeight: 1.35 }}>
-                                  {l.explicacao}
+                        {pessoasMatriz.filter(p => !removidos.has(p.colaboradorId)).map(p => {
+                          let totalHoras   = 0;
+                          let totalReceita = 0;
+                          mesesCol.forEach(m => {
+                            const orig = p.mesesData.get(m)?.horasOriginal ?? 0;
+                            const h    = edicoes.get(p.colaboradorId)?.get(m) ?? orig;
+                            totalHoras   += h;
+                            totalReceita += h * parseFloat(p.tarifa);
+                          });
+
+                          return (
+                            <tr key={p.colaboradorId} style={{ borderBottom: '1px solid var(--border)' }}>
+                              {/* Pessoa info — sticky */}
+                              <td style={{ ...tdSt, borderBottom: 'none', position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface-1)', minWidth: 210, maxWidth: 210, whiteSpace: 'normal' }}>
+                                <div className="flex items-start gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <div style={{ fontWeight: 600, color: 'var(--text-1)', lineHeight: 1.3 }}>{p.nome}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>{p.profissao || '—'}</div>
+                                  </div>
+                                  <CamadaBadge camada={p.camada} />
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ ...tdSt, color: 'var(--text-3)' }}>{l.profissao || '—'}</td>
-                            <td style={tdSt}>{fmtMes(l.mes)}</td>
-                            <td style={{ ...tdSt, textAlign: 'right', fontWeight: 600 }}>{l.horas}h</td>
-                            <td style={{ ...tdSt, textAlign: 'right' }}>{fmtMoeda(l.tarifa)}</td>
-                            <td style={{ ...tdSt, textAlign: 'right', color: 'hsl(142 60% 38%)', fontWeight: 600 }}>
-                              {fmtMoeda(l.receita)}
-                            </td>
-                            <td style={{ ...tdSt, padding: '6px 10px' }}>
-                              <CamadaBadge camada={l.camada} />
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+
+                              {/* Células de horas por mês */}
+                              {mesesCol.map(m => {
+                                const mesData  = p.mesesData.get(m);
+                                const orig     = mesData?.horasOriginal ?? 0;
+                                const horas    = edicoes.get(p.colaboradorId)?.get(m) ?? orig;
+                                const dispApos = mesData ? mesData.disponibilidadeVista - horas : null;
+                                const aviso    = dispApos !== null && dispApos < 20;
+
+                                return (
+                                  <td key={m} style={{ ...tdSt, borderBottom: 'none', textAlign: 'right', padding: '6px 4px', verticalAlign: 'middle' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={horas === 0 ? '' : horas}
+                                        placeholder="0"
+                                        onChange={ev => {
+                                          const val = Math.max(0, parseFloat(ev.target.value) || 0);
+                                          setEdicoes(prev => {
+                                            const next    = new Map(prev);
+                                            const mesMapa = new Map(next.get(p.colaboradorId) ?? []);
+                                            mesMapa.set(m, val);
+                                            next.set(p.colaboradorId, mesMapa);
+                                            return next;
+                                          });
+                                        }}
+                                        style={{
+                                          width: 56, textAlign: 'right', fontSize: 13, fontWeight: 600,
+                                          background: aviso ? 'hsl(38 92% 50% / 0.08)' : 'var(--surface-2)',
+                                          border: `1px solid ${aviso ? 'hsl(38 92% 50% / 0.45)' : 'var(--border)'}`,
+                                          borderRadius: 6, padding: '3px 6px', color: 'var(--text-1)', outline: 'none',
+                                        }}
+                                      />
+                                      {dispApos !== null && (
+                                        <span style={{ fontSize: 9, lineHeight: 1, color: aviso ? 'hsl(38 92% 42%)' : 'var(--text-3)' }}>
+                                          {aviso && '⚠ '}{Math.round(dispApos)}h livres
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                );
+                              })}
+
+                              {/* Total horas */}
+                              <td style={{ ...tdSt, borderBottom: 'none', textAlign: 'right', fontWeight: 600 }}>
+                                {totalHoras}h
+                              </td>
+                              {/* Total receita */}
+                              <td style={{ ...tdSt, borderBottom: 'none', textAlign: 'right', fontWeight: 600, color: 'hsl(142 60% 38%)' }}>
+                                {fmtMoeda(totalReceita)}
+                              </td>
+                              {/* Remover */}
+                              <td style={{ ...tdSt, borderBottom: 'none', padding: '4px 8px', textAlign: 'center' }}>
+                                <button
+                                  onClick={() => setRemovidos(prev => new Set([...prev, p.colaboradorId]))}
+                                  title="Remover desta sugestão"
+                                  style={{ color: 'var(--text-3)', cursor: 'pointer', lineHeight: 1 }}
+                                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#f87171'}
+                                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'}
+                                >
+                                  <X size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
+
+                      {/* ── Rodapé: totais por mês ────────────────── */}
+                      <tfoot>
+                        <tr style={{ borderTop: '2px solid var(--border)' }}>
+                          <td style={{ ...tdSt, position: 'sticky', left: 0, background: 'var(--surface-1)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-3)' }}>
+                            Meta HT
+                          </td>
+                          {totaisEfetivos.map(t => (
+                            <td key={t.mes} style={{ ...tdSt, textAlign: 'right', fontWeight: 600 }}>
+                              {fmtMoeda(t.metaHT)}
+                            </td>
+                          ))}
+                          <td colSpan={3} />
+                        </tr>
+                        <tr>
+                          <td style={{ ...tdSt, position: 'sticky', left: 0, background: 'var(--surface-1)', fontSize: 11, fontWeight: 700, color: 'hsl(142 60% 38%)' }}>
+                            Coberto
+                          </td>
+                          {totaisEfetivos.map(t => (
+                            <td key={t.mes} style={{ ...tdSt, textAlign: 'right', fontWeight: 600, color: 'hsl(142 60% 38%)' }}>
+                              {fmtMoeda(t.coberto)}
+                            </td>
+                          ))}
+                          <td colSpan={3} />
+                        </tr>
+                        <tr>
+                          <td style={{ ...tdSt, position: 'sticky', left: 0, background: 'var(--surface-1)', fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>
+                            Déficit rem.
+                          </td>
+                          {totaisEfetivos.map(t => {
+                            const rem = parseFloat(t.deficitRemanescente);
+                            return (
+                              <td key={t.mes} style={{ ...tdSt, textAlign: 'right', fontWeight: rem > 0 ? 600 : undefined, color: rem > 0 ? '#f87171' : 'var(--text-3)' }}>
+                                {rem > 0 ? fmtMoeda(t.deficitRemanescente) : '—'}
+                              </td>
+                            );
+                          })}
+                          <td colSpan={3} />
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}

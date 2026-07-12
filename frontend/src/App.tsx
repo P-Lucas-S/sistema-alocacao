@@ -10,6 +10,7 @@ import Profile from './pages/Profile';
 import Colaboradores from './pages/Colaboradores';
 import Projetos from './pages/Projetos';
 import ProjetoDetalhe from './pages/ProjetoDetalhe';
+import PlanejamentoWizard from './pages/PlanejamentoWizard';
 import GridAlocacao from './pages/GridAlocacao';
 import Remanejamento from './pages/Remanejamento';
 import Custos from './pages/Custos';
@@ -79,6 +80,11 @@ export default function App() {
                   como redirect pra não quebrar favoritos/links salvos. Alocacoes.tsx
                   continua no disco, só desconectado da navegação ativa. */}
               <Route path="/alocacoes" element={<Navigate to="/grid" replace />} />
+              <Route path="/projetos/:id/planejar" element={
+                <ProtectedRoute>
+                  <Layout><PlanejamentoWizard /></Layout>
+                </ProtectedRoute>
+              } />
               <Route path="/projetos/:id" element={
                 <ProtectedRoute>
                   <Layout><ProjetoDetalhe /></Layout>

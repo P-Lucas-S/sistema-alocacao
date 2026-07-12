@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, FolderOpen, Plus, ChevronDown, ChevronRight,
-  Pencil, Trash2, X, Layers, GitBranch, BarChart2, AlertTriangle, Info,
+  Pencil, Trash2, X, Layers, GitBranch, BarChart2, AlertTriangle, Info, Brain,
 } from 'lucide-react';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -662,6 +662,21 @@ export default function ProjetoDetalhe() {
           </>
         )}
       </div>
+
+      {/* Planejar equipe — visível para admin/chefe/gestor-dono quando meta configurada */}
+      {metaData?.configurado && (user?.role === 'admin' || user?.role === 'chefe' ||
+        (user?.role === 'gestor' && projeto.gestorId === user.id)) && (
+        <div className="flex">
+          <button
+            onClick={() => navigate(`/projetos/${projetoId}/planejar`)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            style={{ background: 'var(--brand-500)' }}
+          >
+            <Brain size={15} />
+            Planejar equipe
+          </button>
+        </div>
+      )}
 
       {/* Macros section */}
       <div className="flex flex-col gap-3">

@@ -157,8 +157,9 @@ async function main() {
   console.log('');
 
   // ── Períodos base ────────────────────────────────────────────────────────────
-  const meses6 = gerarMeses(ANO_BASE, MES_BASE, 6);
-  const meses3 = gerarMeses(ANO_BASE, MES_BASE, 3);
+  const meses6  = gerarMeses(ANO_BASE, MES_BASE, 6);
+  const meses3  = gerarMeses(ANO_BASE, MES_BASE, 3);
+  const meses24 = gerarMeses(ANO_BASE, MES_BASE, 24);
 
   const vig6_ini = primeiroDia(meses6[0].ano, meses6[0].mes);
   const vig6_fim = ultimoDia(meses6.at(-1).ano, meses6.at(-1).mes);
@@ -293,6 +294,38 @@ async function main() {
     collabs: [],
     meses: meses3.map(({ ano, mes }) => ({ label: fmtMes(ano, mes), meta: META_MES_SF, receita: 0 })),
     testar: 'Banner ÂMBAR (precisaDecisaoManual) na meta ao elevar um mês',
+  });
+  console.log('   ✓ criado');
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // [5/5] CEN-24MESES
+  //   24 meses (Jul/26 – Jun/28), valorTotal=240.000, SEM alocações pré-existentes
+  //   Usado exclusivamente para reprovar o bug de limite de meses no wizard
+  // ══════════════════════════════════════════════════════════════════════════════
+  console.log('── [5/5] CEN-24MESES…');
+  const VT_24  = 240_000;
+  const META_MES_24 = VT_24 / 24;  // R$ 10.000/mês
+
+  const vig24_ini = primeiroDia(meses24[0].ano, meses24[0].mes);
+  const vig24_fim = ultimoDia(meses24.at(-1).ano, meses24.at(-1).mes);
+
+  await prisma.projeto.create({ data: {
+    id: 'cen-24meses', codigo: 'CEN-24MESES', nome: 'Cenário: 24 Meses (bug repro)',
+    gestorId: G1, criadoPorId: G1, categoriaId: CAT_BNDES, status: 'ativo',
+    valorTotal: VT_24, valorOficial: 0, estrategiaOficial: 'proporcional',
+    vigenciaInicio: new Date(vig24_ini), vigenciaFim: new Date(vig24_fim),
+  }});
+  await prisma.prestacaoContas.create({ data: { id: 'cen-24meses-pc', projetoId: 'cen-24meses', data: new Date(dataPC(vig24_fim)) } });
+  await criarMacroGeral('cen-24meses', 'cen-24meses-m1', 'cen-24meses-mi1');
+  // SEM alocações — para garantir deficit em todos os 24 meses
+
+  summary.push({
+    codigo: 'CEN-24MESES',
+    nome: 'Cenário: 24 Meses (bug repro)',
+    vigencia: `${vig24_ini} → ${vig24_fim}`,
+    collabs: [],
+    meses: meses24.slice(0, 3).map(({ ano, mes }) => ({ label: fmtMes(ano, mes), meta: META_MES_24, receita: 0 })),
+    testar: 'Bug do wizard com 24 meses: Gerar → Limpar → selecionar 1 mês',
   });
   console.log('   ✓ criado');
 

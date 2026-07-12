@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -167,6 +167,17 @@ export default function PlanejamentoWizard() {
     }).finally(() => setLoading(false));
   }, [projetoId, token]);
 
+  // Troca de projeto → descarta resultado e reseta form (evita estado dessincronizado)
+  useEffect(() => {
+    setResultado(null);
+    setErroMotor('');
+    setMacroId('');
+    setProfSel([]);
+    setExcluidos([]);
+    setFixados([]);
+    setMaxExternos('');
+  }, [projetoId]);
+
   // auto-select única macro
   useEffect(() => {
     if (macros.length === 1) setMacroId(macros[0]!.id);
@@ -184,6 +195,16 @@ export default function PlanejamentoWizard() {
       setMesesSel(defaults);
     }
   }, [metaData]);
+
+  // Mudança nos meses selecionados → descarta resultado obsoleto
+  useEffect(() => {
+    setResultado(null);
+    setErroMotor('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesesSel]);
+
+  // ref para o container scrollável — permite voltar ao topo no Limpar
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── gerar ─────────────────────────────────────────────────────────────────
   async function handleGerar(e: React.FormEvent) {
@@ -228,7 +249,7 @@ export default function PlanejamentoWizard() {
   const fixSet       = new Set(fixados.map(f => f.id));
   const profSelSet   = new Set(profSel);
 
-  const canGerar = macros.length > 0 && !!macroId && mesesSel.size > 0;
+  const canGerar = macros.length > 0 && !!macroId && mesesSel.size > 0 && mesesSel.size <= 12;
 
   const profOpts  = profissoes.filter(p => !profSelSet.has(p.id)).map(p => ({ id: p.id, nome: p.nome }));
   const exclOpts  = colabs.filter(c => !exclSet.has(c.id) && !fixSet.has(c.id)).map(c => ({ id: c.id, nome: c.nome }));
@@ -270,7 +291,7 @@ export default function PlanejamentoWizard() {
   );
 
   return (
-    <div className="p-6 flex flex-col gap-6 max-w-6xl h-full overflow-y-auto">
+    <div ref={scrollRef} className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div>
@@ -315,7 +336,7 @@ export default function PlanejamentoWizard() {
                   Nenhum déficit no período — o projeto já está coberto.
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
+                <div style={{ overflowX: 'auto', maxHeight: 220, overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
@@ -407,11 +428,48 @@ export default function PlanejamentoWizard() {
 
               {/* ── Período ───────────────────────────────────── */}
               <div>
-                <p style={{ ...secLabel, marginBottom: 8 }}>Período</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p style={secLabel}>
+                    Período
+                    {mesesVig.length > 0 && (
+                      <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6, color: mesesSel.size >= 12 ? 'hsl(38 92% 42%)' : 'var(--text-3)' }}>
+                        {mesesSel.size}/12
+                      </span>
+                    )}
+                  </p>
+                  {mesesVig.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMesesSel(new Set(
+                          mesesVig.filter(m => !m.fechado)
+                            .slice(0, 12)
+                            .map(m => `${m.ano}-${String(m.mes).padStart(2, '0')}`)
+                        ))}
+                        className="text-xs font-medium transition-colors"
+                        style={{ color: 'var(--brand-500)' }}
+                      >
+                        Todos
+                      </button>
+                      <span style={{ color: 'var(--border)', fontSize: 10 }}>|</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMesesSel(new Set());
+                          scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="text-xs font-medium transition-colors"
+                        style={{ color: 'var(--text-3)' }}
+                      >
+                        Limpar
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {mesesVig.length === 0 ? (
                   <p className="text-xs" style={{ color: 'var(--text-3)' }}>Sem meses na vigência.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5" style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 4 }}>
                     {mesesVig.map(m => {
                       const key     = `${m.ano}-${String(m.mes).padStart(2, '0')}`;
                       const def     = parseFloat(m.deficit);
@@ -419,12 +477,24 @@ export default function PlanejamentoWizard() {
                       return (
                         <label
                           key={key}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl cursor-pointer select-none text-xs font-medium transition-all"
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg select-none text-xs font-semibold transition-all"
                           style={{
-                            background: checked ? 'var(--brand-500)15' : 'var(--surface-2)',
-                            border: `1px solid ${checked ? 'var(--brand-500)50' : 'var(--border)'}`,
-                            color:  m.fechado ? 'var(--text-3)' : checked ? 'var(--brand-500)' : 'var(--text-2)',
-                            opacity: m.fechado ? 0.5 : 1,
+                            background: m.fechado
+                              ? 'var(--surface-2)'
+                              : checked
+                                ? 'var(--brand-500)'
+                                : 'var(--surface-2)',
+                            border: m.fechado
+                              ? '1px solid var(--border)'
+                              : checked
+                                ? '1px solid var(--brand-500)'
+                                : '1px dashed var(--border)',
+                            color: m.fechado
+                              ? 'var(--text-3)'
+                              : checked
+                                ? 'white'
+                                : 'var(--text-2)',
+                            opacity: m.fechado ? 0.45 : 1,
                             cursor: m.fechado ? 'not-allowed' : 'pointer',
                           }}
                         >
@@ -435,13 +505,22 @@ export default function PlanejamentoWizard() {
                             disabled={m.fechado}
                             onChange={ev => setMesesSel(prev => {
                               const next = new Set(prev);
-                              ev.target.checked ? next.add(key) : next.delete(key);
+                              if (ev.target.checked) {
+                                if (next.size >= 12) return prev;
+                                next.add(key);
+                              } else {
+                                next.delete(key);
+                              }
                               return next;
                             })}
                           />
                           {fmtMes(key)}
                           {def > 0 && (
-                            <span style={{ color: checked ? 'hsl(0 85% 65%)' : '#f87171', fontWeight: 700 }}>
+                            <span style={{
+                              fontWeight: 700,
+                              color: checked ? 'rgba(255,255,255,0.75)' : '#f87171',
+                              fontSize: 10,
+                            }}>
                               {fmtMoeda(def)}
                             </span>
                           )}
@@ -454,7 +533,10 @@ export default function PlanejamentoWizard() {
 
               {/* ── Profissões ────────────────────────────────── */}
               <div>
-                <p style={{ ...secLabel, marginBottom: 8 }}>Profissões (filtro opcional)</p>
+                <p style={{ ...secLabel, marginBottom: 6 }}>Sugerir apenas estas profissões (opcional)</p>
+                <p className="text-xs mb-2" style={{ color: 'var(--text-3)' }}>
+                  Deixe vazio para considerar todas as profissões.
+                </p>
                 <div className="flex flex-col gap-2">
                   {profSel.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
@@ -474,6 +556,7 @@ export default function PlanejamentoWizard() {
                       value=""
                       onChange={id => { setProfSel(p => [...p, id]); setProfKey(k => k + 1); }}
                       placeholder="Adicionar profissão…"
+                      showIcon
                     />
                   )}
                 </div>
@@ -501,6 +584,7 @@ export default function PlanejamentoWizard() {
                       setExclKey(k => k + 1);
                     }}
                     placeholder="Buscar e excluir…"
+                    showIcon
                   />
                 </div>
               </div>
@@ -546,6 +630,7 @@ export default function PlanejamentoWizard() {
                       setFixKey(k => k + 1);
                     }}
                     placeholder="Buscar e fixar…"
+                    showIcon
                   />
                 </div>
               </div>
@@ -635,8 +720,13 @@ export default function PlanejamentoWizard() {
               </p>
             )}
             {mesesSel.size === 0 && macros.length > 0 && (
-              <p className="text-xs text-center -mt-1" style={{ color: 'var(--text-3)' }}>
+              <p className="text-xs text-center -mt-1 font-medium" style={{ color: 'hsl(38 92% 42%)' }}>
                 Selecione ao menos um mês do período.
+              </p>
+            )}
+            {mesesSel.size === 12 && (
+              <p className="text-xs text-center -mt-1" style={{ color: 'hsl(38 92% 42%)' }}>
+                Limite de 12 meses atingido — máximo por rodada do motor.
               </p>
             )}
           </form>
@@ -763,13 +853,19 @@ export default function PlanejamentoWizard() {
                           <th style={{ ...thSt, textAlign: 'right' }}>Tarifa/h</th>
                           <th style={{ ...thSt, textAlign: 'right' }}>Receita</th>
                           <th style={thSt}>Camada</th>
-                          <th style={{ ...thSt, maxWidth: 200 }}>Explicação</th>
                         </tr>
                       </thead>
                       <tbody>
                         {resultado.linhas.map((l, i) => (
                           <tr key={i}>
-                            <td style={{ ...tdSt, fontWeight: 500 }}>{l.nome}</td>
+                            <td style={{ ...tdSt, whiteSpace: 'normal', minWidth: 160, maxWidth: 220 }}>
+                              <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>{l.nome}</div>
+                              {l.explicacao && (
+                                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 400, marginTop: 2, lineHeight: 1.35 }}>
+                                  {l.explicacao}
+                                </div>
+                              )}
+                            </td>
                             <td style={{ ...tdSt, color: 'var(--text-3)' }}>{l.profissao || '—'}</td>
                             <td style={tdSt}>{fmtMes(l.mes)}</td>
                             <td style={{ ...tdSt, textAlign: 'right', fontWeight: 600 }}>{l.horas}h</td>
@@ -779,12 +875,6 @@ export default function PlanejamentoWizard() {
                             </td>
                             <td style={{ ...tdSt, padding: '6px 10px' }}>
                               <CamadaBadge camada={l.camada} />
-                            </td>
-                            <td
-                              style={{ ...tdSt, color: 'var(--text-3)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                              title={l.explicacao}
-                            >
-                              {l.explicacao}
                             </td>
                           </tr>
                         ))}

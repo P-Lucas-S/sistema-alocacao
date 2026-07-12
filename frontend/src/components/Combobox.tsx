@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Search } from 'lucide-react';
 
 export interface ComboboxOption {
   id: string;
@@ -13,6 +14,7 @@ interface ComboboxProps {
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
+  showIcon?: boolean;
 }
 
 // Mesma ideia de normalização usada no backend (normalize.ts/colaboradores.ts):
@@ -30,7 +32,7 @@ const inputStyle: React.CSSProperties = {
   padding: '8px 12px', color: 'var(--text-1)', fontSize: 14, outline: 'none', width: '100%',
 };
 
-export default function Combobox({ options, value, onChange, placeholder, disabled, required }: ComboboxProps) {
+export default function Combobox({ options, value, onChange, placeholder, disabled, required, showIcon }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -115,6 +117,15 @@ export default function Combobox({ options, value, onChange, placeholder, disabl
 
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
+      {showIcon && (
+        <Search
+          size={13}
+          style={{
+            position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--text-3)', pointerEvents: 'none', zIndex: 1,
+          }}
+        />
+      )}
       <input
         type="text"
         value={displayValue}
@@ -125,7 +136,11 @@ export default function Combobox({ options, value, onChange, placeholder, disabl
         disabled={disabled}
         required={required}
         autoComplete="off"
-        style={{ ...inputStyle, ...(disabled ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}
+        style={{
+          ...inputStyle,
+          ...(showIcon ? { paddingLeft: 28 } : {}),
+          ...(disabled ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+        }}
       />
       {open && (
         <div

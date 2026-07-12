@@ -442,8 +442,8 @@ async function main() {
     await criarMacroGeral(tG1, pCat.id);
     const { status, data } = await sugerir(tG1, pCat.id, {
       mes: MES_STR,
-      excluidos: [cA.id, cB.id, cD.id, cE.id, cF.id],  // só cC
-      minHorasNovo: 1,  // sem Rule B para isolar o teste de tarifa
+      fixados: [{ colaboradorId: cC.id }],  // garante que cC é sempre camada 1
+      excluidos: [cA.id, cB.id, cD.id, cE.id, cF.id],
     });
     check('Status 200', status === 200, { status });
     const linhaC = data?.linhas?.find(l => l.colaboradorId === cC.id);
@@ -514,6 +514,246 @@ async function main() {
     check('diagnostico não vazio', rem?.diagnostico?.length > 0, rem?.diagnostico);
     await cleanAllocs(cA.id, cB.id);
     await api('DELETE', `/projetos/${pAux16.id}`, tAdmin); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // ── F4b: ORQUESTRAÇÃO MULTI-MES ──────────────────────────
+  // Período de testes F4b: julho + agosto + setembro 2026
+  // Sub-projetos dedicados para não poluir os testes F4a.
+  // ═══════════════════════════════════════════════════════════
+  const JUL = '2026-07'; const AGO = '2026-08'; const SET = '2026-09';
+  const JUL_ANO = 2026,  JUL_MES = 7;
+  const AGO_ANO = 2026,  AGO_MES = 8;
+  const SET_ANO = 2026,  SET_MES = 9;
+
+  // Projeto base F4b: 3 meses (Jul-Set), deficit=2000/mês (valorTotal=6000)
+  const projF4b = await criarProjeto(tG1, {
+    codigo: `F4B-${STAMP}`, nome: `F4b ${STAMP}`, categoriaId: catId,
+    valorTotal: 6000, valorOficial: 0, estrategiaOficial: 'proporcional',
+    vigenciaInicio: '2026-07-01', vigenciaFim: '2026-09-30',
+  });
+  await criarMacroGeral(tG1, projF4b.id);
+  // 6000/3 meses = 2000/mês. ceilBloco(2000/100) = 20h.
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-1: Promoção intra-execução
+  //   cA externo em Jul → camada='novo'. Em Ago (mesma execução) → camada='equipe'.
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-1: Promoção intra-execução ────────────────────');
+  { const { status, data } = await sugerir(tG1, projF4b.id, {
+      meses: [JUL, AGO],
+      profissoes: [profA],
+      excluidos: [cB.id, cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220,
+      minHorasNovo: 1,
+    });
+    check('Status 200', status === 200, { status });
+    const linhaJul = data?.linhas?.find(l => l.colaboradorId === cA.id && l.mes === JUL);
+    const linhaAgo = data?.linhas?.find(l => l.colaboradorId === cA.id && l.mes === AGO);
+    check('cA[Jul]: camada=novo (primeiro contato)', linhaJul?.camada === 'novo', linhaJul?.camada);
+    check('cA[Ago]: camada=equipe (promovido)', linhaAgo?.camada === 'equipe', linhaAgo?.camada);
+    check('cA[Jul]: 20h (ceilBloco(2000/100))', linhaJul?.horas === 20, linhaJul?.horas);
+    check('cA[Ago]: 20h (equipe, fecha o deficit)', linhaAgo?.horas === 20, linhaAgo?.horas);
+    check('totaisPorMes.length=2 (Jul+Ago)', data?.totaisPorMes?.length === 2, data?.totaisPorMes?.length);
+    check('parametros.meses=["2026-07","2026-08"]', JSON.stringify(data?.parametros?.meses) === JSON.stringify([JUL, AGO])); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-2: maxExternos GLOBAL (conta nomes distintos em TODA a execução)
+  //   maxExternos=1, 2 candidatos (cA e cB), 2 meses.
+  //   Só 1 novo distinto permitido: quem tem menor id (cA ou cB) vira 'novo' em Jul,
+  //   promovido a 'equipe' em Ago. O outro nunca aparece. remanescentes em ambos os meses.
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-2: maxExternos global ──────────────────────────');
+  { const projMaxExt = await criarProjeto(tG1, {
+      codigo: `EXT-${STAMP}`, nome: `Ext ${STAMP}`, categoriaId: catId,
+      valorTotal: 12000, valorOficial: 0, estrategiaOficial: 'proporcional',  // 4000/mês
+      vigenciaInicio: '2026-07-01', vigenciaFim: '2026-09-30',
+    });
+    await criarMacroGeral(tG1, projMaxExt.id);
+    // deficit=4000/mês. maxHorasPessoa=12: cA|cB pega 12h × 100 = 1200. restante=2800.
+    // O 2º candidato bloqueado por maxExternos=1. remanescente=2800/mês.
+    const { status, data } = await sugerir(tG1, projMaxExt.id, {
+      meses: [JUL, AGO],
+      profissoes: [profA],
+      excluidos: [cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 12,
+      maxExternos: 1,
+      minHorasNovo: 1,
+    });
+    check('Status 200', status === 200, { status });
+    const novosIds = new Set((data?.linhas ?? []).filter(l => l.camada === 'novo').map(l => l.colaboradorId));
+    check('Exatamente 1 novo distinto em toda a execução (maxExternos=1)', novosIds.size === 1, novosIds.size);
+    const vencedor = [...novosIds][0];
+    const bloqueado = vencedor === cA.id ? cB.id : cA.id;
+    check('Vencedor (menor id) tem id < bloqueado', vencedor < bloqueado, { vencedor, bloqueado });
+    check('Bloqueado jamais aparece', !data?.linhas?.find(l => l.colaboradorId === bloqueado));
+    // Vencedor: novo em Jul → equipe em Ago
+    const vJul = data?.linhas?.find(l => l.colaboradorId === vencedor && l.mes === JUL);
+    const vAgo = data?.linhas?.find(l => l.colaboradorId === vencedor && l.mes === AGO);
+    check('Vencedor[Jul]: camada=novo', vJul?.camada === 'novo', vJul?.camada);
+    check('Vencedor[Ago]: camada=equipe (promovido, não blocado)', vAgo?.camada === 'equipe', vAgo?.camada);
+    check('remanescentes.length=2 (ambos os meses têm saldo)', data?.remanescentes?.length === 2, data?.remanescentes?.length);
+    await api('DELETE', `/projetos/${projMaxExt.id}`, tAdmin); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-3: Ordem cronológica
+  //   Meses passados FORA DE ORDEM no body → processados em ordem crescente.
+  //   Promoção de Jul afeta Ago (não o contrário).
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-3: Ordem cronológica (meses fora de ordem) ────');
+  { const { status, data: d1 } = await sugerir(tG1, projF4b.id, {
+      meses: [AGO, JUL],  // fora de ordem
+      profissoes: [profA],
+      excluidos: [cB.id, cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220, minHorasNovo: 1,
+    });
+    const { data: d2 } = await sugerir(tG1, projF4b.id, {
+      meses: [JUL, AGO],  // ordem correta
+      profissoes: [profA],
+      excluidos: [cB.id, cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220, minHorasNovo: 1,
+    });
+    check('Status 200', status === 200, { status });
+    // Resultado idêntico independente da ordem de entrada
+    const norm = d => JSON.stringify({ ...d, geradoEm: null });
+    check('Resultado idêntico (motor ordena internamente)', norm(d1) === norm(d2));
+    // cA[Jul] = novo, cA[Ago] = equipe (promoção aplicada mesmo com input invertido)
+    const linhaJul = d1?.linhas?.find(l => l.colaboradorId === cA.id && l.mes === JUL);
+    const linhaAgo = d1?.linhas?.find(l => l.colaboradorId === cA.id && l.mes === AGO);
+    check('cA[Jul]: camada=novo (processado primeiro)', linhaJul?.camada === 'novo', linhaJul?.camada);
+    check('cA[Ago]: camada=equipe (promoção de Jul)', linhaAgo?.camada === 'equipe', linhaAgo?.camada); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-4: Disponibilidade POR MÊS — sem transbordo
+  //   cA: 220h em Jul, 8h em Ago (212h alocadas em projAux4b em Ago).
+  //   Jul: recebe 20h (deficit=2000, sem cap). Ago: recebe 8h (floorBloco(8)=8h).
+  //   O consumo de Jul NÃO reduz a disponibilidade de Ago.
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-4: Disponibilidade por mês (sem transbordo) ───');
+  { const pAux4b = await criarProjeto(tG1, {
+      codigo: `AUX4B-${STAMP}`, nome: `Aux4b ${STAMP}`, categoriaId: catId,
+      valorTotal: 50000, valorOficial: 0, estrategiaOficial: 'proporcional',
+      vigenciaInicio: '2026-01-01', vigenciaFim: '2026-12-31',
+    });
+    const { macroId: ma4b, microId: mia4b } = await criarMacroGeral(tG1, pAux4b.id);
+    // cA com 212h em Ago (projAux4b) → disp de Ago = 8h. Jul: sem pre-alloc → disp=220h.
+    await alocar(tG1, { colaboradorId: cA.id, projetoId: pAux4b.id, macroEntregaId: ma4b, microEntregaId: mia4b, ano: AGO_ANO, mes: AGO_MES, horasPlanejadas: 212 });
+
+    const { status, data } = await sugerir(tG1, projF4b.id, {
+      meses: [JUL, AGO],
+      profissoes: [profA],
+      excluidos: [cB.id, cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220, minHorasNovo: 1,
+    });
+    check('Status 200', status === 200, { status });
+    const linhaJul = data?.linhas?.find(l => l.colaboradorId === cA.id && l.mes === JUL);
+    const linhaAgo = data?.linhas?.find(l => l.colaboradorId === cA.id && l.mes === AGO);
+    check('cA[Jul]: dispVista=220h (sem pre-alloc em Jul)', linhaJul?.disponibilidadeVista === 220, linhaJul?.disponibilidadeVista);
+    check('cA[Jul]: 20h (deficit=2000, tarifa=100)', linhaJul?.horas === 20, linhaJul?.horas);
+    check('cA[Ago]: dispVista=8h (212h em projAux4b)', linhaAgo?.disponibilidadeVista === 8, linhaAgo?.disponibilidadeVista);
+    check('cA[Ago]: 8h (floorBloco(8)=8h, não transbordou de Jul)', linhaAgo?.horas === 8, linhaAgo?.horas);
+    check('cA[Ago]: camada=equipe (promovido de Jul)', linhaAgo?.camada === 'equipe', linhaAgo?.camada);
+    await prisma.alocacao.deleteMany({ where: { colaboradorId: cA.id, ano: AGO_ANO, mes: AGO_MES } });
+    await api('DELETE', `/projetos/${pAux4b.id}`, tAdmin); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-5: Mês fechado no meio do período → pulado; os outros processados
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-5: Mês fechado no meio do período ──────────────');
+  { const { status: sf } = await api('POST', '/fechamentos', tAdmin, { ano: AGO_ANO, mes: AGO_MES });
+    check('Fechar ago/2026', sf === 200 || sf === 201);
+    const { status, data } = await sugerir(tG1, projF4b.id, {
+      meses: [JUL, AGO, SET],
+      profissoes: [profA],
+      excluidos: [cB.id, cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220, minHorasNovo: 1,
+    });
+    check('Status 200', status === 200, { status });
+    const linhasAgo = (data?.linhas ?? []).filter(l => l.mes === AGO);
+    check('Ago fechado: zero linhas', linhasAgo.length === 0, linhasAgo.length);
+    const linhasJul = (data?.linhas ?? []).filter(l => l.mes === JUL);
+    const linhasSet = (data?.linhas ?? []).filter(l => l.mes === SET);
+    check('Jul processado (tem linhas)', linhasJul.length > 0, linhasJul.length);
+    check('Set processado (tem linhas)', linhasSet.length > 0, linhasSet.length);
+    const avisoFecho = (data?.avisos ?? []).some(a => a.includes(AGO) && a.includes('fechado'));
+    check('Aviso de mês fechado emitido', avisoFecho, data?.avisos);
+    // Jul → cA novo; Set → cA equipe (promoção pulou o Ago fechado)
+    const cAJul = linhasJul.find(l => l.colaboradorId === cA.id);
+    const cASet = linhasSet.find(l => l.colaboradorId === cA.id);
+    check('cA[Jul]: novo', cAJul?.camada === 'novo', cAJul?.camada);
+    check('cA[Set]: equipe (promoção atravessa mês fechado)', cASet?.camada === 'equipe', cASet?.camada);
+    await api('DELETE', `/fechamentos/${AGO_ANO}/${AGO_MES}`, tAdmin); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-6: Determinismo multi-mês — mesma entrada 2x → JSON idêntico
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-6: Determinismo multi-mês ─────────────────────');
+  { const body = {
+      meses: [JUL, AGO, SET],
+      profissoes: [profA],
+      excluidos: [cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220, minHorasNovo: 1,
+    };
+    const { data: r1 } = await sugerir(tG1, projF4b.id, body);
+    const { data: r2 } = await sugerir(tG1, projF4b.id, body);
+    const eq = JSON.stringify({ ...r1, geradoEm: null }) === JSON.stringify({ ...r2, geradoEm: null });
+    check('2x (multi-mês) → mesmo JSON (exceto geradoEm)', eq); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-7: Default months — sem mes/meses → todos os meses abertos c/ deficit
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-7: Default months (sem mes/meses no body) ─────');
+  { const { status, data } = await sugerir(tG1, projF4b.id, {
+      profissoes: [profA],
+      excluidos: [cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220, minHorasNovo: 1,
+    });
+    check('Status 200', status === 200, { status });
+    check('totaisPorMes.length=3 (Jul, Ago, Set — todos abertos)', data?.totaisPorMes?.length === 3, data?.totaisPorMes?.length);
+    check('parametros.meses.length=3', data?.parametros?.meses?.length === 3, data?.parametros?.meses);
+    const mesesNaResp = (data?.totaisPorMes ?? []).map(t => t.mes);
+    check('Jul está na resposta', mesesNaResp.includes(JUL), mesesNaResp);
+    check('Ago está na resposta', mesesNaResp.includes(AGO), mesesNaResp);
+    check('Set está na resposta', mesesNaResp.includes(SET), mesesNaResp); }
+  console.log();
+
+  // ═══════════════════════════════════════════════════════════
+  // TF4b-8: Remanescentes — meses com saldos diferentes
+  //   Jul: cA fecha o deficit. Set: cA com 4h livres (restante não coberto).
+  //   remanescentes[] só contém Set; Jul não aparece.
+  // ═══════════════════════════════════════════════════════════
+  console.log('── TF4b-8: Remanescentes seletivos ────────────────────');
+  { const pAux4b8 = await criarProjeto(tG1, {
+      codigo: `AUX4B8-${STAMP}`, nome: `Aux4b8 ${STAMP}`, categoriaId: catId,
+      valorTotal: 50000, valorOficial: 0, estrategiaOficial: 'proporcional',
+      vigenciaInicio: '2026-01-01', vigenciaFim: '2026-12-31',
+    });
+    const { macroId: ma8, microId: mia8 } = await criarMacroGeral(tG1, pAux4b8.id);
+    // cA: 216h em Set → disp Set = 4h. floorBloco(4)=4h < minHorasNovo=8 → SKIP em Set.
+    // Resultado: Jul coberto (cA 20h), Set não coberto (remanescente=2000).
+    await alocar(tG1, { colaboradorId: cA.id, projetoId: pAux4b8.id, macroEntregaId: ma8, microEntregaId: mia8, ano: SET_ANO, mes: SET_MES, horasPlanejadas: 216 });
+
+    const { status, data } = await sugerir(tG1, projF4b.id, {
+      meses: [JUL, SET],
+      profissoes: [profA],
+      excluidos: [cB.id, cC.id, cD.id, cE.id, cF.id],
+      maxHorasPessoa: 220, minHorasNovo: 8,
+    });
+    check('Status 200', status === 200, { status });
+    const remMeses = (data?.remanescentes ?? []).map(r => r.mes);
+    check('Jul não tem remanescente (coberto)', !remMeses.includes(JUL), remMeses);
+    check('Set tem remanescente (cA teto=4h < 8h → skip)', remMeses.includes(SET), remMeses);
+    const remSet = (data?.remanescentes ?? []).find(r => r.mes === SET);
+    check('remanescente Set: valor > 0 (em R$)', parseFloat(remSet?.valor ?? '0') > 0, remSet?.valor);
+    check('remanescente Set: diagnostico não vazio', remSet?.diagnostico?.length > 0, remSet?.diagnostico);
+    await prisma.alocacao.deleteMany({ where: { colaboradorId: cA.id, ano: SET_ANO, mes: SET_MES } });
+    await api('DELETE', `/projetos/${pAux4b8.id}`, tAdmin); }
   console.log();
 
   console.log('═══════════════════════════════════════════════════════════');

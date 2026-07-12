@@ -1,7 +1,10 @@
-// ── POST /api/projetos/:id/sugestao-equipe — Motor F4a ────────────────────────
-// Read-only: POST pelo corpo rico; nenhuma escrita no banco.
-// Posse: mesmo critério do GET meta-apropriacao (gestor dono / chefe / admin).
-// F4a: single month only — sem loop multi-mês, sem promoção intra-execução.
+// ── POST /api/projetos/:id/sugestao-equipe — Motor F4b ────────────────────────
+// F4a (nucleo): waterfall, blocos, camadas, minimos, read-only — provado 64/64.
+// F4b (orquestracao): loop multi-mes, promocao intra-execucao, maxExternos global.
+//
+// Body: { mes?: string } | { meses?: string[] } | {} (default = meses abertos c/ deficit>0)
+// Backward compat: { mes } e tratado como { meses: [mes] }.
+// Parametros echados sempre com meses[] (array).
 import express from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prisma.js';
@@ -10,21 +13,26 @@ import { TETO_HORAS_MES, mesEstaFechado } from './alocacoes.js';
 import { carregarTarifas, resolverTarifa } from '../lib/tarifa.js';
 import { computarMetaApropriacao } from '../lib/metaApropriacaoCalc.js';
 
-// mergeParams: true permite acessar :id do app.use pai
 const router = express.Router({ mergeParams: true });
 
-const D0   = new Prisma.Decimal(0);
+const D0    = new Prisma.Decimal(0);
 const BLOCO = new Prisma.Decimal(4);
 
 function floorBloco(x: Prisma.Decimal): Prisma.Decimal {
   if (x.lessThanOrEqualTo(D0)) return D0;
   return x.dividedBy(BLOCO).floor().times(BLOCO);
 }
-
 function ceilBloco(x: Prisma.Decimal): Prisma.Decimal {
   if (x.lessThanOrEqualTo(D0)) return D0;
   return x.dividedBy(BLOCO).ceil().times(BLOCO);
 }
+
+type LinhaSugestao = {
+  colaboradorId: string; nome: string; profissao: string; mes: string;
+  horas: number; tarifa: string; receita: string;
+  camada: 'fixado' | 'equipe' | 'novo';
+  disponibilidadeVista: number; disponibilidadeApos: number; explicacao: string;
+};
 
 router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
@@ -52,76 +60,116 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
 
     // ── Parse body ───────────────────────────────────────────────────────────
     const {
-      mes:            mesStr,
+      mes:            mesRaw,
+      meses:          mesesRaw,
       profissoes:     profissoesRaw,
       fixados:        fixadosRaw,
       excluidos:      excluidosRaw,
       minHorasNovo:   minHorasNovoRaw,
       maxHorasPessoa: maxHorasPessoaRaw,
+      maxExternos:    maxExternosRaw,
     } = req.body as {
       mes?:            string;
+      meses?:          string[];
       profissoes?:     string[];
       fixados?:        { colaboradorId: string; minHoras?: number }[];
       excluidos?:      string[];
       minHorasNovo?:   number;
       maxHorasPessoa?: number;
+      maxExternos?:    number;
     };
 
-    if (!mesStr) return res.status(400).json({ error: 'mes é obrigatório (YYYY-MM)' });
-    // TypeScript não estreita string|undefined em closures; const garante o tipo aqui
-    const mesStrSafe: string = mesStr;
-    const parts = mesStr.split('-');
-    const anoN  = parseInt(parts[0] ?? '');
-    const mesN  = parseInt(parts[1] ?? '');
-    if (!anoN || !mesN || mesN < 1 || mesN > 12) {
-      return res.status(400).json({ error: 'mes inválido (esperado: YYYY-MM)' });
+    // Constrói lista bruta de meses (null → default calculado depois)
+    let mesesInput: string[] | null = null;
+    if (Array.isArray(mesesRaw) && mesesRaw.length > 0) {
+      mesesInput = mesesRaw;
+    } else if (mesRaw) {
+      mesesInput = [mesRaw];
     }
 
-    // Valida que o mês está dentro da vigência
-    const viAno = projeto.vigenciaInicio.getUTCFullYear();
-    const viMes = projeto.vigenciaInicio.getUTCMonth() + 1;
-    const vfAno = projeto.vigenciaFim.getUTCFullYear();
-    const vfMes = projeto.vigenciaFim.getUTCMonth() + 1;
-    const dentroVig = (anoN > viAno || (anoN === viAno && mesN >= viMes)) &&
-                      (anoN < vfAno  || (anoN === vfAno  && mesN <= vfMes));
-    if (!dentroVig) {
-      return res.status(400).json({ error: 'mes fora da vigência do projeto' });
-    }
-
-    if (await mesEstaFechado(anoN, mesN)) {
-      return res.status(400).json({ error: 'mês fechado', mes: mesStr });
+    // Valida formato YYYY-MM dos meses explícitos
+    if (mesesInput) {
+      for (const m of mesesInput) {
+        const parts = m.split('-');
+        const a  = parseInt(parts[0] ?? '');
+        const me = parseInt(parts[1] ?? '');
+        if (!a || !me || me < 1 || me > 12) {
+          return res.status(400).json({ error: `mes inválido (esperado: YYYY-MM): ${m}` });
+        }
+      }
     }
 
     const profissoes: string[] | null = (profissoesRaw && profissoesRaw.length > 0)
       ? profissoesRaw : null;
     const fixadosLista: { colaboradorId: string; minHoras?: number }[] = fixadosRaw ?? [];
-    const excluidos     = new Set<string>(excluidosRaw ?? []);
-    const fixadosIds    = new Set<string>(fixadosLista.map(f => f.colaboradorId));
-    const fixadosMap    = new Map(fixadosLista.map(f => [f.colaboradorId, f]));
-    const minHorasNovo  = new Prisma.Decimal(minHorasNovoRaw ?? 8);
+    const excluidos      = new Set<string>(excluidosRaw ?? []);
+    const fixadosIds     = new Set<string>(fixadosLista.map(f => f.colaboradorId));
+    const fixadosMap     = new Map(fixadosLista.map(f => [f.colaboradorId, f]));
+    const minHorasNovo   = new Prisma.Decimal(minHorasNovoRaw ?? 8);
     const maxHorasPessoa = new Prisma.Decimal(maxHorasPessoaRaw ?? 60);
-    const categoriaId   = projeto.categoriaId ?? null;
+    const maxExternos: number | null = maxExternosRaw ?? null; // null = ilimitado
+    const categoriaId    = projeto.categoriaId ?? null;
 
-    // ── Computa déficit via helper compartilhado (= mesma conta do GET meta) ─
+    // ── Computa déficit via helper compartilhado (= GET meta) ────────────────
     const calc = await computarMetaApropriacao(id, projeto);
     if (!calc) return res.json({ configurado: false });
 
-    const mesCalc = calc.mesCalcs.find(m => m.ano === anoN && m.mes === mesN);
-    if (!mesCalc) return res.status(400).json({ error: 'mes não encontrado na vigência' });
+    // Vigência para validação
+    const viAno = projeto.vigenciaInicio.getUTCFullYear();
+    const viMes = projeto.vigenciaInicio.getUTCMonth() + 1;
+    const vfAno = projeto.vigenciaFim.getUTCFullYear();
+    const vfMes = projeto.vigenciaFim.getUTCMonth() + 1;
 
-    const deficit       = mesCalc.deficit;
-    const metaHT        = mesCalc.metaHT;
-    const receitaAtual  = mesCalc.receitaPlanejada;
+    function dentroVigencia(aN: number, mN: number): boolean {
+      return (aN > viAno || (aN === viAno && mN >= viMes)) &&
+             (aN < vfAno  || (aN === vfAno  && mN <= vfMes));
+    }
 
-    // ── Equipe atual: quem tem alocação NESTE projeto neste mês ─────────────
-    const alocsExistentes = await prisma.alocacao.findMany({
-      where: { projetoId: id, ano: anoN, mes: mesN },
-      select: { colaboradorId: true },
-    });
-    const equipeAtualIds = new Set<string>(alocsExistentes.map(a => a.colaboradorId));
+    // ── Build lista ordenada de meses a processar ────────────────────────────
+    let mesesOrdenados: string[];
+    if (mesesInput) {
+      // Valida vigência para meses explícitos
+      for (const m of mesesInput) {
+        const [as, ms] = m.split('-');
+        if (!dentroVigencia(parseInt(as!), parseInt(ms!))) {
+          return res.status(400).json({ error: `mes ${m} fora da vigência do projeto` });
+        }
+      }
+      // Sort lexicográfico = cronológico para YYYY-MM; remove duplicatas
+      mesesOrdenados = [...new Set(mesesInput)].sort();
+    } else {
+      // Default: meses ABERTOS (deficit > 0) dentro da vigência, max 12
+      mesesOrdenados = calc.mesCalcs
+        .filter(m => m.deficit.greaterThan(D0))
+        .map(m => `${m.ano}-${String(m.mes).padStart(2, '0')}`)
+        .filter(m => {
+          const [as, ms] = m.split('-');
+          return dentroVigencia(parseInt(as!), parseInt(ms!));
+        })
+        .slice(0, 12);
+    }
 
-    // ── Pool de candidatos ───────────────────────────────────────────────────
-    // Fixados: sempre incluídos (independente de ativo / profissão)
+    // Backward compat F4a: chamada de 1 mês explícito + fechado → 400
+    // Multi-mês: meses fechados são pulados dentro do loop (spec §F4b)
+    if (mesesInput !== null && mesesOrdenados.length === 1) {
+      const [as, ms] = mesesOrdenados[0]!.split('-');
+      if (await mesEstaFechado(parseInt(as!), parseInt(ms!))) {
+        return res.status(400).json({ error: 'mês fechado', mes: mesesOrdenados[0] });
+      }
+    }
+
+    if (mesesOrdenados.length === 0) {
+      return res.json({
+        configurado: true,
+        geradoEm: new Date().toISOString(),
+        parametros: buildParametros(mesesOrdenados, profissoes, fixadosLista, excluidos,
+          minHorasNovo, maxHorasPessoa, maxExternos),
+        linhas: [], totaisPorMes: [], remanescentes: [], avisos: [],
+      });
+    }
+
+    // ── Carrega colaboradores (uma vez, antes do loop) ───────────────────────
+    // Fixados: sempre incluídos
     const fixadosColabs = fixadosLista.length > 0
       ? await prisma.colaborador.findMany({
           where: { id: { in: fixadosLista.map(f => f.colaboradorId) } },
@@ -134,24 +182,33 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
 
     // Pool ativo (camadas 2+3), filtrado por profissoes se fornecidas
     const poolCollabs = await prisma.colaborador.findMany({
-      where: profissoes
-        ? { ativo: true, profissaoId: { in: profissoes } }
-        : { ativo: true },
+      where: profissoes ? { ativo: true, profissaoId: { in: profissoes } } : { ativo: true },
       select: {
         id: true, nome: true, valorHora: true,
         profissao: { select: { id: true, nome: true } },
       },
     });
 
-    // Membros da equipe atual que possam não estar no pool (por filtro de profissão)
-    const poolIds       = new Set(poolCollabs.map(c => c.id));
+    const poolIds         = new Set(poolCollabs.map(c => c.id));
     const fixadosColabIds = new Set(fixadosColabs.map(c => c.id));
-    const equipeAtualFaltando = [...equipeAtualIds].filter(
-      eid => !poolIds.has(eid) && !fixadosColabIds.has(eid)
+
+    // Equipe histórica: colaboradores com alocações neste projeto em qualquer mês do período
+    // (podem não estar no pool por filtro de profissão, mas precisam ter colabInfo)
+    const mesesParsed = mesesOrdenados.map(m => {
+      const [as, ms] = m.split('-');
+      return { ano: parseInt(as!), mes: parseInt(ms!) };
+    });
+    const alocsHistoricasProj = await prisma.alocacao.findMany({
+      where: { projetoId: id, OR: mesesParsed.map(({ ano, mes }) => ({ ano, mes })) },
+      select: { colaboradorId: true },
+    });
+    const equipeHistoricaIds = [...new Set(alocsHistoricasProj.map(a => a.colaboradorId))];
+    const equipeHistFaltando  = equipeHistoricaIds.filter(
+      eid => !poolIds.has(eid) && !fixadosColabIds.has(eid),
     );
-    const equipeAtualExtras = equipeAtualFaltando.length > 0
+    const equipeHistExtras = equipeHistFaltando.length > 0
       ? await prisma.colaborador.findMany({
-          where: { id: { in: equipeAtualFaltando } },
+          where: { id: { in: equipeHistFaltando } },
           select: {
             id: true, nome: true, valorHora: true,
             profissao: { select: { id: true, nome: true } },
@@ -160,225 +217,257 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
       : [];
 
     // Mapa unificado de todos os colaboradores relevantes
-    const allColabMap = new Map<string, { id: string; nome: string; valorHora: Prisma.Decimal | null; profissao: { id: string; nome: string } | null }>();
-    for (const c of poolCollabs)       allColabMap.set(c.id, { ...c, profissao: c.profissao ?? null });
-    for (const c of equipeAtualExtras) if (!allColabMap.has(c.id)) allColabMap.set(c.id, { ...c, profissao: c.profissao ?? null });
-    for (const c of fixadosColabs)     if (!allColabMap.has(c.id)) allColabMap.set(c.id, { ...c, profissao: c.profissao ?? null });
+    type ColabRaw = { id: string; nome: string; valorHora: Prisma.Decimal | null; profissao: { id: string; nome: string } | null };
+    const allColabMap = new Map<string, ColabRaw>();
+    for (const c of poolCollabs)    allColabMap.set(c.id, { ...c, profissao: c.profissao ?? null });
+    for (const c of equipeHistExtras) if (!allColabMap.has(c.id)) allColabMap.set(c.id, { ...c, profissao: c.profissao ?? null });
+    for (const c of fixadosColabs)   if (!allColabMap.has(c.id)) allColabMap.set(c.id, { ...c, profissao: c.profissao ?? null });
     const allColabIds = [...allColabMap.keys()];
 
-    // ── Disponibilidade em lote (1 query) — TETO − totalAlocado global ───────
-    const todasAlocs = await prisma.alocacao.findMany({
-      where: { colaboradorId: { in: allColabIds }, ano: anoN, mes: mesN },
-      select: { colaboradorId: true, horasPlanejadas: true },
-    });
-    const totalPorColab = new Map<string, Prisma.Decimal>();
-    for (const a of todasAlocs) {
-      totalPorColab.set(a.colaboradorId,
-        (totalPorColab.get(a.colaboradorId) ?? D0).plus(a.horasPlanejadas));
-    }
-    // dispMap é mutado conforme o motor atribui horas (snapshot por linha)
-    const dispMap = new Map<string, Prisma.Decimal>();
-    for (const cid of allColabIds) {
-      dispMap.set(cid, Prisma.Decimal.max(TETO_HORAS_MES.minus(totalPorColab.get(cid) ?? D0), D0));
-    }
-
-    // ── Tarifas em lote (1 query) ─────────────────────────────────────────────
+    // Tarifas em lote (1 query, reutilizado em todos os meses)
     const tarifasMap = await carregarTarifas(allColabIds);
 
-    // Resolve tarifa e monta colabInfo
-    type ColabInfo = {
-      id: string; nome: string;
-      profissao: { id: string; nome: string } | null;
-      tarifa: Prisma.Decimal | null;
-    };
+    type ColabInfo = { id: string; nome: string; profissao: { id: string; nome: string } | null; tarifa: Prisma.Decimal | null };
     const colabInfo = new Map<string, ColabInfo>();
     for (const [cid, c] of allColabMap.entries()) {
       const { valor } = resolverTarifa(tarifasMap, { id: cid, valorHora: c.valorHora }, categoriaId);
       colabInfo.set(cid, { id: cid, nome: c.nome, profissao: c.profissao, tarifa: valor });
     }
 
-    // ── Waterfall ─────────────────────────────────────────────────────────────
-    const linhas: Array<{
-      colaboradorId: string; nome: string; profissao: string; mes: string;
-      horas: number; tarifa: string; receita: string;
-      camada: 'fixado' | 'equipe' | 'novo';
-      disponibilidadeVista: number; disponibilidadeApos: number; explicacao: string;
-    }> = [];
-    const avisos: string[] = [];
-    const diagnosticoNovos: string[] = [];
-    const semTarifaWarned = new Set<string>();
+    // ── Estado multi-mês ─────────────────────────────────────────────────────
+    // promovidos: IDs sugeridos em meses anteriores da mesma execução
+    //   → entram na camada 2 ('equipe') nos meses seguintes
+    // externosDistintos: IDs distintos introduzidos como 'novo' em qualquer mês
+    //   → conta contra maxExternos; atualizado imediatamente ao atribuir horas
+    const promovidos        = new Set<string>();
+    const externosDistintos = new Set<string>();
+    const semTarifaWarned   = new Set<string>(); // avisa só 1x por pessoa
 
-    let restante = deficit;
-    const horasJaSugeridas = new Map<string, Prisma.Decimal>();
+    const allLinhas:        LinhaSugestao[] = [];
+    const allTotaisPorMes:  Array<{ mes: string; metaHT: string; receitaAtual: string; deficit: string; coberto: string; sobra: string; deficitRemanescente: string }> = [];
+    const allRemanescentes: Array<{ mes: string; valor: string; diagnostico: string[] }> = [];
+    const allAvisos:        string[] = [];
 
-    function processarCamada(candidatoIds: string[], camada: 'fixado' | 'equipe' | 'novo'): void {
-      // Filtra e ordena: excluídos fora; sem tarifa fora + aviso; disp > 0
-      // profissões filtram camadas 2 e 3 (fixados ignoram o filtro de profissão)
-      const candidatos = candidatoIds
-        .filter(cid => {
-          if (excluidos.has(cid)) return false;
-          const info = colabInfo.get(cid);
-          if (!info || info.tarifa == null) {
-            if (info && !semTarifaWarned.has(cid)) {
-              semTarifaWarned.add(cid);
-              avisos.push(`${info.nome}: sem tarifa para esta categoria — excluído da sugestão`);
-            }
-            return false;
-          }
-          if (camada !== 'fixado' && profissoes) {
-            const profId = info.profissao?.id ?? null;
-            if (!profId || !profissoes.includes(profId)) return false;
-          }
-          return (dispMap.get(cid) ?? D0).greaterThan(D0);
-        })
-        .sort((a, b) => {
-          const da = dispMap.get(a) ?? D0;
-          const db = dispMap.get(b) ?? D0;
-          const cmp = db.comparedTo(da); // disp DESC
-          return cmp !== 0 ? cmp : (a < b ? -1 : a > b ? 1 : 0); // id ASC
+    // ── Loop cronológico ─────────────────────────────────────────────────────
+    for (const mesStr of mesesOrdenados) {
+      const [as, ms] = mesStr.split('-');
+      const anoN = parseInt(as!);
+      const mesN = parseInt(ms!);
+
+      // Mês fechado → pula
+      if (await mesEstaFechado(anoN, mesN)) {
+        allAvisos.push(`${mesStr}: mês fechado, pulado`);
+        continue;
+      }
+
+      const mesCalc = calc.mesCalcs.find(m => m.ano === anoN && m.mes === mesN);
+      if (!mesCalc) { allAvisos.push(`${mesStr}: fora da vigência, pulado`); continue; }
+
+      const deficit      = mesCalc.deficit;
+      const metaHT       = mesCalc.metaHT;
+      const receitaAtual = mesCalc.receitaPlanejada;
+
+      // Pula mes sem deficit, salvo se há fixados com minHoras forçadas
+      const hasFixadosComMinHoras = fixadosLista.some(f => (f.minHoras ?? 0) > 0);
+      if (deficit.lessThanOrEqualTo(D0) && !hasFixadosComMinHoras) {
+        allTotaisPorMes.push({
+          mes: mesStr, metaHT: metaHT.toFixed(2), receitaAtual: receitaAtual.toFixed(2),
+          deficit: deficit.toFixed(2), coberto: '0.00', sobra: '0.00', deficitRemanescente: '0.00',
         });
+        continue;
+      }
 
-      for (const cid of candidatos) {
-        // Break quando o déficit está coberto
-        if (restante.lessThanOrEqualTo(D0)) {
-          if (camada !== 'fixado') break;
-          // Fixados: só continua se ESTE fixado tem minHoras pendentes
-          const cfg = fixadosMap.get(cid);
-          const minHDec = cfg?.minHoras ? new Prisma.Decimal(cfg.minHoras) : null;
-          const horasAtrib = horasJaSugeridas.get(cid) ?? D0;
-          const pendente = minHDec ? horasAtrib.lessThan(ceilBloco(minHDec)) : false;
-          if (!pendente) break;
-        }
+      // Equipe deste mes: alocações reais + promovidos (intra-execução)
+      const alocsExistentes = await prisma.alocacao.findMany({
+        where: { projetoId: id, ano: anoN, mes: mesN },
+        select: { colaboradorId: true },
+      });
+      const equipeAtualIds = new Set<string>([
+        ...alocsExistentes.map(a => a.colaboradorId),
+        ...promovidos,
+      ]);
 
-        const info      = colabInfo.get(cid)!;
-        const tarifa    = info.tarifa!;
-        const disp      = dispMap.get(cid) ?? D0;
-        const horasAtrib = horasJaSugeridas.get(cid) ?? D0;
-        const margem    = maxHorasPessoa.minus(horasAtrib);
-        const tetoPessoa = floorBloco(Prisma.Decimal.min(disp, margem));
+      // Disponibilidade DESTE mês — recalculada do banco (sem transbordo entre meses)
+      const todasAlocs = await prisma.alocacao.findMany({
+        where: { colaboradorId: { in: allColabIds }, ano: anoN, mes: mesN },
+        select: { colaboradorId: true, horasPlanejadas: true },
+      });
+      const totalPorColab = new Map<string, Prisma.Decimal>();
+      for (const a of todasAlocs) {
+        totalPorColab.set(a.colaboradorId,
+          (totalPorColab.get(a.colaboradorId) ?? D0).plus(a.horasPlanejadas));
+      }
+      const dispMap = new Map<string, Prisma.Decimal>();
+      for (const cid of allColabIds) {
+        dispMap.set(cid, Prisma.Decimal.max(TETO_HORAS_MES.minus(totalPorColab.get(cid) ?? D0), D0));
+      }
 
-        // Alvo: ceilBloco do que a tarifa exige para fechar o déficit
-        let alvo = tarifa.greaterThan(D0) ? ceilBloco(restante.dividedBy(tarifa)) : D0;
+      // Estado waterfall deste mês
+      const linhasDoMes:          LinhaSugestao[] = [];
+      const diagnosticoNovosDoMes: string[]         = [];
+      let   restante = deficit;
+      const horasJaSugeridas = new Map<string, Prisma.Decimal>();
 
-        // Fixado com minHoras: garante o mínimo mesmo com déficit <= 0
-        if (camada === 'fixado') {
-          const cfg = fixadosMap.get(cid);
-          if (cfg?.minHoras) {
-            alvo = Prisma.Decimal.max(alvo, ceilBloco(new Prisma.Decimal(cfg.minHoras)));
-          }
-        }
+      // ── processarCamada (captura estado deste mês via closure) ─────────────
+      const processarCamada = (candidatoIds: string[], camada: 'fixado' | 'equipe' | 'novo'): void => {
+        const candidatos = candidatoIds
+          .filter(cid => {
+            if (excluidos.has(cid)) return false;
+            const info = colabInfo.get(cid);
+            if (!info || info.tarifa == null) {
+              if (info && !semTarifaWarned.has(cid)) {
+                semTarifaWarned.add(cid);
+                allAvisos.push(`${info.nome}: sem tarifa para esta categoria — excluído da sugestão`);
+              }
+              return false;
+            }
+            if (camada !== 'fixado' && profissoes) {
+              const profId = info.profissao?.id ?? null;
+              if (!profId || !profissoes.includes(profId)) return false;
+            }
+            return (dispMap.get(cid) ?? D0).greaterThan(D0);
+          })
+          .sort((a, b) => {
+            const da = dispMap.get(a) ?? D0;
+            const db = dispMap.get(b) ?? D0;
+            const cmp = db.comparedTo(da);
+            return cmp !== 0 ? cmp : (a < b ? -1 : a > b ? 1 : 0);
+          });
 
-        let horas = Prisma.Decimal.min(alvo, tetoPessoa);
-
-        // Novo entrante: duas regras do mínimo (spec §1.2 e §3)
-        if (camada === 'novo') {
-          if (tetoPessoa.lessThan(minHorasNovo)) {
-            // Regra A: teto < mínimo → pula + diagnóstico
-            diagnosticoNovos.push(
-              `${info.nome}: disponibilidade ${tetoPessoa.toNumber()}h < mínimo ${minHorasNovo.toNumber()}h`
-            );
+        for (const cid of candidatos) {
+          // maxExternos: verifica POR ITERAÇÃO (externosDistintos cresce dentro do loop)
+          if (camada === 'novo' && maxExternos !== null &&
+              !externosDistintos.has(cid) && externosDistintos.size >= maxExternos) {
             continue;
           }
-          // Regra B: entra com pelo menos minHorasNovo (a sobra é reportada)
-          horas = Prisma.Decimal.max(horas, minHorasNovo);
+
+          // Break quando deficit coberto (salvo fixado com minHoras pendente)
+          if (restante.lessThanOrEqualTo(D0)) {
+            if (camada !== 'fixado') break;
+            const cfg      = fixadosMap.get(cid);
+            const minHDec  = cfg?.minHoras ? new Prisma.Decimal(cfg.minHoras) : null;
+            const horasAtrib = horasJaSugeridas.get(cid) ?? D0;
+            const pendente = minHDec ? horasAtrib.lessThan(ceilBloco(minHDec)) : false;
+            if (!pendente) break;
+          }
+
+          const info       = colabInfo.get(cid)!;
+          const tarifa     = info.tarifa!;
+          const disp       = dispMap.get(cid) ?? D0;
+          const horasAtrib = horasJaSugeridas.get(cid) ?? D0;
+          const margem     = maxHorasPessoa.minus(horasAtrib);
+          const tetoPessoa = floorBloco(Prisma.Decimal.min(disp, margem));
+
+          let alvo = tarifa.greaterThan(D0) ? ceilBloco(restante.dividedBy(tarifa)) : D0;
+
+          if (camada === 'fixado') {
+            const cfg = fixadosMap.get(cid);
+            if (cfg?.minHoras) {
+              alvo = Prisma.Decimal.max(alvo, ceilBloco(new Prisma.Decimal(cfg.minHoras)));
+            }
+          }
+
+          let horas = Prisma.Decimal.min(alvo, tetoPessoa);
+
+          if (camada === 'novo') {
+            if (tetoPessoa.lessThan(minHorasNovo)) {
+              diagnosticoNovosDoMes.push(
+                `${info.nome}: disponibilidade ${tetoPessoa.toNumber()}h < mínimo ${minHorasNovo.toNumber()}h`,
+              );
+              continue;
+            }
+            horas = Prisma.Decimal.max(horas, minHorasNovo);
+          }
+
+          if (horas.lessThanOrEqualTo(D0)) continue;
+
+          const dispVista = disp;
+          const dispApos  = dispVista.minus(horas);
+          const receita   = horas.times(tarifa);
+
+          let explicacao: string;
+          if (camada === 'fixado') {
+            const cfg = fixadosMap.get(cid);
+            explicacao = cfg?.minHoras
+              ? `fixado com mínimo ${cfg.minHoras}h; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`
+              : `fixado; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`;
+          } else if (camada === 'equipe') {
+            explicacao = `já no projeto; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`;
+          } else {
+            explicacao = `novo entrante; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`;
+          }
+
+          linhasDoMes.push({
+            colaboradorId: cid, nome: info.nome, profissao: info.profissao?.nome ?? '',
+            mes: mesStr, horas: horas.toNumber(), tarifa: tarifa.toFixed(2),
+            receita: receita.toFixed(2), camada,
+            disponibilidadeVista: dispVista.toNumber(),
+            disponibilidadeApos:  dispApos.toNumber(),
+            explicacao,
+          });
+
+          if (dispApos.greaterThanOrEqualTo(D0) && dispApos.lessThan(new Prisma.Decimal(20))) {
+            allAvisos.push(`${info.nome} ficará com ${dispApos.toNumber()}h livres em ${mesStr}`);
+          }
+
+          restante = restante.minus(receita);
+          dispMap.set(cid, dispApos);
+          horasJaSugeridas.set(cid, horasAtrib.plus(horas));
+
+          // Atualiza externosDistintos imediatamente (controle de maxExternos dentro do mês)
+          if (camada === 'novo') externosDistintos.add(cid);
         }
+      };
 
-        if (horas.lessThanOrEqualTo(D0)) continue;
+      // Camada 1: fixados
+      processarCamada([...fixadosIds], 'fixado');
 
-        // Snapshot de disponibilidade ANTES da atribuição
-        const dispVista = disp;
-        const dispApos  = dispVista.minus(horas);
-        const receita   = horas.times(tarifa);
+      // Camada 2: equipeAtual (real + promovidos) − fixados
+      const equipeIds = [...equipeAtualIds].filter(eid => !fixadosIds.has(eid));
+      processarCamada(equipeIds, 'equipe');
 
-        let explicacao: string;
-        if (camada === 'fixado') {
-          const cfg = fixadosMap.get(cid);
-          explicacao = cfg?.minHoras
-            ? `fixado com mínimo ${cfg.minHoras}h; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`
-            : `fixado; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`;
-        } else if (camada === 'equipe') {
-          explicacao = `já no projeto; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`;
-        } else {
-          explicacao = `novo entrante; ${dispVista.toNumber()}h livres; R$ ${tarifa.toFixed(2)}/h`;
-        }
+      // Camada 3: pool − equipeAtual − fixados
+      const externosIds = poolCollabs
+        .map(c => c.id)
+        .filter(cid => !equipeAtualIds.has(cid) && !fixadosIds.has(cid));
+      processarCamada(externosIds, 'novo');
 
-        linhas.push({
-          colaboradorId: cid,
-          nome:          info.nome,
-          profissao:     info.profissao?.nome ?? '',
-          mes:           mesStrSafe,
-          horas:         horas.toNumber(),
-          tarifa:        tarifa.toFixed(2),
-          receita:       receita.toFixed(2),
-          camada,
-          disponibilidadeVista:  dispVista.toNumber(),
-          disponibilidadeApos:   dispApos.toNumber(),
-          explicacao,
-        });
+      // ── Atualiza estado multi-mês ────────────────────────────────────────
+      // Todos os sugeridos neste mês entram em promovidos (camada 2 nos próximos meses)
+      for (const linha of linhasDoMes) promovidos.add(linha.colaboradorId);
 
-        // Aviso soft: < 20h livres após atribuição
-        if (dispApos.greaterThanOrEqualTo(D0) && dispApos.lessThan(new Prisma.Decimal(20))) {
-          avisos.push(`${info.nome} ficará com ${dispApos.toNumber()}h livres em ${mesStr}`);
-        }
+      // ── Totais deste mês ─────────────────────────────────────────────────
+      const sobra               = restante.lessThan(D0) ? restante.negated() : D0;
+      const deficitRemanescente = restante.greaterThan(D0) ? restante : D0;
+      const coberto             = deficit.minus(deficitRemanescente).plus(sobra);
 
-        // Atualiza estado
-        restante = restante.minus(receita);
-        dispMap.set(cid, dispApos);
-        horasJaSugeridas.set(cid, horasAtrib.plus(horas));
-      }
-    }
+      allTotaisPorMes.push({
+        mes: mesStr, metaHT: metaHT.toFixed(2), receitaAtual: receitaAtual.toFixed(2),
+        deficit: deficit.toFixed(2), coberto: coberto.toFixed(2),
+        sobra: sobra.toFixed(2), deficitRemanescente: deficitRemanescente.toFixed(2),
+      });
 
-    // Camada 1: fixados
-    processarCamada([...fixadosIds], 'fixado');
-
-    // Camada 2: equipe atual − fixados − excluídos
-    const equipeIds = [...equipeAtualIds].filter(eid => !fixadosIds.has(eid));
-    processarCamada(equipeIds, 'equipe');
-
-    // Camada 3: pool ativo − equipe atual − fixados
-    const externosIds = poolCollabs
-      .map(c => c.id)
-      .filter(cid => !equipeAtualIds.has(cid) && !fixadosIds.has(cid));
-    processarCamada(externosIds, 'novo');
-
-    // ── Totais ───────────────────────────────────────────────────────────────
-    // restante = deficit − sum(receitas); pode ser negativo (sobra) ou positivo (remanescente)
-    const sobra               = restante.lessThan(D0) ? restante.negated() : D0;
-    const deficitRemanescente = restante.greaterThan(D0) ? restante : D0;
-    const coberto             = deficit.minus(deficitRemanescente).plus(sobra); // = total atribuído
-
-    const remanescentes = deficitRemanescente.greaterThan(D0)
-      ? [{
+      if (deficitRemanescente.greaterThan(D0)) {
+        allRemanescentes.push({
           mes:        mesStr,
           valor:      deficitRemanescente.toFixed(2),
-          diagnostico: diagnosticoNovos.length > 0
-            ? diagnosticoNovos
+          diagnostico: diagnosticoNovosDoMes.length > 0
+            ? diagnosticoNovosDoMes
             : ['Capacidade insuficiente dos candidatos disponíveis'],
-        }]
-      : [];
+        });
+      }
+
+      allLinhas.push(...linhasDoMes);
+    }
 
     return res.json({
       geradoEm:   new Date().toISOString(),
-      parametros: {
-        mes:            mesStr,
-        profissoes:     profissoes ?? null,
-        fixados:        fixadosLista.map(f => ({ colaboradorId: f.colaboradorId, minHoras: f.minHoras ?? null })),
-        excluidos:      [...excluidos],
-        minHorasNovo:   minHorasNovo.toNumber(),
-        maxHorasPessoa: maxHorasPessoa.toNumber(),
-      },
-      linhas,
-      totaisPorMes: [{
-        mes:                 mesStr,
-        metaHT:              metaHT.toFixed(2),
-        receitaAtual:        receitaAtual.toFixed(2),
-        deficit:             deficit.toFixed(2),
-        coberto:             coberto.toFixed(2),
-        sobra:               sobra.toFixed(2),
-        deficitRemanescente: deficitRemanescente.toFixed(2),
-      }],
-      remanescentes,
-      avisos,
+      parametros: buildParametros(mesesOrdenados, profissoes, fixadosLista, excluidos,
+        minHorasNovo, maxHorasPessoa, maxExternos),
+      linhas:        allLinhas,
+      totaisPorMes:  allTotaisPorMes,
+      remanescentes: allRemanescentes,
+      avisos:        allAvisos,
     });
 
   } catch (error) {
@@ -386,5 +475,25 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+function buildParametros(
+  meses: string[],
+  profissoes: string[] | null,
+  fixadosLista: { colaboradorId: string; minHoras?: number }[],
+  excluidos: Set<string>,
+  minHorasNovo: Prisma.Decimal,
+  maxHorasPessoa: Prisma.Decimal,
+  maxExternos: number | null,
+) {
+  return {
+    meses,
+    profissoes:     profissoes ?? null,
+    fixados:        fixadosLista.map(f => ({ colaboradorId: f.colaboradorId, minHoras: f.minHoras ?? null })),
+    excluidos:      [...excluidos],
+    minHorasNovo:   minHorasNovo.toNumber(),
+    maxHorasPessoa: maxHorasPessoa.toNumber(),
+    maxExternos:    maxExternos ?? null,
+  };
+}
 
 export default router;

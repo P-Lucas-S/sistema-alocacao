@@ -846,21 +846,27 @@ export default function PlanejamentoWizard() {
                   style={{ color: 'var(--text-3)' }}
                 >
                   {showAvancados ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                  Opções avançadas
+                  Opções avançadas <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcionais — já têm padrão)</span>
                 </button>
                 {showAvancados && (
                   <div className="flex gap-4 mt-3">
                     <div className="flex-1">
-                      <p style={{ ...secLabel, marginBottom: 4 }}>Min horas — novo</p>
-                      <input type="number" min={0} step={4} value={minHorasNovo}
-                        onChange={e => setMinHorasNovo(e.target.value)} style={inp} />
-                      <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>Padrão: 8h</p>
+                      <p style={{ ...secLabel, marginBottom: 4 }}>Mínimo para novo entrante</p>
+                      <input type="number" min={1} step={1} value={minHorasNovo}
+                        onChange={e => setMinHorasNovo(e.target.value)} style={inp}
+                        placeholder="8" />
+                      <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+                        Horas mínimas para trazer alguém <em>novo</em> ao projeto — abaixo disso o custo de integração não compensa. Não se aplica a quem já está no time. Padrão: 8h.
+                      </p>
                     </div>
                     <div className="flex-1">
-                      <p style={{ ...secLabel, marginBottom: 4 }}>Max horas — pessoa</p>
-                      <input type="number" min={4} step={4} value={maxHorasPessoa}
-                        onChange={e => setMaxHorasPessoa(e.target.value)} style={inp} />
-                      <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>Padrão: 60h</p>
+                      <p style={{ ...secLabel, marginBottom: 4 }}>Máximo por pessoa / mês</p>
+                      <input type="number" min={1} step={1} value={maxHorasPessoa}
+                        onChange={e => setMaxHorasPessoa(e.target.value)} style={inp}
+                        placeholder="60" />
+                      <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+                        Teto de horas que o motor pode alocar a uma pessoa neste projeto por mês — evita concentrar tudo numa só. Padrão: 60h.
+                      </p>
                     </div>
                   </div>
                 )}

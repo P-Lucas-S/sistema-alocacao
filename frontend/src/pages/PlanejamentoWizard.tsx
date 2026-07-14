@@ -14,7 +14,7 @@ interface Projeto {
   vigenciaInicio: string | null; vigenciaFim: string | null;
   valorTotal: string | null;
 }
-interface MacroEntrega { id: string; nome: string }
+interface MacroEntrega { id: string; nome: string; microEntregas?: { id: string; nome: string }[] }
 interface MetaMes {
   ano: number; mes: number;
   metaHT: string; receitaPlanejada: string; deficit: string;
@@ -161,6 +161,18 @@ export default function PlanejamentoWizard() {
   const [edicoes,   setEdicoes]   = useState<Map<string, Map<string, number>>>(new Map());
   const [removidos, setRemovidos] = useState<Set<string>>(new Set());
 
+  // ── aplicação (F6) ────────────────────────────────────────────────────────
+  type AplicacaoStatus = 'idle' | 'confirmando' | 'aplicando' | 'relatorio';
+  interface FalhaInfo {
+    key: string; colaboradorId: string; nome: string; mes: string;
+    horasSolicitadas: number; motivo: string;
+    horasDisponiveis?: number; mesFechado?: boolean;
+  }
+  const [aplicacaoStatus,    setAplicacaoStatus]    = useState<AplicacaoStatus>('idle');
+  const [aplicacaoProgresso, setAplicacaoProgresso] = useState({ atual: 0, total: 0 });
+  const [celulaResultados,   setCelulaResultados]   = useState<Map<string, { ok: boolean; horasDisp?: number }>>(new Map());
+  const [falhas,             setFalhas]             = useState<FalhaInfo[]>([]);
+
   // ── load ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!projetoId || !token) return;
@@ -217,10 +229,13 @@ export default function PlanejamentoWizard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesesSel]);
 
-  // Novo resultado → descarta edições locais da matriz anterior
+  // Novo resultado → descarta edições e estado de aplicação da rodada anterior
   useEffect(() => {
     setEdicoes(new Map());
     setRemovidos(new Set());
+    setAplicacaoStatus('idle');
+    setCelulaResultados(new Map());
+    setFalhas([]);
   }, [resultado]);
 
   // ref para o container scrollável — permite voltar ao topo no Limpar
@@ -277,6 +292,106 @@ export default function PlanejamentoWizard() {
   const ageMins = resultado
     ? Math.floor((Date.now() - new Date(resultado.geradoEm).getTime()) / 60000)
     : 0;
+
+  // Primeira micro (Geral) da macro destino — necessária para o POST /alocacoes
+  const geralMicroId = useMemo(() => {
+    const macro = macros.find(m => m.id === macroId);
+    return macro?.microEntregas?.[0]?.id ?? null;
+  }, [macros, macroId]);
+
+  // Lista ordenada de células a aplicar: mes asc → camada → colaboradorId
+  const ORDEM_CAMADA: Record<string, number> = { fixado: 0, equipe: 1, novo: 2 };
+  const celulasFinal = useMemo(() => {
+    const result: {
+      key: string; colaboradorId: string; nome: string;
+      camada: 'fixado' | 'equipe' | 'novo'; mes: string; ano: number; mesNum: number; horas: number;
+    }[] = [];
+    for (const p of pessoasMatriz) {
+      if (removidos.has(p.colaboradorId)) continue;
+      for (const m of mesesCol) {
+        const orig  = p.mesesData.get(m)?.horasOriginal ?? 0;
+        const horas = edicoes.get(p.colaboradorId)?.get(m) ?? orig;
+        if (horas <= 0) continue;
+        const [anoStr, mesStr] = m.split('-');
+        result.push({
+          key: `${p.colaboradorId}::${m}`,
+          colaboradorId: p.colaboradorId, nome: p.nome, camada: p.camada,
+          mes: m, ano: parseInt(anoStr!), mesNum: parseInt(mesStr!), horas,
+        });
+      }
+    }
+    return result.sort((a, b) => {
+      if (a.mes !== b.mes) return a.mes.localeCompare(b.mes);
+      const oc = (ORDEM_CAMADA[a.camada] ?? 99) - (ORDEM_CAMADA[b.camada] ?? 99);
+      if (oc !== 0) return oc;
+      return a.colaboradorId.localeCompare(b.colaboradorId);
+    });
+  }, [pessoasMatriz, mesesCol, edicoes, removidos]);
+
+  // ── F6: aplicação ──────────────────────────────────────────────────────────
+  async function executarAplicacao(celulas: typeof celulasFinal) {
+    if (!projetoId || !macroId || !geralMicroId) return;
+    setAplicacaoStatus('aplicando');
+    setAplicacaoProgresso({ atual: 0, total: celulas.length });
+
+    const novosResultados = new Map(celulaResultados);
+    const novasFalhas: typeof falhas = [];
+
+    for (let i = 0; i < celulas.length; i++) {
+      const c = celulas[i]!;
+      setAplicacaoProgresso({ atual: i + 1, total: celulas.length });
+      try {
+        const res = await fetch('/api/alocacoes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            colaboradorId: c.colaboradorId, projetoId,
+            macroEntregaId: macroId, microEntregaId: geralMicroId,
+            ano: c.ano, mes: c.mesNum, horasPlanejadas: c.horas,
+          }),
+        });
+        const data = await res.json();
+        if (res.status === 201) {
+          novosResultados.set(c.key, { ok: true });
+        } else {
+          let motivo = '';
+          let horasDisp: number | undefined;
+          let mesFechado = false;
+          if (res.status === 409 && data.bloqueado) {
+            horasDisp = parseFloat(data.horasDisponiveis);
+            motivo    = `Teto de 220h — cabem ${horasDisp}h de ${c.horas}h solicitadas`;
+          } else if (res.status === 409 && data.mesFechado) {
+            motivo = 'Mês fechado'; mesFechado = true;
+          } else if (res.status === 403) {
+            motivo = data.error ?? 'Sem permissão';
+          } else {
+            motivo = data.error ?? `Erro ${res.status}`;
+          }
+          novosResultados.set(c.key, { ok: false, horasDisp });
+          novasFalhas.push({ key: c.key, colaboradorId: c.colaboradorId, nome: c.nome, mes: c.mes, horasSolicitadas: c.horas, motivo, horasDisponiveis: horasDisp, mesFechado });
+        }
+      } catch {
+        novosResultados.set(c.key, { ok: false });
+        novasFalhas.push({ key: c.key, colaboradorId: c.colaboradorId, nome: c.nome, mes: c.mes, horasSolicitadas: c.horas, motivo: 'Erro de rede' });
+      }
+      setCelulaResultados(new Map(novosResultados));
+    }
+    setFalhas(novasFalhas);
+    setAplicacaoStatus('relatorio');
+  }
+
+  function ajustarHorasDisp(colaboradorId: string, mes: string, horasDisp: number) {
+    setEdicoes(prev => {
+      const next = new Map(prev);
+      const mm   = new Map(next.get(colaboradorId) ?? []);
+      mm.set(mes, horasDisp);
+      next.set(colaboradorId, mm);
+      return next;
+    });
+    const key = `${colaboradorId}::${mes}`;
+    setCelulaResultados(prev => { const n = new Map(prev); n.delete(key); return n; });
+    setFalhas(prev => prev.filter(f => f.key !== key));
+  }
 
   // ── gerar ─────────────────────────────────────────────────────────────────
   async function handleGerar(e: React.FormEvent) {
@@ -863,14 +978,30 @@ export default function PlanejamentoWizard() {
                       {ageMins > 5 && ' · disponibilidade pode ter mudado'}
                     </p>
                   </div>
-                  <button
-                    disabled
-                    title="Aplicação disponível em breve (F6)"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                    style={{ background: 'var(--surface-3)', border: '1px solid var(--border)', color: 'var(--text-3)', cursor: 'not-allowed', opacity: 0.55 }}
-                  >
-                    <Check size={12} /> Aplicar alocações
-                  </button>
+                  {aplicacaoStatus === 'aplicando' ? (
+                    <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-3)' }}>
+                      <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+                        <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                      </svg>
+                      Aplicando {aplicacaoProgresso.atual} de {aplicacaoProgresso.total}…
+                    </div>
+                  ) : (
+                    <button
+                      disabled={celulasFinal.length === 0 || !geralMicroId || aplicacaoStatus !== 'idle'}
+                      onClick={() => setAplicacaoStatus('confirmando')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity"
+                      style={{
+                        background: celulasFinal.length > 0 && geralMicroId && aplicacaoStatus === 'idle' ? 'var(--brand-500)' : 'var(--surface-3)',
+                        border: celulasFinal.length > 0 && geralMicroId && aplicacaoStatus === 'idle' ? 'none' : '1px solid var(--border)',
+                        color: celulasFinal.length > 0 && geralMicroId && aplicacaoStatus === 'idle' ? 'white' : 'var(--text-3)',
+                        cursor: celulasFinal.length > 0 && geralMicroId && aplicacaoStatus === 'idle' ? 'pointer' : 'not-allowed',
+                        opacity: aplicacaoStatus === 'relatorio' ? 0.45 : 1,
+                      }}
+                    >
+                      <Check size={12} /> Aplicar alocações
+                    </button>
+                  )}
                 </div>
 
                 {pessoasMatriz.length === 0 ? (
@@ -943,33 +1074,55 @@ export default function PlanejamentoWizard() {
                                 const horas    = edicoes.get(p.colaboradorId)?.get(m) ?? orig;
                                 const dispApos = mesData ? mesData.disponibilidadeVista - horas : null;
                                 const aviso    = dispApos !== null && dispApos < 20;
+                                const cellKey  = `${p.colaboradorId}::${m}`;
+                                const celRes   = celulaResultados.get(cellKey);
+                                const celOk    = celRes?.ok === true;
+                                const celFalha = celRes?.ok === false;
+
+                                let bgColor = aviso ? 'hsl(38 92% 50% / 0.08)' : 'var(--surface-2)';
+                                let border  = `1px solid ${aviso ? 'hsl(38 92% 50% / 0.45)' : 'var(--border)'}`;
+                                if (celOk)    { bgColor = 'hsl(142 71% 45% / 0.10)'; border = '1px solid hsl(142 71% 45% / 0.35)'; }
+                                if (celFalha) { bgColor = 'hsl(0 85% 60% / 0.08)';   border = '1px solid hsl(0 85% 60% / 0.45)'; }
 
                                 return (
                                   <td key={m} style={{ ...tdSt, borderBottom: 'none', textAlign: 'right', padding: '6px 4px', verticalAlign: 'middle' }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        value={horas === 0 ? '' : horas}
-                                        placeholder="0"
-                                        onChange={ev => {
-                                          const val = Math.max(0, parseFloat(ev.target.value) || 0);
-                                          setEdicoes(prev => {
-                                            const next    = new Map(prev);
-                                            const mesMapa = new Map(next.get(p.colaboradorId) ?? []);
-                                            mesMapa.set(m, val);
-                                            next.set(p.colaboradorId, mesMapa);
-                                            return next;
-                                          });
-                                        }}
-                                        style={{
-                                          width: 56, textAlign: 'right', fontSize: 13, fontWeight: 600,
-                                          background: aviso ? 'hsl(38 92% 50% / 0.08)' : 'var(--surface-2)',
-                                          border: `1px solid ${aviso ? 'hsl(38 92% 50% / 0.45)' : 'var(--border)'}`,
-                                          borderRadius: 6, padding: '3px 6px', color: 'var(--text-1)', outline: 'none',
-                                        }}
-                                      />
-                                      {dispApos !== null && (
+                                      {celOk ? (
+                                        <div style={{ width: 56, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, borderRadius: 6, padding: '3px 6px', background: bgColor, border }}>
+                                          <Check size={11} style={{ color: 'hsl(142 60% 38%)' }} />
+                                          <span style={{ fontSize: 13, fontWeight: 600, color: 'hsl(142 60% 38%)' }}>{horas}h</span>
+                                        </div>
+                                      ) : (
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={horas === 0 ? '' : horas}
+                                          placeholder="0"
+                                          disabled={aplicacaoStatus === 'aplicando'}
+                                          onChange={ev => {
+                                            const val = Math.max(0, parseFloat(ev.target.value) || 0);
+                                            setEdicoes(prev => {
+                                              const next    = new Map(prev);
+                                              const mesMapa = new Map(next.get(p.colaboradorId) ?? []);
+                                              mesMapa.set(m, val);
+                                              next.set(p.colaboradorId, mesMapa);
+                                              return next;
+                                            });
+                                            // limpar resultado de falha ao editar
+                                            if (celFalha) {
+                                              setCelulaResultados(prev => { const n = new Map(prev); n.delete(cellKey); return n; });
+                                              setFalhas(prev => prev.filter(f => f.key !== cellKey));
+                                            }
+                                          }}
+                                          style={{
+                                            width: 56, textAlign: 'right', fontSize: 13, fontWeight: 600,
+                                            background: bgColor, border, borderRadius: 6, padding: '3px 6px',
+                                            color: celFalha ? 'hsl(0 85% 62%)' : 'var(--text-1)', outline: 'none',
+                                            opacity: aplicacaoStatus === 'aplicando' ? 0.5 : 1,
+                                          }}
+                                        />
+                                      )}
+                                      {!celOk && dispApos !== null && (
                                         <span style={{ fontSize: 9, lineHeight: 1, color: aviso ? 'hsl(38 92% 42%)' : 'var(--text-3)' }}>
                                           {aviso && '⚠ '}{Math.round(dispApos)}h livres
                                         </span>
@@ -1048,6 +1201,69 @@ export default function PlanejamentoWizard() {
                 )}
               </div>
 
+              {/* ── Relatório de aplicação (F6) ───────────────────────── */}
+              {aplicacaoStatus === 'relatorio' && (() => {
+                const totalAplicado = celulasFinal.length - falhas.length;
+                const totalCelulas  = celulasFinal.length;
+                const tudoOk        = falhas.length === 0;
+                return (
+                  <div style={{ ...card, border: tudoOk ? '1px solid hsl(142 71% 45% / 0.35)' : '1px solid hsl(0 85% 60% / 0.25)' }}>
+                    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                      <div>
+                        <p style={secLabel}>Resultado da aplicação</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: tudoOk ? 'hsl(142 60% 38%)' : 'var(--text-1)' }}>
+                          {tudoOk
+                            ? `Todas as ${totalCelulas} alocações foram aplicadas com sucesso.`
+                            : `${totalAplicado} de ${totalCelulas} alocações aplicadas — ${falhas.length} falha${falhas.length !== 1 ? 's' : ''}.`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => navigate(`/projetos/${projetoId}`)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                        style={{ background: 'var(--brand-500)', color: 'white', cursor: 'pointer', border: 'none' }}
+                      >
+                        <ArrowLeft size={12} /> Ir para o projeto
+                      </button>
+                    </div>
+
+                    {falhas.length > 0 && (
+                      <div className="flex flex-col gap-1.5 mt-2">
+                        {falhas.map(f => (
+                          <div key={f.key} className="flex items-start justify-between gap-3 px-3 py-2.5 rounded-xl"
+                            style={{ background: 'hsl(0 85% 60% / 0.06)', border: '1px solid hsl(0 85% 60% / 0.15)' }}>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs font-semibold" style={{ color: 'var(--text-1)' }}>
+                                {f.nome} — {fmtMes(f.mes)}
+                              </span>
+                              <span className="text-xs ml-2" style={{ color: 'hsl(0 85% 62%)' }}>{f.motivo}</span>
+                            </div>
+                            {f.horasDisponiveis !== undefined && f.horasDisponiveis > 0 && (
+                              <button
+                                onClick={() => ajustarHorasDisp(f.colaboradorId, f.mes, f.horasDisponiveis!)}
+                                className="shrink-0 text-xs font-semibold px-2 py-1 rounded-lg"
+                                style={{ background: 'hsl(0 85% 60% / 0.12)', border: '1px solid hsl(0 85% 60% / 0.25)', color: 'hsl(0 85% 62%)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                → {f.horasDisponiveis}h
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => {
+                            const chavesFalha = new Set(falhas.map(f => f.key));
+                            executarAplicacao(celulasFinal.filter(c => chavesFalha.has(c.key)));
+                          }}
+                          className="self-start flex items-center gap-1.5 mt-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                          style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)', cursor: 'pointer' }}
+                        >
+                          <Zap size={11} /> Reaplicar {falhas.length} falha{falhas.length !== 1 ? 's' : ''}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Remanescentes */}
               {resultado.remanescentes.length > 0 && (
                 <div style={card}>
@@ -1078,6 +1294,44 @@ export default function PlanejamentoWizard() {
           )}
         </div>
       </div>
+
+      {/* ── Modal de confirmação (F6) ─────────────────────────────────────── */}
+      {aplicacaoStatus === 'confirmando' && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          onClick={() => setAplicacaoStatus('idle')}
+        >
+          <div
+            style={{ ...card, maxWidth: 440, width: '100%' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <p style={{ ...secLabel, marginBottom: 8 }}>Confirmar aplicação</p>
+            <p className="text-sm mb-1" style={{ color: 'var(--text-1)', fontWeight: 600 }}>
+              Aplicar {celulasFinal.length} alocação{celulasFinal.length !== 1 ? 'ões' : ''} ao projeto {projeto?.codigo}?
+            </p>
+            <p className="text-xs mb-5" style={{ color: 'var(--text-3)' }}>
+              As horas serão gravadas no banco passando pelo teto de 220h por colaborador.
+              O que for bem-sucedido não tem rollback automático.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setAplicacaoStatus('idle')}
+                className="px-4 py-2 rounded-xl text-sm font-semibold"
+                style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-2)', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => executarAplicacao(celulasFinal)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                style={{ background: 'var(--brand-500)', cursor: 'pointer', border: 'none' }}
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

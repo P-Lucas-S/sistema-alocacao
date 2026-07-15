@@ -22,6 +22,7 @@ import profissoesRoutes from './routes/profissoes.js';
 import priorizacaoRoutes from './routes/priorizacao.js';
 import dashboardsRoutes from './routes/dashboards.js';
 import sugestaoEquipeRoutes from './routes/sugestaoEquipe.js';
+import configPriorizacaoRoutes from './routes/configPriorizacao.js';
 
 const BOOT_TIME = new Date();
 
@@ -61,6 +62,7 @@ app.use('/api/profissoes', profissoesRoutes);
 app.use('/api/priorizacao', priorizacaoRoutes);
 app.use('/api/dashboards', dashboardsRoutes);
 app.use('/api/projetos/:id/sugestao-equipe', sugestaoEquipeRoutes);
+app.use('/api/config/priorizacao', configPriorizacaoRoutes);
 
 app.get('/api/health', (_req, res) => {
   const uptimeSeconds = Math.floor((Date.now() - BOOT_TIME.getTime()) / 1000);

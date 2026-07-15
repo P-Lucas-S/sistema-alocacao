@@ -34,6 +34,7 @@ model User {
   projetosExclusaoSolicitada          Projeto[]                   @relation("ProjetoExclusaoSolicitadaPor")
   exclusoesSolicitadas                ProjetoExcluido[]            @relation("ProjetoExcluidoSolicitante")
   exclusoesAprovadas                  ProjetoExcluido[]            @relation("ProjetoExcluidoAprovador")
+  configPriorizacaoEditadas           ConfiguracaoPriorizacao[]    @relation("ConfigPriorizacaoUpdatedBy")
 
   @@map("users")
 }
@@ -388,6 +389,23 @@ model Redelegacao {
 // padrão denormalizado de AlocacaoLog/Redelegacao. Só solicitanteId (pode ser
 // null — exclusão direta do chefe sem pedido prévio) e aprovadorId (o chefe
 // que executou) apontam pra User vivo, com FK.
+// ─── P2: Configuração dos limiares da priorização ─────────────────
+// Registro único — sempre acessado pelo id fixo 'config-priorizacao'.
+// Upsert no boot garante que a linha existe com os defaults mesmo em
+// instâncias novas. updatedById é nullable: null enquanto ninguém editou.
+model ConfiguracaoPriorizacao {
+  id                     String   @id @db.VarChar(191)
+  prazoAltaDias          Int      @default(7)  @map("prazo_alta_dias")
+  prazoMediaDias         Int      @default(30) @map("prazo_media_dias")
+  tetoCapacidadeSinalPct Int      @default(95) @map("teto_capacidade_sinal_pct")
+  updatedAt              DateTime @updatedAt   @map("updated_at")
+  updatedById            String?  @map("updated_by_id") @db.VarChar(191)
+
+  updatedBy User? @relation("ConfigPriorizacaoUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@map("configuracao_priorizacao")
+}
+
 model ProjetoExcluido {
   id                  String    @id @db.VarChar(191)
   codigo              String    @db.VarChar(50)

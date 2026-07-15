@@ -262,6 +262,8 @@ export async function initDb() {
   await prisma.pushSubscription.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.passwordReset.deleteMany();
+  // FK nullable em configuracaoPriorizacao → limpa antes de apagar users
+  await prisma.configuracaoPriorizacao.updateMany({ data: { updatedById: null } });
   await prisma.user.deleteMany();
 
   // ── Usuários ───────────────────────────────────────────────────────────
@@ -375,6 +377,13 @@ export async function initDb() {
   for (const s of SOLICITACOES) {
     await prisma.solicitacaoRemanejamento.create({ data: s });
   }
+
+  // ── Config de priorização — garante que a linha única existe com os defaults ──
+  await prisma.configuracaoPriorizacao.upsert({
+    where:  { id: 'config-priorizacao' },
+    update: {},  // re-seed não sobrescreve configuração já ajustada por admin
+    create: { id: 'config-priorizacao', prazoAltaDias: 7, prazoMediaDias: 30, tetoCapacidadeSinalPct: 95 },
+  });
 
   // ── Relatório ──────────────────────────────────────────────────────────
   const totalColabs  = COLABORADORES.length;

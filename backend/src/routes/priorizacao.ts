@@ -7,13 +7,8 @@ import { computeProxima } from './projetos.js';
 
 const router = express.Router();
 
-// ── Constantes — fase P1: limiares fixos. Virão de tabela de configuração
-// numa fase futura (fixar/pausar também), mas por ora são const nomeadas. ──
-const PRAZO_ALTA_DIAS  = 7;  // vencida OU vence em <= 7 dias  → 'alta'
-const PRAZO_MEDIA_DIAS = 30; // vence em 8–30 dias              → 'media'
-                              // vence em > 30 dias              → 'baixa'
-                              // sem prestação cadastrada        → 'sem_prazo'
-const CAPACIDADE_ALERTA_PCT = 0.95; // sinal de capacidade: >= 95% do teto
+// ID fixo do registro único de configuração (upsert sempre mira este id)
+export const CONFIG_PRIORIZACAO_ID = 'config-priorizacao';
 
 type CategoriaPrazo = 'alta' | 'media' | 'baixa' | 'sem_prazo';
 
@@ -70,6 +65,16 @@ export interface CalcularPriorizacaoResult {
 // GET / abaixo chama isso e responde só `itens` — contrato do P1 inalterado.
 export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Promise<CalcularPriorizacaoResult> {
   const { role, userId, ano: anoN, mes: mesN } = params;
+
+  // ── Limiares — lidos da config (upsert garante que a linha sempre existe) ──
+  const cfg = await prisma.configuracaoPriorizacao.upsert({
+    where:  { id: CONFIG_PRIORIZACAO_ID },
+    update: {},
+    create: { id: CONFIG_PRIORIZACAO_ID, prazoAltaDias: 7, prazoMediaDias: 30, tetoCapacidadeSinalPct: 95 },
+  });
+  const PRAZO_ALTA_DIAS       = cfg.prazoAltaDias;
+  const PRAZO_MEDIA_DIAS      = cfg.prazoMediaDias;
+  const CAPACIDADE_ALERTA_PCT = cfg.tetoCapacidadeSinalPct / 100;
 
   // ── Escopo — MESMO critério do grid/candidatos (projWhere) ─────────────
   const projWhere = role === 'gestor'

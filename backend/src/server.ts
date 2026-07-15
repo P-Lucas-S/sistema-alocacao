@@ -23,6 +23,19 @@ import priorizacaoRoutes from './routes/priorizacao.js';
 import dashboardsRoutes from './routes/dashboards.js';
 import sugestaoEquipeRoutes from './routes/sugestaoEquipe.js';
 
+const BOOT_TIME = new Date();
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -50,7 +63,16 @@ app.use('/api/dashboards', dashboardsRoutes);
 app.use('/api/projetos/:id/sugestao-equipe', sugestaoEquipeRoutes);
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', ambiente: process.env.NODE_ENV });
+  const uptimeSeconds = Math.floor((Date.now() - BOOT_TIME.getTime()) / 1000);
+  res.json({
+    status: 'ok',
+    ambiente: process.env.NODE_ENV,
+    bootTime: BOOT_TIME.toISOString(),
+    uptimeSeconds,
+    uptimeHuman: formatUptime(uptimeSeconds),
+    pid: process.pid,
+    port: Number(PORT),
+  });
 });
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {

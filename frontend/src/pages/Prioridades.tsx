@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { BarChart2, AlertTriangle } from 'lucide-react';
+import { BarChart2, AlertTriangle, Settings } from 'lucide-react';
 import SeletorMes from '../components/SeletorMes';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
@@ -22,6 +22,15 @@ interface ItemDashboard {
   custoPlanejado:    string | null;
   horasPlanejadas:   string;
   horasRealizadas:   string | null; // null = sem nenhum apontamento no mês
+}
+
+// ── Tipos de config ──────────────────────────────────────────────────────────
+
+interface ConfigPriorizacao {
+  prazoAltaDias:          number;
+  prazoMediaDias:         number;
+  tetoCapacidadeSinalPct: number;
+  updatedBy:              { name: string } | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -80,7 +89,8 @@ const td: React.CSSProperties = {
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function Prioridades() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const podeEditar = user?.role === 'admin' || user?.role === 'chefe';
 
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
@@ -89,6 +99,17 @@ export default function Prioridades() {
   const [itens, setItens]     = useState<ItemDashboard[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro]       = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // ── Estado do modal de configuração ──────────────────────────────────────
+  const [modalConfig,  setModalConfig]  = useState(false);
+  const [cfg,          setCfg]          = useState<ConfigPriorizacao | null>(null);
+  const [cfgLoading,   setCfgLoading]   = useState(false);
+  const [fAlta,        setFAlta]        = useState('');
+  const [fMedia,       setFMedia]       = useState('');
+  const [fPct,         setFPct]         = useState('');
+  const [cfgErro,      setCfgErro]      = useState('');
+  const [cfgSalvando,  setCfgSalvando]  = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -110,20 +131,100 @@ export default function Prioridades() {
         setLoading(false);
       }
     })();
-  }, [token, ano, mes]);
+  }, [token, ano, mes, refreshKey]);
+
+  const abrirConfig = useCallback(async () => {
+    setModalConfig(true);
+    setCfgErro('');
+    setCfgLoading(true);
+    try {
+      const res = await fetch('/api/config/priorizacao', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d: ConfigPriorizacao = await res.json();
+      setCfg(d);
+      setFAlta(String(d.prazoAltaDias));
+      setFMedia(String(d.prazoMediaDias));
+      setFPct(String(d.tetoCapacidadeSinalPct));
+    } catch {
+      setCfgErro('Erro ao carregar configuração.');
+    } finally {
+      setCfgLoading(false);
+    }
+  }, [token]);
+
+  async function salvarConfig() {
+    const alta = parseInt(fAlta);
+    const media = parseInt(fMedia);
+    const pct   = parseInt(fPct);
+
+    if (!Number.isInteger(alta) || alta < 1) {
+      setCfgErro('Faixa Alta deve ser um número inteiro >= 1.');
+      return;
+    }
+    if (!Number.isInteger(media) || media <= alta) {
+      setCfgErro(`Faixa Média deve ser maior que Alta (> ${alta}).`);
+      return;
+    }
+    if (!Number.isInteger(pct) || pct < 1 || pct > 100) {
+      setCfgErro('Percentual de capacidade deve estar entre 1 e 100.');
+      return;
+    }
+
+    setCfgErro('');
+    setCfgSalvando(true);
+    try {
+      const res = await fetch('/api/config/priorizacao', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ prazoAltaDias: alta, prazoMediaDias: media, tetoCapacidadeSinalPct: pct }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        setCfgErro(d.error || 'Erro ao salvar.');
+        return;
+      }
+      setCfg(d);
+      setModalConfig(false);
+      setRefreshKey(k => k + 1);
+    } catch {
+      setCfgErro('Erro de rede ao salvar.');
+    } finally {
+      setCfgSalvando(false);
+    }
+  }
 
   return (
     <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
       {/* Cabeçalho */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-            <BarChart2 size={20} style={{ color: 'var(--brand-500)' }} />
-            Prioridades
-          </h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-3)' }}>
-            Acompanhamento de projetos por prazo de prestação de contas
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+              <BarChart2 size={20} style={{ color: 'var(--brand-500)' }} />
+              Prioridades
+            </h1>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text-3)' }}>
+              Acompanhamento de projetos por prazo de prestação de contas
+            </p>
+          </div>
+          {podeEditar && (
+            <button
+              onClick={abrirConfig}
+              title="Configurar limiares de priorização"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 32, height: 32, borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: 'var(--surface-2)',
+                color: 'var(--text-3)',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <Settings size={15} />
+            </button>
+          )}
         </div>
         <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
       </div>
@@ -246,6 +347,115 @@ export default function Prioridades() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* Modal de configuração dos limiares */}
+      {modalConfig && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => { if (!cfgSalvando) setModalConfig(false); }}
+        >
+          <div
+            style={{ background: 'var(--surface-1)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: '20px 24px', width: 440, maxWidth: '92vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: '0 0 4px' }}>
+              Configurar priorização
+            </h3>
+            <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 18px' }}>
+              Define as faixas de prazo e o sinal de capacidade. Efetivo imediatamente para todos.
+            </p>
+
+            {cfgLoading ? (
+              <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>Carregando…</p>
+            ) : (
+              <>
+                {/* Bloco: faixas de prazo */}
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', margin: '0 0 10px' }}>
+                  Categorias de prazo
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>
+                      🔴 Alta — vencida ou vence em até
+                      {' '}<input
+                        type="number" min={1} step={1} value={fAlta}
+                        onChange={e => { setFAlta(e.target.value); setCfgErro(''); }}
+                        disabled={cfgSalvando}
+                        style={{ width: 52, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-1)', fontSize: 13, textAlign: 'center' }}
+                      />{' '}dias
+                    </span>
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>
+                      🟡 Média — vence em até
+                      {' '}<input
+                        type="number" min={2} step={1} value={fMedia}
+                        onChange={e => { setFMedia(e.target.value); setCfgErro(''); }}
+                        disabled={cfgSalvando}
+                        style={{ width: 52, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-1)', fontSize: 13, textAlign: 'center' }}
+                      />{' '}dias
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', paddingLeft: 2 }}>
+                      A faixa Média vai do dia {(parseInt(fAlta) || 0) + 1} até este limite. Acima → Baixa.
+                    </span>
+                  </label>
+                </div>
+
+                {/* Bloco: sinal de capacidade */}
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', margin: '0 0 10px' }}>
+                  Sinal de capacidade (⚠)
+                </p>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 18 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>
+                    Alertar quando a equipe atingir
+                    {' '}<input
+                      type="number" min={1} max={100} step={1} value={fPct}
+                      onChange={e => { setFPct(e.target.value); setCfgErro(''); }}
+                      disabled={cfgSalvando}
+                      style={{ width: 48, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-1)', fontSize: 13, textAlign: 'center' }}
+                    />% do teto mensal (220h)
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)', paddingLeft: 2 }}>
+                    Exibe ⚠ no projeto se algum colaborador atingir esse percentual no mês.
+                  </span>
+                </label>
+
+                {/* Quem editou por último */}
+                {cfg?.updatedBy && (
+                  <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '0 0 14px' }}>
+                    Última edição por <strong>{cfg.updatedBy.name}</strong>.
+                  </p>
+                )}
+
+                {/* Erro */}
+                {cfgErro && (
+                  <p style={{ fontSize: 12, color: '#b42318', margin: '0 0 12px' }}>{cfgErro}</p>
+                )}
+
+                {/* Botões */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => setModalConfig(false)}
+                    disabled={cfgSalvando}
+                    style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={salvarConfig}
+                    disabled={cfgSalvando}
+                    style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--brand-500)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: cfgSalvando ? 'not-allowed' : 'pointer', opacity: cfgSalvando ? 0.6 : 1 }}
+                  >
+                    {cfgSalvando ? 'Salvando…' : 'Salvar'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

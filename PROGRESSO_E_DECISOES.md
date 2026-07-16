@@ -76,7 +76,7 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Área de atuação** | Entidade administrável + FK no colaborador + telas — **construída e REVERTIDA** | ⏪ **Revertida** (decisão de produto — ver §4-quater). Código de volta em `0dc3cc7`; 4 commits salvos em `backup/areas-atuacao-58e3f20` |
 | **Profissão** | Entidade **plana** que **substitui** a `funcao` + montar equipe por profissão no grid (filtro, faixa de candidatos, alocação inline) — ver §4-quinquies | ✅ **Completa** (`f2395e0`, `e64e6ce`, `cece63c`, `887ac75`, `892721a`, `a8582be`, `efe1317`, `087d61c`, `e2e56ac`, `3f3e9d7`) |
 | **Planejamento Inteligente** | Feature COMPLETA (F0→F6): meta de apropriação de HT (campos + meta mensal + cascata + tela) e motor de sugestão de equipe (motor read-only + wizard + aplicação) — ver §4-septies | 🟢 **F0→F6 ✅ (feature completa, validada pela cliente)** — financeira `3310d02`,`1b06ead`,`2047c71`,`9728b4e`,`58b49ec`,`f48dc50`,`aa9fd39`,`29a243f`; motor `d95b233`,`e172f5c`,`6769f94`,`1c36c29`,`7fb89e3`,`33e885f` (+ spec `294c299`, cenários `00c1fc9`, fixes `04e5e7c`) |
-| **Priorização P1 + menu + dashboard Projetos** | `calcularPriorizacao()` exportada; menu N1/N2; tela Prioridades; grupo Painéis — ver §4-sexies | ✅ **Completos** (`7179587`, `5f1260e`, `44c45b1`, `996f271`, `83ccc4b`, `89b9bc6`) |
+| **Priorização P1 + config dos limiares** | `calcularPriorizacao()` exportada; menu; tela Prioridades; **limiares configuraveis por admin/chefe (P2-config)** — ver §4-sexies e §4-octies | ✅ **P1 + config ✅** (`7179587`,`5f1260e`,`44c45b1`,`996f271`,`83ccc4b`,`89b9bc6`,`00b8e91`,`7a7a83f`); override fixar/pausar (§5) pendente de confirmar com a cliente |
 | Transversal | Identidade visual geral | ✅ Reforma clara aplicada no preparo do demo (`c378876`, `db44f99`) |
 
 > **Fases 0–4 + tarifa + passos 1–5 dos papéis fechados.** A **2ª leva de pedidos** (via o `Manual`) tem **todo o backend estrutural implementado** — **papéis chefe/diretor, delegação, override, re-delegação e exclusão permanente** (passos 1–5, §4-ter), com o bug de macro/micro já corrigido (`acb3383`, `21b44ec`) e o arrumo no grid (`1a2b7bb`). O que falta na spec de papéis: só o **passo 6** (as telas do chefe e do diretor + dashboards — frontend). Depois dela: a **priorização** (regra fechada), os **dashboards (3)**, e a **Fase 5**.
@@ -545,7 +545,7 @@ A área de atuação foi revertida porque a cliente queria **profissões organiz
 
 ### a) Priorização P1 — cálculo + endpoint (`996f271`)
 
-A `Regra_Priorizacao.md`/`Regra_Priorizacao_reconstruida.md` definia a regra; faltava o código. O P1 implementa o cálculo **sem UX própria**, sem batch diário, sem override manual (ficam pra P2).
+A `Regra_Priorizacao.md`/`Regra_Priorizacao_reconstruida.md` definia a regra; faltava o código. O P1 implementa o cálculo **sem UX própria**, sem batch diário, sem override manual. **Da P2, a tabela de config dos limiares foi feita (§4-octies); o override manual fixar/pausar (§5 da regra) e o recálculo batch (§7) seguem pendentes** — o fixar/pausar aguarda confirmação da mecânica com a cliente (o `Regra_Priorizacao_reconstruida.md` marca §5 como decidido-de-memória, a confirmar contra o original).
 
 **O que foi construído:**
 - `backend/src/routes/priorizacao.ts` reestruturado: a lógica saiu do handler e virou **`calcularPriorizacao({role, userId, ano, mes}): Promise<CalcularPriorizacaoResult>`**, exportada. O handler chama a função e devolve só `itens` — **a resposta HTTP de `GET /api/priorizacao` é idêntica à anterior** (regressão zero; provada nos 25/25 testes). O campo `categoriaId` do projeto é selecionado internamente mas **não vaza na resposta do endpoint**.
@@ -651,6 +651,18 @@ O bloco de tarifa (§4-bis) fechou antes desta sessão com a **tela de edição 
 
 ---
 
+## 4-octies. Priorização P2-config — limiares configuráveis (branch `feat/alocacao-fase-2`)
+
+Os três limiares da priorização (faixa Alta ≤ 7 dias, faixa Média ≤ 30 dias, sinal de capacidade ≥ 95% do teto) estavam **hardcoded** como constantes no topo de `priorizacao.ts`. A P2-config os torna **configuráveis por admin/chefe**, via a primeira entidade de config global do sistema. O P1 (o cálculo, 25/25) segue no ar; esta é uma extensão, não reescrita.
+
+**P2-config-a — backend** (`00b8e91`). Migration aditiva (SQL revisado antes de aplicar): tabela **`configuracao_priorizacao`**, **registro único** (id fixo `config-priorizacao` + upsert idempotente — mesmo padrão dos `seed-admin-001`), com `prazoAltaDias`/`prazoMediaDias`/`tetoCapacidadeSinalPct` (inteiros, defaults 7/30/95 no banco — a linha nasce válida) e `updatedById` (FK `users`, quem editou por último). O **pct é guardado como inteiro (95), não 0.95** — mais legível pra editar; o código divide por 100. Sem `createdAt` (registro nunca recriado). `calcularPriorizacao` passa a **ler os limiares da config** em vez das constantes. Rotas num arquivo próprio (`routes/configPriorizacao.ts`, registrado no `server.ts`): **`GET /api/config/priorizacao`** (lê — quem já vê a priorização) e **`PUT`** (edita — só admin/chefe; valida `prazoAlta≥1`, `prazoMedia>prazoAlta`, `pct 1–100`; registra `updatedById`). O `db.ts` faz upsert da config no seed (`update` vazio preserva o que o admin ajustou; nunca fica ausente) e zera a FK antes de deletar users. **Portão anti-regressão:** `test-priorizacao` **25/25 idêntico** com os defaults (mesmo comportamento do hardcoded — a prova de que a leitura da config não mudou o cálculo). `test-config-priorizacao` **19/19**: muda `prazoAltaDias` pra 5 e um projeto que vence em 6 dias sai de 'alta' pra 'media' (prova que **lê** a config, ida e volta com restauração dos defaults); as validações do PUT (403 gestor, 400 nos limites inválidos); chefe edita com `updatedBy` na resposta.
+
+**P2-config-b — tela** (`7a7a83f`). Engrenagem no cabeçalho da tela Prioridades, **visível só para admin/chefe** (mesmo papel que edita; gestor vê a priorização mas não a engrenagem — coerente com o 403 do PUT). Abre um modal com os 3 limiares (do GET), cada um **com contexto** (Alta: vence em até N dias; Média: limite superior, a faixa vai de Alta+1 até aqui; sinal: N% do teto de 220h), e a última edição (`updatedBy`). Validação no front antes do PUT, com mensagem em vermelho; o backend é o juiz. Ao salvar, **fecha o modal e recarrega a lista** (via `refreshKey` na dependência do fetch) — mudar os limiares muda as categorias dos projetos, e o admin vê o efeito na hora, sem F5. Validado no navegador (a engrenagem só pra admin/chefe; as validações; a recategorização ao salvar — o ciclo config→cálculo→tela fecha; dois temas).
+
+**O que falta da P2 (registrado, não feito):** o **override manual fixar/pausar** (§5 da `Regra_Priorizacao_reconstruida.md`) e o **recálculo em batch diário** (§7). O fixar/pausar exigiria migration (dois booleanos no projeto) e mexe na ordenação (fixado ao topo, pausado fora da fila) — mas o doc marca §5 como **decidido-de-memória, a confirmar contra o original**, então antes de implementar vale **confirmar a mecânica com a cliente**: ao fixar, o projeto vai pro topo acima de todas as categorias? Ao pausar, some da lista ou vai pra uma seção "Pausados" no fim? Com a resposta, o §5 sai sem risco de retrabalho. O recálculo é sob demanda hoje (a cada GET) — o batch só faria sentido se a performance pedir.
+
+---
+
 ## 5. Sobre alocar "no nível da macro" (sem descer até micro)
 
 Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem escolher uma micro?*
@@ -704,7 +716,7 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 
 **ESTACIONADO (retoma agora que a feature fechou):**
 - **Passo 6 dos papéis** (frontend chefe/diretor) + os **dashboards (3)** — casam entre si; brainstorm ao escopá-los. Duas pendências no começo: `'chefe'` no `requireRole` de `GET /categorias`; a decisão de UX do remanejamento do chefe.
-- **Priorização estrutural** (regra fechada em `Regra_Priorizacao.md`; falta cálculo + tela — a tela Prioridades D2 já existe como base).
+- **Priorização — override manual fixar/pausar (§5) + batch (§7):** o P1 (cálculo) e a P2-config (limiares configuráveis, §4-octies) estão no ar. Falta o **fixar/pausar** — que aguarda **confirmação da mecânica com a cliente** antes de implementar (o doc marca §5 como decidido-de-memória; ver §4-octies). O batch diário é dispensável enquanto o cálculo sob demanda der conta.
 - **Filtro do chefe por gestor** (pedido da cliente; backend ignora/rejeita gestorId de gestor comum).
 - **Fase 5** (visão da coordenação, relatórios, virtualização + navegabilidade do grid) — casa com o pedido nº1 da cliente.
 - **Itens menores do Manual** (PDF Declaração de HT, notificação de remanejamento, datas na macro).
@@ -764,4 +776,5 @@ Com muitas colunas: (a) difícil perceber que dá pra rolar na horizontal; (b) d
 - **`Spec_Motor_Sugestao_F4.md` (v1.0)** — spec do motor de sugestão de equipe (arco F4→F6): decisões travadas de algoritmo (waterfall, blocos de 4h, mínimo de 8h, promoção intra-execução, fluxo unidirecional). Saiu do brainstorm de 4 IAs; aprovada antes da implementação.
 - **`seed-cenarios.mjs`** — script avulso de cenários de teste (`node seed-cenarios.mjs`). Cria 4 projetos `CEN-*` idempotentes para exercitar o wizard/motor sem depender do seed do boot.
 - **`Brainstorm_Planejamento_Inteligente.md`** — o enunciado do brainstorm de 4 IAs que deu origem ao modelo financeiro da feature.
+- **`configuracao_priorizacao`** (entidade) / **`routes/configPriorizacao.ts`** — a primeira config global do sistema: os limiares da priorização editáveis por admin/chefe (P2-config, §4-octies).
 - **`PROGRESSO_E_DECISOES.md`** — este documento.

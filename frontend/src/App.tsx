@@ -18,6 +18,7 @@ import Programas from './pages/Programas';
 import Profissoes from './pages/Profissoes';
 import Prioridades from './pages/Prioridades';
 import Layout from './components/Layout';
+import { GestorFiltroProvider } from './context/GestorFiltroContext';
 
 const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) => {
   const { user, isLoading } = useAuth();
@@ -45,6 +46,7 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <Router>
+          <GestorFiltroProvider>
           <NotificationProvider>
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -122,6 +124,7 @@ export default function App() {
               } />
             </Routes>
           </NotificationProvider>
+          </GestorFiltroProvider>
         </Router>
       </AuthProvider>
     </ThemeProvider>

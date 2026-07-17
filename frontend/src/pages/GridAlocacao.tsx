@@ -1,7 +1,9 @@
 ﻿import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useGestorFiltro } from '../context/GestorFiltroContext';
 import { LayoutGrid, ChevronLeft, ChevronRight, Search, List, X } from 'lucide-react';
 import Combobox from '../components/Combobox';
+import SeletorGestor from '../components/SeletorGestor';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -1314,6 +1316,7 @@ function SeletorMes({ mes, ano, onMes, onAno }: { mes: number; ano: number; onMe
 
 export default function GridAlocacao() {
   const { token, user } = useAuth();
+  const { gestorIdFiltro } = useGestorFiltro();
   const isAdmin = user?.role === 'admin';
 
   const now = new Date();
@@ -1365,8 +1368,8 @@ export default function GridAlocacao() {
     highlightTimer.current = setTimeout(() => setHighlightedId(null), 2000);
   }
 
-  // Limpa os extras ao navegar para outro mês (são contextuais ao mês)
-  useEffect(() => { setExtrasColabs([]); }, [ano, mes]);
+  // Limpa os extras ao navegar para outro mês/filtro (são contextuais ao mês e ao gestor)
+  useEffect(() => { setExtrasColabs([]); }, [ano, mes, gestorIdFiltro]);
 
   // Remove extras que agora aparecem naturalmente no grid (ganharam alocação)
   useEffect(() => {
@@ -1444,7 +1447,10 @@ export default function GridAlocacao() {
     if (!silent) setLoading(true);
     setErro('');
     try {
-      const res = await fetch(`/api/alocacoes/grid?ano=${ano}&mes=${mes}`, {
+      const qs = gestorIdFiltro
+        ? `/api/alocacoes/grid?ano=${ano}&mes=${mes}&gestorId=${gestorIdFiltro}`
+        : `/api/alocacoes/grid?ano=${ano}&mes=${mes}`;
+      const res = await fetch(qs, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -1459,7 +1465,7 @@ export default function GridAlocacao() {
     } finally {
       setLoading(false);
     }
-  }, [token, ano, mes]);
+  }, [token, ano, mes, gestorIdFiltro]);
 
   useEffect(() => { fetchGrid(); }, [fetchGrid]);
 
@@ -1562,6 +1568,7 @@ export default function GridAlocacao() {
           </h1>
         </div>
         <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
+        <SeletorGestor />
         {isAdmin && data && (
           <button
             onClick={() => setConfirmFechaAbre(mesFechado ? 'reabrir' : 'fechar')}

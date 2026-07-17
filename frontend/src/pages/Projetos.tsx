@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useGestorFiltro } from '../context/GestorFiltroContext';
 import { useNavigate } from 'react-router-dom';
+import SeletorGestor from '../components/SeletorGestor';
 import { FolderOpen, FolderPlus, Calendar, Archive, ArchiveRestore, Pencil, X, Plus, AlertTriangle, Layers } from 'lucide-react';
 import { InputMoeda } from '../components/InputMoeda';
 
@@ -111,6 +113,7 @@ export default function Projetos() {
   const [vigenciaInicio, setVigenciaInicio]       = useState('');
   const [vigenciaFim, setVigenciaFim]             = useState('');
 
+  const { gestorIdFiltro } = useGestorFiltro();
   const navigate   = useNavigate();
   const canWrite   = user?.role === 'admin' || user?.role === 'gestor';
   const showGestor = user?.role === 'admin' || user?.role === 'coordenacao';
@@ -120,12 +123,15 @@ export default function Projetos() {
 
   const fetchProjetos = useCallback(async () => {
     try {
-      const res = await fetch(`/api/projetos?status=${filterStatus}`, {
+      const qs = gestorIdFiltro
+        ? `/api/projetos?status=${filterStatus}&gestorId=${gestorIdFiltro}`
+        : `/api/projetos?status=${filterStatus}`;
+      const res = await fetch(qs, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) setProjetos(await res.json());
     } finally { setLoading(false); }
-  }, [token, filterStatus]);
+  }, [token, filterStatus, gestorIdFiltro]);
 
   useEffect(() => { setLoading(true); fetchProjetos(); }, [fetchProjetos]);
 
@@ -283,8 +289,9 @@ export default function Projetos() {
         )}
       </div>
 
-      {/* Filter pills */}
-      <div className="flex gap-2 shrink-0">
+      {/* Filter pills + seletor de gestor */}
+      <div className="flex items-center gap-3 shrink-0 flex-wrap">
+        <div className="flex gap-2">
         {(['ativo', 'arquivado', 'todos'] as const).map(s => (
           <button
             key={s}
@@ -299,6 +306,8 @@ export default function Projetos() {
             {s === 'ativo' ? 'Ativos' : s === 'arquivado' ? 'Arquivados' : 'Todos'}
           </button>
         ))}
+        </div>
+        <SeletorGestor />
       </div>
 
       {/* Project cards */}

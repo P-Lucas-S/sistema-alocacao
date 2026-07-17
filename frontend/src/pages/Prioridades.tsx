@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useGestorFiltro } from '../context/GestorFiltroContext';
 import { BarChart2, AlertTriangle, Settings } from 'lucide-react';
 import SeletorMes from '../components/SeletorMes';
+import SeletorGestor from '../components/SeletorGestor';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -90,6 +92,7 @@ const td: React.CSSProperties = {
 
 export default function Prioridades() {
   const { token, user } = useAuth();
+  const { gestorIdFiltro } = useGestorFiltro();
   const podeEditar = user?.role === 'admin' || user?.role === 'chefe';
 
   const now = new Date();
@@ -116,7 +119,10 @@ export default function Prioridades() {
       setLoading(true);
       setErro('');
       try {
-        const res = await fetch(`/api/dashboards/projetos?ano=${ano}&mes=${mes}`, {
+        const qs = gestorIdFiltro
+          ? `/api/dashboards/projetos?ano=${ano}&mes=${mes}&gestorId=${gestorIdFiltro}`
+          : `/api/dashboards/projetos?ano=${ano}&mes=${mes}`;
+        const res = await fetch(qs, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -131,7 +137,7 @@ export default function Prioridades() {
         setLoading(false);
       }
     })();
-  }, [token, ano, mes, refreshKey]);
+  }, [token, ano, mes, refreshKey, gestorIdFiltro]);
 
   const abrirConfig = useCallback(async () => {
     setModalConfig(true);
@@ -226,7 +232,10 @@ export default function Prioridades() {
             </button>
           )}
         </div>
-        <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
+        <div className="flex items-center gap-3 flex-wrap">
+          <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
+          <SeletorGestor />
+        </div>
       </div>
 
       {/* Conteúdo */}

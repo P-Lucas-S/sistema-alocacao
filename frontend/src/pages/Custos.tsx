@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useGestorFiltro } from '../context/GestorFiltroContext';
 import { DollarSign } from 'lucide-react';
+import SeletorGestor from '../components/SeletorGestor';
 
 interface ColaboradorCusto {
   nome: string;
@@ -41,6 +43,7 @@ const td: React.CSSProperties = {
 
 export default function Custos() {
   const { token } = useAuth();
+  const { gestorIdFiltro } = useGestorFiltro();
   const [projetos, setProjetos] = useState<ProjetoCusto[]>([]);
   const [loading, setLoading]   = useState(true);
   const [erro, setErro]         = useState('');
@@ -50,7 +53,10 @@ export default function Custos() {
       setLoading(true);
       setErro('');
       try {
-        const res = await fetch('/api/relatorios/custos', {
+        const url = gestorIdFiltro
+          ? `/api/relatorios/custos?gestorId=${gestorIdFiltro}`
+          : '/api/relatorios/custos';
+        const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -65,18 +71,21 @@ export default function Custos() {
         setLoading(false);
       }
     })();
-  }, [token]);
+  }, [token, gestorIdFiltro]);
 
   return (
     <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
-      <div>
-        <h1 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-          <DollarSign size={20} style={{ color: 'var(--brand-500)' }} />
-          Custos por Projeto
-        </h1>
-        <p className="text-sm mt-0.5" style={{ color: 'var(--text-3)' }}>
-          Custo total planejado (todos os meses), por projeto e colaborador.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+            <DollarSign size={20} style={{ color: 'var(--brand-500)' }} />
+            Custos por Projeto
+          </h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-3)' }}>
+            Custo total planejado (todos os meses), por projeto e colaborador.
+          </p>
+        </div>
+        <SeletorGestor />
       </div>
 
       {loading ? (

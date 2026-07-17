@@ -332,12 +332,22 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 // ── GET / ─────────────────────────────────────────────────────────────────
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { status } = req.query as { status?: string };
+    const { status, gestorId: gestorIdParam } = req.query as { status?: string; gestorId?: string };
     const userId = req.user!.id;
     const role   = req.user!.role;
 
+    let gestorIdFiltro: string | undefined;
+    if (role !== 'gestor' && gestorIdParam) {
+      const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdParam }, select: { role: true } });
+      if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
+        return res.status(400).json({ error: 'gestorId inválido ou não pertence a um usuário com papel gestor' });
+      }
+      gestorIdFiltro = gestorIdParam;
+    }
+
     const where: any = {};
     if (role === 'gestor') where.gestorId = userId;
+    else if (gestorIdFiltro) where.gestorId = gestorIdFiltro;
     if (status === 'arquivado')    where.status = 'arquivado';
     else if (status === 'todos') { /* sem filtro */ }
     else                           where.status = 'ativo';

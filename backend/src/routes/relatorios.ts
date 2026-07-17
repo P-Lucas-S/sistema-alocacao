@@ -9,14 +9,26 @@ const router = express.Router();
 // ── GET /custos — custo total por projeto (todos os meses) ───────────────
 // Gestor vê só os próprios projetos ativos; admin vê todos.
 // Coordenação: 403 (requireRole não inclui o papel).
-router.get('/custos', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.get('/custos', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao', 'diretor'), async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
     const role   = req.user!.role;
+    const { gestorId: gestorIdParam } = req.query as { gestorId?: string };
+
+    let gestorIdFiltro: string | undefined;
+    if (role !== 'gestor' && gestorIdParam) {
+      const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdParam }, select: { role: true } });
+      if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
+        return res.status(400).json({ error: 'gestorId inválido ou não pertence a um usuário com papel gestor' });
+      }
+      gestorIdFiltro = gestorIdParam;
+    }
 
     const projWhere = role === 'gestor'
       ? { gestorId: userId, status: 'ativo' }
-      : { status: 'ativo' };
+      : gestorIdFiltro
+        ? { gestorId: gestorIdFiltro, status: 'ativo' }
+        : { status: 'ativo' };
 
     const projetos = await prisma.projeto.findMany({
       where: projWhere,

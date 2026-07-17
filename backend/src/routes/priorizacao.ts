@@ -49,6 +49,7 @@ export interface CalcularPriorizacaoParams {
   userId: string;
   ano: number;
   mes: number;
+  gestorIdFiltro?: string;
 }
 
 export interface CalcularPriorizacaoResult {
@@ -64,7 +65,7 @@ export interface CalcularPriorizacaoResult {
 // duplicar a lógica de categoria/ordenação/sinal de capacidade. O handler do
 // GET / abaixo chama isso e responde só `itens` — contrato do P1 inalterado.
 export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Promise<CalcularPriorizacaoResult> {
-  const { role, userId, ano: anoN, mes: mesN } = params;
+  const { role, userId, ano: anoN, mes: mesN, gestorIdFiltro } = params;
 
   // ── Limiares — lidos da config (upsert garante que a linha sempre existe) ──
   const cfg = await prisma.configuracaoPriorizacao.upsert({
@@ -79,7 +80,9 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
   // ── Escopo — MESMO critério do grid/candidatos (projWhere) ─────────────
   const projWhere = role === 'gestor'
     ? { gestorId: userId, status: 'ativo' }
-    : { status: 'ativo' };
+    : gestorIdFiltro
+      ? { gestorId: gestorIdFiltro, status: 'ativo' }
+      : { status: 'ativo' };
 
   const projetos = await prisma.projeto.findMany({
     where: projWhere,
@@ -213,14 +216,23 @@ router.get('/', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenac
   try {
     const userId = req.user!.id;
     const role   = req.user!.role;
-    const { ano, mes } = req.query as { ano?: string; mes?: string };
+    const { ano, mes, gestorId: gestorIdParam } = req.query as { ano?: string; mes?: string; gestorId?: string };
 
     const anoN = parseInt(ano ?? String(new Date().getFullYear()));
     const mesN = parseInt(mes ?? String(new Date().getMonth() + 1));
     if (!anoN || anoN < 2020 || anoN > 2100) return res.status(400).json({ error: 'ano inválido' });
     if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
 
-    const { itens } = await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN });
+    let gestorIdFiltro: string | undefined;
+    if (role !== 'gestor' && gestorIdParam) {
+      const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdParam }, select: { role: true } });
+      if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
+        return res.status(400).json({ error: 'gestorId inválido ou não pertence a um usuário com papel gestor' });
+      }
+      gestorIdFiltro = gestorIdParam;
+    }
+
+    const { itens } = await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
     res.json(itens);
   } catch (error) {
     console.error('Priorizacao error:', error);

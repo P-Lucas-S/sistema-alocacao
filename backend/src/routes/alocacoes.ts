@@ -193,12 +193,21 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
     const role   = req.user!.role;
-    const { ano, mes } = req.query as { ano?: string; mes?: string };
+    const { ano, mes, gestorId: gestorIdParam } = req.query as { ano?: string; mes?: string; gestorId?: string };
 
     const anoN = parseInt(ano ?? String(new Date().getFullYear()));
     const mesN = parseInt(mes ?? String(new Date().getMonth() + 1));
     if (!anoN || anoN < 2020 || anoN > 2100) return res.status(400).json({ error: 'ano inválido' });
     if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
+
+    let gestorIdFiltro: string | undefined;
+    if (role !== 'gestor' && gestorIdParam) {
+      const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdParam }, select: { role: true } });
+      if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
+        return res.status(400).json({ error: 'gestorId inválido ou não pertence a um usuário com papel gestor' });
+      }
+      gestorIdFiltro = gestorIdParam;
+    }
 
     // ── Verifica se o mês está fechado ───────────────────────────────────
     const fechadoRecord = await prisma.fechamentoMensal.findUnique({
@@ -210,7 +219,9 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
     // ── Colunas: projetos do gestor (ou todos para admin) ─────────────────
     const projWhere = role === 'gestor'
       ? { gestorId: userId, status: 'ativo' }
-      : { status: 'ativo' };
+      : gestorIdFiltro
+        ? { gestorId: gestorIdFiltro, status: 'ativo' }
+        : { status: 'ativo' };
 
     // Inclui a primeira macro (ordenada por createdAt) e sua micro "Geral"
     // para que as células vazias saibam onde gravar sem chamada extra.

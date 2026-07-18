@@ -71,6 +71,7 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Fase 3** | Fechamento mensal (read-only) + log de auditoria do planejado | ✅ Completa (`5aa52c4`, `0529b8d`, `af473ac`, `adc477b`) |
 | **Fase 4** | Remanejamento broadcast entre gestores | ✅ Completa — backend (`393596f`, `6e87355`, `1b5594a`) + frontend (`02e46fa`, `27ad941`, `bcce21b`, `aae171c`, `18964ed`) |
 | **Fase 5** | Relatórios da coordenação + escala (virtualização do grid + navegabilidade — ver §7) | ⬜ Pendente |
+| **Filtro do chefe por gestor** | Papeis amplos (chefe/admin/coord/diretor) filtram a visao "como o gestor X" em 4 telas (Grid, Projetos, Custos, Prioridades) — ver §4-nonies | ✅ **Completo** (backend `5d24154`, frontend `398fb50`/`cd56119`) |
 | **Pós-demo (1ª leva)** | Preparo do demo, custos, programas de fomento, **tarifa por colaborador × categoria**, regra de priorização, **dashboard Projetos** — ver §4-bis e §4-sexies | 🟡 Custos + programas + **tarifa** ✅; **priorização P1** ✅ (`996f271`); **dashboard Projetos** ✅ (`83ccc4b`, `89b9bc6`); dashboards Geral e Capacidade pendentes |
 | **Pós-demo (2ª leva — Manual)** | Papéis novos (chefe/diretor) + delegação + exclusão permanente, bug macro/micro, e itens menores — ver §4-ter | 🟡 **Bug macro/micro ✅** (`acb3383`, `21b44ec`) + painel na célula vazia (`1a2b7bb`); **spec de papéis: passos 1–5 ✅** (`cae3015`, `6861e87`, `c07d6c7`, `c5342d4`, `2e807d6`, `af2cbb3`), **só o passo 6 (frontend) pendente**; **itens menores ✅**: Perfil tema claro (`be7848b`), GET /categorias pra chefe+diretor (`4f08a44`), Cargo em Custos (`0dc3cc7`) |
 | **Área de atuação** | Entidade administrável + FK no colaborador + telas — **construída e REVERTIDA** | ⏪ **Revertida** (decisão de produto — ver §4-quater). Código de volta em `0dc3cc7`; 4 commits salvos em `backup/areas-atuacao-58e3f20` |
@@ -663,6 +664,16 @@ Os três limiares da priorização (faixa Alta ≤ 7 dias, faixa Média ≤ 30 d
 
 ---
 
+## 4-nonies. Filtro do chefe por gestor — "ver como o gestor X" (branch `feat/alocacao-fase-2`)
+
+Pedido da cliente: os papeis que veem o todo (**chefe, admin, coordenacao, diretor**) poderem **filtrar a visao como se fossem um gestor especifico**, em 4 telas (Grid, Projetos, Custos, Prioridades) — pra acompanhar o trabalho de cada gestor sem o ruido dos outros. Investigacao confirmou que os 4 endpoints seguiam o mesmo padrao (`role === 'gestor'` → so os dele; qualquer outro → tudo), entao o filtro **restringe** uma visao ja ampla.
+
+**Fase A — backend** (`5d24154`). Os 4 endpoints (`GET /alocacoes/grid`, `GET /projetos`, `GET /relatorios/custos`, `calcularPriorizacao` via `GET /dashboards/projetos`) passam a aceitar **`?gestorId=` opcional**, com o mesmo **padrao de 3 casos**: gestor → sempre `{ gestorId: userId }` (o `?gestorId=` e **IGNORADO**); papel amplo com `?gestorId=` valido → `{ gestorId: <filtro> }`; papel amplo sem filtro → visao total (como antes). O `gestorId` do filtro e **validado** (existe e e role `gestor`) — senao 400 (ignorar seria perigoso; o caller nao saberia do erro). O `requireRole` do Custos foi expandido de `(admin,gestor)` para incluir `chefe/coordenacao/diretor` (senao tomariam 403 e o filtro nao funcionaria la; nada removido). **SEGURANCA** (o ponto critico — o gestor NUNCA ve dados de outro, mesmo forjando a query) provada com **conjuntos disjuntos**: G1 (SEED01-04), G2 (SEED05-07), intersecao zero → o gestor1 filtrando por gestor2 recebe exatamente os 4 dele nos 4 endpoints, e SEED05-07 nao aparecem em lugar nenhum. `test-filtro-gestor` 30/30 + `test-seguranca-detalhe` (disjuntos); anti-regressao priorizacao 25/25, dashboard 17/17, config 19/19.
+
+**Fase B — frontend** (`398fb50` grid + contexto; `cd56119` as outras 3 telas). Um **contexto compartilhado** (`GestorFiltroContext`, provido no App cobrindo as 4 telas) guarda o `gestorIdFiltro` — o filtro **ACOMPANHA entre telas** (o chefe escolhe um gestor e a visao segue como aquele gestor em todas, sem reescolher — o "modo acompanhar Fulano"; decisao proposital vs. estado local por tela). Um componente **`SeletorGestor`** reusavel no cabecalho de cada tela: so renderiza para admin/chefe/coordenacao/diretor (gestor: `return null`, padrao do menu); lista os gestores do `GET /api/users` filtrando `role gestor` client-side (sem endpoint novo); "Todos os gestores" (undefined) default; borda `brand` quando ativo. Cada tela passa o `gestorId` na query do fetch quando ha filtro (Projetos preserva o `?status=`; Prioridades preserva o `refreshKey`). **A visibilidade do seletor e coerencia visual, NAO a protecao** — a barreira real e o backend (Fase A). Validado nas 4 telas: o seletor pro chefe e nao pro gestor; filtra em cada tela; acompanha entre elas; dois temas.
+
+---
+
 ## 5. Sobre alocar "no nível da macro" (sem descer até micro)
 
 Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem escolher uma micro?*
@@ -711,13 +722,13 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 **A feature Planejamento Inteligente está COMPLETA (F0→F6 no ar, validada pela cliente)** — ver §4-septies. Não há mais fatias dela pendentes. O que segue são pedidos da cliente (pós-entrega) e a fila que estava estacionada.
 
 **PEDIDOS DA CLIENTE (pós-entrega da feature — cada um é decisão de escopo, não emenda rápida):**
-1. **A matriz meses×colaboradores no grid geral.** A cliente gostou muito do formato do wizard (colunas = meses, linhas = colaboradores, por projeto) e quer isso no grid principal — hipóteses dela: um filtro, ou na tela de "Ver Entregas" de um projeto. É o feedback mais forte e o maior em escopo; merece desenho próprio (casa com a navegabilidade do grid e a Fase 5).
+1. **A matriz meses×colaboradores no grid geral.** A cliente gostou muito do formato do wizard (colunas = meses, linhas = colaboradores, por projeto) e quer isso no grid principal — hipóteses dela: um filtro, ou na tela de "Ver Entregas" de um projeto. É o feedback mais forte e o maior em escopo; merece desenho próprio (casa com a navegabilidade do grid e a Fase 5). (Nota: o filtro do chefe por gestor — §4-nonies — ja entrega parte disso: o chefe ve o grid "como o gestor X". A matriz meses×colaboradores por projeto ainda e uma peca distinta.)
 2. **Limite de meses maior no planejador.** Projetos têm 12+ meses; hoje o wizard limita a 12 por rodada (da spec). Combinado "de 12 em 12" (já funciona), mas ela preferiria mais. Trade-off: a matriz pessoas×meses fica larga (a navegabilidade que já mordeu 2x) — aumentar exige resolver isso (scroll horizontal bom ou paginação por ano na tela).
 
 **ESTACIONADO (retoma agora que a feature fechou):**
 - **Passo 6 dos papéis** (frontend chefe/diretor) + os **dashboards (3)** — casam entre si; brainstorm ao escopá-los. Duas pendências no começo: `'chefe'` no `requireRole` de `GET /categorias`; a decisão de UX do remanejamento do chefe.
 - **Priorização — override manual fixar/pausar (§5) + batch (§7):** o P1 (cálculo) e a P2-config (limiares configuráveis, §4-octies) estão no ar. Falta o **fixar/pausar** — que aguarda **confirmação da mecânica com a cliente** antes de implementar (o doc marca §5 como decidido-de-memória; ver §4-octies). O batch diário é dispensável enquanto o cálculo sob demanda der conta.
-- **Filtro do chefe por gestor** (pedido da cliente; backend ignora/rejeita gestorId de gestor comum).
+
 - **Fase 5** (visão da coordenação, relatórios, virtualização + navegabilidade do grid) — casa com o pedido nº1 da cliente.
 - **Itens menores do Manual** (PDF Declaração de HT, notificação de remanejamento, datas na macro).
 
@@ -736,7 +747,7 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 A captura do log (E2) está pronta; falta a **tela** para visualizar o histórico de uma célula (quem alterou o planejado, quando, de quanto pra quanto). Já existe o `GET /api/alocacoes/:id/log`. Ideia: "histórico" no painel lateral da célula. Ao montar, decidir: acesso da coordenação ao log (hoje 403 — mas transparência é o papel dela); buscar por contexto (colaborador+projeto+micro+mês) em vez de só por `alocacaoId`, para cobrir alocações deletadas e recriadas (id novo).
 
 ### Item de navegabilidade do grid — PENDENTE (Fase 5)
-Com muitas colunas: (a) difícil perceber que dá pra rolar na horizontal; (b) difícil achar um projeto específico; (c) difícil achar células com alocação. Tratar junto da virtualização da Fase 5. **Nota:** a faixa de candidatos (§4-quinquies) é uma segunda `<table>` no mesmo container de scroll — virtualização precisa cobrir as duas juntas, preservando o alinhamento pelo `<colgroup>` compartilhado. Ideias: filtro de colunas por nome/código; seletor "ir para o projeto" com scroll + flash; fixar/reordenar colunas.
+Com muitas colunas: (a) difícil perceber que dá pra rolar na horizontal; (b) difícil achar um projeto específico; (c) difícil achar células com alocação. Tratar junto da virtualização da Fase 5. **Nota:** a faixa de candidatos (§4-quinquies) é uma segunda `<table>` no mesmo container de scroll — virtualização precisa cobrir as duas juntas, preservando o alinhamento pelo `<colgroup>` compartilhado. Ideias: filtro de colunas por nome/código; seletor "ir para o projeto" com scroll + flash; fixar/reordenar colunas; **peek lateral** — quando ha mais colunas do que cabem na tela, deixar uma coluna **cortada/parcial** na borda direita (em vez de terminar limpo no limite), sinalizando "ha mais projetos, role" — inspirado no padrao de carrosseis de streaming (a capa cortada que convida a rolar). Ideia do Pedro na validacao do filtro do chefe; tratar junto da virtualizacao/navegabilidade da Fase 5.
 
 ### Dívida técnica anotada (não urgente)
 1. ~~No C3, reavaliar se o lock precisa cobrir atualizações de realizado.~~ **RESOLVIDA:** realizado fica fora do lock; `test-concorrencia` seguiu 8/8.

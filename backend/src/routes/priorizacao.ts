@@ -56,9 +56,11 @@ export interface CalcularPriorizacaoResult {
   itens: PriorizacaoItem[];
   // ── Dados crus reaproveitáveis por quem enriquece depois (ex.: o dashboard
   // de Projetos) — NÃO fazem parte do contrato de resposta do GET /priorizacao.
-  categoriaIdPorProjeto: Map<string, string | null>;
-  colabsPorProjeto:      Map<string, Set<string>>;
-  alocsDoMes:            AlocMes[];
+  categoriaIdPorProjeto:           Map<string, string | null>;
+  colabsPorProjeto:                Map<string, Set<string>>;
+  alocsDoMes:                      AlocMes[];
+  colabsSobrecarregadosPorProjeto: Map<string, number>;
+  gestorInfoPorProjeto:            Map<string, { gestorId: string; gestorNome: string }>;
 }
 
 // Núcleo do P1 — extraído pra ser reusado (ex.: dashboard de Projetos) sem
@@ -89,15 +91,24 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
     orderBy: { codigo: 'asc' },
     select: {
       id: true, codigo: true, nome: true, categoriaId: true,
+      gestorId: true,
+      gestor: { select: { name: true } },
       prestacoesContas: { select: { id: true, data: true } },
     },
   });
 
   const categoriaIdPorProjeto = new Map<string, string | null>();
-  for (const p of projetos) categoriaIdPorProjeto.set(p.id, p.categoriaId);
+  const gestorInfoPorProjeto  = new Map<string, { gestorId: string; gestorNome: string }>();
+  for (const p of projetos) {
+    categoriaIdPorProjeto.set(p.id, p.categoriaId);
+    gestorInfoPorProjeto.set(p.id, { gestorId: p.gestorId, gestorNome: p.gestor.name });
+  }
 
   if (projetos.length === 0) {
-    return { itens: [], categoriaIdPorProjeto, colabsPorProjeto: new Map(), alocsDoMes: [] };
+    return {
+      itens: [], categoriaIdPorProjeto, colabsPorProjeto: new Map(), alocsDoMes: [],
+      colabsSobrecarregadosPorProjeto: new Map(), gestorInfoPorProjeto,
+    };
   }
 
   const projetoIds = projetos.map(p => p.id);
@@ -138,14 +149,14 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
   }
 
   const limiarCapacidade = TETO_HORAS_MES.times(CAPACIDADE_ALERTA_PCT);
-  const capacidadePorProjeto = new Map<string, boolean>();
+  const colabsSobrecarregadosPorProjeto = new Map<string, number>();
   for (const [projetoId, colabs] of colabsPorProjeto) {
-    let sinal = false;
+    let count = 0;
     for (const colabId of colabs) {
       const total = totalPorColab.get(colabId) ?? D0;
-      if (total.greaterThanOrEqualTo(limiarCapacidade)) { sinal = true; break; }
+      if (total.greaterThanOrEqualTo(limiarCapacidade)) count++;
     }
-    capacidadePorProjeto.set(projetoId, sinal);
+    colabsSobrecarregadosPorProjeto.set(projetoId, count);
   }
 
   // ── Categoria + "porquê" por projeto, a partir da próxima prestação ─────
@@ -192,7 +203,7 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
       diasAteVencimento,
       horasPendentes:    horasPendentes.toString(),
       porque,
-      sinalCapacidade:   capacidadePorProjeto.get(proj.id) ?? false,
+      sinalCapacidade:   (colabsSobrecarregadosPorProjeto.get(proj.id) ?? 0) > 0,
     };
   });
 
@@ -206,7 +217,7 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
 
   const itens: PriorizacaoItem[] = resultado.map((r, i) => ({ ...r, ordem: i + 1 }));
 
-  return { itens, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes };
+  return { itens, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto };
 }
 
 // ── GET / — projetos priorizados por categoria de prazo + horas pendentes ──

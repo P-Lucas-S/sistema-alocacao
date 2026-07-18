@@ -33,7 +33,7 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
       gestorIdFiltro = gestorIdParam;
     }
 
-    const { itens, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes } =
+    const { itens, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto } =
       await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
 
     if (itens.length === 0) return res.json([]);
@@ -52,23 +52,39 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
 
     const tarifasMap = await carregarTarifas(todosColabIds);
 
-    // Agrega horasPlanejadas por (projetoId, colaboradorId) NO MÊS;
-    // aproveita o mesmo loop pra acumular horasRealizadas por projeto.
-    const horasPorProjetoColab = new Map<string, Map<string, Prisma.Decimal>>();
-    const horasRealPorProjeto  = new Map<string, Prisma.Decimal>();
+    // ── Nomes das categorias (programas de fomento) ──────────────────────────
+    const categoriaIds = [...new Set(
+      [...categoriaIdPorProjeto.values()].filter((id): id is string => id != null)
+    )];
+    const categorias = categoriaIds.length > 0
+      ? await prisma.categoriaProjeto.findMany({
+          where: { id: { in: categoriaIds } },
+          select: { id: true, nome: true },
+        })
+      : [];
+    const categoriaNomePorId = new Map(categorias.map(c => [c.id, c.nome]));
+
+    // Agrega horasPlanejadas e horasRealizadas por (projetoId, colaboradorId) NO MÊS.
+    const D0 = new Prisma.Decimal(0);
+    const horasPorProjetoColab     = new Map<string, Map<string, Prisma.Decimal>>();
+    const horasRealPorProjetoColab = new Map<string, Map<string, Prisma.Decimal>>();
+    const horasRealPorProjeto      = new Map<string, Prisma.Decimal>();
     for (const a of alocsDoMes) {
       if (!horasPorProjetoColab.has(a.projetoId)) horasPorProjetoColab.set(a.projetoId, new Map());
       const porColab = horasPorProjetoColab.get(a.projetoId)!;
-      porColab.set(a.colaboradorId, (porColab.get(a.colaboradorId) ?? new Prisma.Decimal(0)).plus(a.horasPlanejadas));
+      porColab.set(a.colaboradorId, (porColab.get(a.colaboradorId) ?? D0).plus(a.horasPlanejadas));
       if (a.horasRealizadas != null) {
-        horasRealPorProjeto.set(a.projetoId, (horasRealPorProjeto.get(a.projetoId) ?? new Prisma.Decimal(0)).plus(a.horasRealizadas));
+        horasRealPorProjeto.set(a.projetoId, (horasRealPorProjeto.get(a.projetoId) ?? D0).plus(a.horasRealizadas));
+        if (!horasRealPorProjetoColab.has(a.projetoId)) horasRealPorProjetoColab.set(a.projetoId, new Map());
+        const porColabReal = horasRealPorProjetoColab.get(a.projetoId)!;
+        porColabReal.set(a.colaboradorId, (porColabReal.get(a.colaboradorId) ?? D0).plus(a.horasRealizadas));
       }
     }
 
     // horasPlanejadas totais por projeto no mês (soma dos colaboradores)
     const horasPlanejPorProjeto = new Map<string, Prisma.Decimal>();
     for (const [projetoId, porColab] of horasPorProjetoColab) {
-      let soma = new Prisma.Decimal(0);
+      let soma = D0;
       for (const h of porColab.values()) soma = soma.plus(h);
       horasPlanejPorProjeto.set(projetoId, soma);
     }
@@ -80,24 +96,43 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
       for (const [colabId, horas] of porColab) {
         const valorHora = valorHoraPorColab.get(colabId) ?? null;
         const { valor } = resolverTarifa(tarifasMap, { id: colabId, valorHora }, categoriaId);
-        if (valor == null) continue; // sem_tarifa — não soma essa parcela
-        const parcela = horas.times(valor);
-        soma = soma == null ? parcela : soma.plus(parcela);
+        if (valor == null) continue;
+        soma = soma == null ? horas.times(valor) : soma.plus(horas.times(valor));
       }
       custoPorProjeto.set(projetoId, soma);
     }
 
+    const custoRealPorProjeto = new Map<string, Prisma.Decimal | null>();
+    for (const [projetoId, porColab] of horasRealPorProjetoColab) {
+      const categoriaId = categoriaIdPorProjeto.get(projetoId) ?? null;
+      let soma: Prisma.Decimal | null = null;
+      for (const [colabId, horas] of porColab) {
+        const valorHora = valorHoraPorColab.get(colabId) ?? null;
+        const { valor } = resolverTarifa(tarifasMap, { id: colabId, valorHora }, categoriaId);
+        if (valor == null) continue;
+        soma = soma == null ? horas.times(valor) : soma.plus(horas.times(valor));
+      }
+      custoRealPorProjeto.set(projetoId, soma);
+    }
+
     // ── Enriquece, preservando a ordem já priorizada pelo P1 ────────────────
     const resultado = itens.map(item => {
-      const custo      = custoPorProjeto.get(item.projetoId) ?? null;
-      const horasReal  = horasRealPorProjeto.get(item.projetoId) ?? null;
+      const custo       = custoPorProjeto.get(item.projetoId) ?? null;
+      const custoReal   = custoRealPorProjeto.get(item.projetoId) ?? null;
+      const horasReal   = horasRealPorProjeto.get(item.projetoId) ?? null;
+      const gestorInfo  = gestorInfoPorProjeto.get(item.projetoId);
+      const categoriaId = categoriaIdPorProjeto.get(item.projetoId) ?? null;
       return {
         ...item,
-        tamanhoEquipe:   colabsPorProjeto.get(item.projetoId)?.size ?? 0,
-        custoPlanejado:  custo != null ? custo.toFixed(2) : null,
-        horasPlanejadas: horasPlanejPorProjeto.get(item.projetoId)?.toString() ?? '0',
-        // null = sem nenhum apontamento no mês (tratado como "sem apontamento" no frontend)
-        horasRealizadas: (horasReal != null && horasReal.greaterThan(0)) ? horasReal.toString() : null,
+        tamanhoEquipe:    colabsPorProjeto.get(item.projetoId)?.size ?? 0,
+        custoPlanejado:   custo != null ? custo.toFixed(2) : null,
+        custoRealizado:   custoReal != null ? custoReal.toFixed(2) : null,
+        horasPlanejadas:  horasPlanejPorProjeto.get(item.projetoId)?.toString() ?? '0',
+        // null = sem nenhum apontamento no mês
+        horasRealizadas:  (horasReal != null && horasReal.greaterThan(0)) ? horasReal.toString() : null,
+        categoriaNome:    categoriaId ? (categoriaNomePorId.get(categoriaId) ?? null) : null,
+        gestorNome:       gestorInfo?.gestorNome ?? null,
+        qtdColabsGargalo: colabsSobrecarregadosPorProjeto.get(item.projetoId) ?? 0,
       };
     });
 

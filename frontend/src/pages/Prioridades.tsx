@@ -24,6 +24,11 @@ interface ItemDashboard {
   custoPlanejado:    string | null;
   horasPlanejadas:   string;
   horasRealizadas:   string | null; // null = sem nenhum apontamento no mês
+  // campos do dashboard completo
+  categoriaNome:     string | null;
+  gestorNome:        string | null;
+  custoRealizado:    string | null;
+  qtdColabsGargalo:  number;
 }
 
 // ── Tipos de config ──────────────────────────────────────────────────────────
@@ -93,7 +98,8 @@ const td: React.CSSProperties = {
 export default function Prioridades() {
   const { token, user } = useAuth();
   const { gestorIdFiltro } = useGestorFiltro();
-  const podeEditar = user?.role === 'admin' || user?.role === 'chefe';
+  const podeEditar    = user?.role === 'admin' || user?.role === 'chefe';
+  const mostrarGestor = user?.role !== 'gestor';
 
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
@@ -256,18 +262,22 @@ export default function Prioridades() {
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1380 }}>
             <thead>
               <tr>
                 <th style={th}>Prioridade</th>
                 <th style={th}>Projeto</th>
                 <th style={th}>Por quê</th>
                 <th style={th}>Próx. prestação</th>
+                <th style={th}>Programa</th>
+                {mostrarGestor && <th style={th}>Gestor</th>}
                 <th style={{ ...th, textAlign: 'right' }}>Planejadas</th>
                 <th style={{ ...th, textAlign: 'right' }}>Realizadas</th>
+                <th style={{ ...th, textAlign: 'right' }}>% Exec.</th>
                 <th style={{ ...th, textAlign: 'right' }}>Custo plan.</th>
+                <th style={{ ...th, textAlign: 'right' }}>Custo real.</th>
                 <th style={{ ...th, textAlign: 'right' }}>Equipe</th>
-                <th style={{ ...th, textAlign: 'center' }}>Cap.</th>
+                <th style={{ ...th, textAlign: 'center' }}>Gargalo</th>
               </tr>
             </thead>
             <tbody>
@@ -312,6 +322,28 @@ export default function Prioridades() {
                     }
                   </td>
 
+                  {/* Programa de fomento */}
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                    {item.categoriaNome
+                      ? <span
+                          className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                          style={{ background: 'hsl(221 83% 53% / 0.12)', color: 'var(--brand-500)' }}
+                        >
+                          {item.categoriaNome}
+                        </span>
+                      : <span style={{ color: 'var(--text-3)' }}>—</span>
+                    }
+                  </td>
+
+                  {/* Gestor (oculto para papel gestor) */}
+                  {mostrarGestor && (
+                    <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+                        {item.gestorNome ?? '—'}
+                      </span>
+                    </td>
+                  )}
+
                   {/* Horas planejadas */}
                   <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {parseFloat(item.horasPlanejadas) > 0
@@ -328,10 +360,35 @@ export default function Prioridades() {
                     }
                   </td>
 
+                  {/* % Execução — N/D quando sem apontamento (ausência ≠ 0%) */}
+                  <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {(() => {
+                      const real = item.horasRealizadas != null ? parseFloat(item.horasRealizadas) : null;
+                      if (real == null || real === 0) {
+                        return <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>N/D</span>;
+                      }
+                      const plan = parseFloat(item.horasPlanejadas);
+                      const pct  = plan > 0 ? Math.round((real / plan) * 100) : 100;
+                      return (
+                        <span style={{ fontWeight: 600, color: pct >= 100 ? '#4ade80' : 'var(--text-1)' }}>
+                          {pct}%
+                        </span>
+                      );
+                    })()}
+                  </td>
+
                   {/* Custo planejado */}
                   <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
                     {item.custoPlanejado != null
                       ? fmtMoeda(item.custoPlanejado)
+                      : <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>—</span>
+                    }
+                  </td>
+
+                  {/* Custo realizado */}
+                  <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                    {item.custoRealizado != null
+                      ? fmtMoeda(item.custoRealizado)
                       : <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>—</span>
                     }
                   </td>
@@ -344,11 +401,15 @@ export default function Prioridades() {
                     }
                   </td>
 
-                  {/* Sinal de capacidade */}
+                  {/* Gargalo — nº de colaboradores ≥ limiar de capacidade */}
                   <td style={{ ...td, textAlign: 'center' }}>
-                    {item.sinalCapacidade && (
-                      <span title="Equipe no limite de capacidade (≥ 95% do teto mensal)">
-                        <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
+                    {item.qtdColabsGargalo > 0 && (
+                      <span
+                        title={`${item.qtdColabsGargalo} colaborador(es) no limite de capacidade`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#f59e0b' }}
+                      >
+                        <AlertTriangle size={13} />
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{item.qtdColabsGargalo}</span>
                       </span>
                     )}
                   </td>

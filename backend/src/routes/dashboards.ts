@@ -2,7 +2,7 @@ import express from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prisma.js';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth.js';
-import { calcularPriorizacao } from './priorizacao.js';
+import { calcularPriorizacao, PriorizacaoItem } from './priorizacao.js';
 import { carregarTarifas, resolverTarifa } from '../lib/tarifa.js';
 
 const router = express.Router();
@@ -13,6 +13,7 @@ const router = express.Router();
 // agrega sob demanda, reusando calcularPriorizacao (mesmo escopo de papel
 // do P1) e lib/tarifa.ts (mesma resolução de tarifa da tela Custos),
 // escopada ao mês do dashboard (não o acumulado que /relatorios/custos faz).
+// Shape de resposta: { itens, pausados, totalPausados }
 router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao', 'diretor'), async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
@@ -33,10 +34,12 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
       gestorIdFiltro = gestorIdParam;
     }
 
-    const { itens, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto } =
+    const { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto } =
       await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
 
-    if (itens.length === 0) return res.json([]);
+    if (itens.length === 0 && itensPausados.length === 0) {
+      return res.json({ itens: [], pausados: [], totalPausados: 0 });
+    }
 
     // ── Custo planejado do MÊS — horasPlanejadas x tarifa resolvida, MESMA
     // conta de /relatorios/custos (lib/tarifa.ts), escopada a este mês ───────
@@ -115,20 +118,21 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
       custoRealPorProjeto.set(projetoId, soma);
     }
 
-    // ── Enriquece, preservando a ordem já priorizada pelo P1 ────────────────
-    const resultado = itens.map(item => {
-      const custo       = custoPorProjeto.get(item.projetoId) ?? null;
-      const custoReal   = custoRealPorProjeto.get(item.projetoId) ?? null;
-      const horasReal   = horasRealPorProjeto.get(item.projetoId) ?? null;
-      const gestorInfo  = gestorInfoPorProjeto.get(item.projetoId);
+    // ── Enriquece preservando a ordem do P1 ────────────────────────────────
+    // Inclui gestorId para que o frontend possa checar ownership sem query extra.
+    const enriquecer = (lista: PriorizacaoItem[]) => lista.map(item => {
+      const custo      = custoPorProjeto.get(item.projetoId) ?? null;
+      const custoReal  = custoRealPorProjeto.get(item.projetoId) ?? null;
+      const horasReal  = horasRealPorProjeto.get(item.projetoId) ?? null;
+      const gestorInfo = gestorInfoPorProjeto.get(item.projetoId);
       const categoriaId = categoriaIdPorProjeto.get(item.projetoId) ?? null;
       return {
         ...item,
+        gestorId:         gestorInfo?.gestorId ?? null,
         tamanhoEquipe:    colabsPorProjeto.get(item.projetoId)?.size ?? 0,
         custoPlanejado:   custo != null ? custo.toFixed(2) : null,
         custoRealizado:   custoReal != null ? custoReal.toFixed(2) : null,
         horasPlanejadas:  horasPlanejPorProjeto.get(item.projetoId)?.toString() ?? '0',
-        // null = sem nenhum apontamento no mês
         horasRealizadas:  (horasReal != null && horasReal.greaterThan(0)) ? horasReal.toString() : null,
         categoriaNome:    categoriaId ? (categoriaNomePorId.get(categoriaId) ?? null) : null,
         gestorNome:       gestorInfo?.gestorNome ?? null,
@@ -136,7 +140,11 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
       };
     });
 
-    res.json(resultado);
+    res.json({
+      itens:         enriquecer(itens),
+      pausados:      enriquecer(itensPausados),
+      totalPausados: itensPausados.length,
+    });
   } catch (error) {
     console.error('Dashboard projetos error:', error);
     res.status(500).json({ error: 'Internal server error' });

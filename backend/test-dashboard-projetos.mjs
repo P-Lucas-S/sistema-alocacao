@@ -133,9 +133,11 @@ async function main() {
   console.log(`Setup ok — ${projetosCriados.length} projetos criados.\n`);
 
   console.log('── GET /dashboards/projetos como gestor1 ────────────');
-  const { status, data } = await api('GET', `/dashboards/projetos?ano=${ANO}&mes=${MES}`, tokenGestor1);
-  check('Status 200', status === 200, { status, data });
+  const { status, data: raw } = await api('GET', `/dashboards/projetos?ano=${ANO}&mes=${MES}`, tokenGestor1);
+  check('Status 200', status === 200, { status, raw });
+  check('Shape: tem itens + pausados + totalPausados', Array.isArray(raw?.itens) && Array.isArray(raw?.pausados) && typeof raw?.totalPausados === 'number', raw);
 
+  const data = raw.itens;
   const porCodigo = codigo => data.find(p => p.codigo === codigo);
 
   console.log('\n── Campos do P1 preservados ──────────────────────────');
@@ -188,7 +190,8 @@ async function main() {
   {
     check('gestor1 NÃO vê o projeto do gestor3', !porCodigo(projGestor3.codigo), data.map(p => p.codigo));
 
-    const { data: dataAdmin } = await api('GET', `/dashboards/projetos?ano=${ANO}&mes=${MES}`, tokenAdmin);
+    const { data: rawAdmin } = await api('GET', `/dashboards/projetos?ano=${ANO}&mes=${MES}`, tokenAdmin);
+    const dataAdmin = rawAdmin.itens;
     const temGestor3 = dataAdmin.some(p => p.codigo === projGestor3.codigo);
     check('admin VÊ o projeto do gestor3', temGestor3, dataAdmin.map(p => p.codigo).filter(c => c.includes('DASHTESTE')));
     const dashtesteAdmin   = dataAdmin.filter(p => p.codigo.includes('DASHTESTE')).length;

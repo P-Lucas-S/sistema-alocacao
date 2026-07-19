@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useGestorFiltro } from '../context/GestorFiltroContext';
-import { LayoutGrid, ChevronLeft, ChevronRight, Search, List, X } from 'lucide-react';
+import { LayoutGrid, ChevronLeft, ChevronRight, Search, List, X, AlertTriangle } from 'lucide-react';
 import Combobox from '../components/Combobox';
 import SeletorGestor from '../components/SeletorGestor';
 
@@ -14,6 +14,8 @@ interface ProjetoCol {
   gestorId: string;
   defaultMacroId: string | null;
   defaultMicroId: string | null;
+  vigenciaInicio: string | null;
+  vigenciaFim:    string | null;
 }
 
 // Uma alocação individual dentro de uma célula (uma macro/micro específica)
@@ -1683,7 +1685,7 @@ export default function GridAlocacao() {
           <div className="flex flex-col items-center justify-center h-60 gap-2" style={{ color: 'var(--text-3)' }}>
             <LayoutGrid size={40} strokeWidth={1} />
             <p className="text-sm font-medium">Nenhuma alocação em {mesLabel}.</p>
-            <p className="text-xs">Use <strong>/alocacoes</strong> para alocar colaboradores neste mês.</p>
+            <p className="text-xs">Use <strong>Adicionar colaborador…</strong> acima para alocar neste mês.</p>
           </div>
         )}
         {!loading && !erro && data && todasLinhas.length > 0 && linhasExibidas.length === 0 && (
@@ -1728,12 +1730,43 @@ export default function GridAlocacao() {
                 </th>
 
                 {/* Projetos */}
-                {data.projetos.map(p => (
-                  <th key={p.id} style={{ ...thBase, textAlign: 'center', width: COL_PROJ_W }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-500)' }} title={p.nome}>{p.codigo}</div>
-                    <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: COL_PROJ_W - 16 }} title={p.nome}>{p.nome}</div>
-                  </th>
-                ))}
+                {data.projetos.map(p => {
+                  const anoMes = ano * 12 + mes;
+                  let foraVigencia = false;
+                  let tooltipVig = '';
+                  if (p.vigenciaInicio || p.vigenciaFim) {
+                    const fmtVig = (iso: string) => {
+                      const d = new Date(iso);
+                      return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+                    };
+                    if (p.vigenciaInicio) {
+                      const d = new Date(p.vigenciaInicio);
+                      if (anoMes < d.getUTCFullYear() * 12 + d.getUTCMonth() + 1) foraVigencia = true;
+                    }
+                    if (p.vigenciaFim) {
+                      const d = new Date(p.vigenciaFim);
+                      if (anoMes > d.getUTCFullYear() * 12 + d.getUTCMonth() + 1) foraVigencia = true;
+                    }
+                    if (foraVigencia) {
+                      const inicio = p.vigenciaInicio ? fmtVig(p.vigenciaInicio) : '?';
+                      const fim    = p.vigenciaFim    ? fmtVig(p.vigenciaFim)    : '?';
+                      tooltipVig = `Este mês está fora da vigência do projeto (${inicio} – ${fim})`;
+                    }
+                  }
+                  return (
+                    <th key={p.id} style={{ ...thBase, textAlign: 'center', width: COL_PROJ_W }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-500)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }} title={p.nome}>
+                        {p.codigo}
+                        {foraVigencia && (
+                          <span title={tooltipVig} style={{ lineHeight: 0, cursor: 'default' }}>
+                            <AlertTriangle size={10} style={{ color: 'hsl(38 92% 50%)', flexShrink: 0 }} />
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: COL_PROJ_W - 16 }} title={p.nome}>{p.nome}</div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
 

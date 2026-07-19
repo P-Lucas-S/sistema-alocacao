@@ -251,6 +251,8 @@ router.get('/grid', authenticate, async (req: AuthRequest, res) => {
       categoriaId: p.categoriaId,
       defaultMacroId: p.macroEntregas[0]?.id ?? null,
       defaultMicroId: p.macroEntregas[0]?.microEntregas[0]?.id ?? null,
+      vigenciaInicio: p.vigenciaInicio?.toISOString() ?? null,
+      vigenciaFim:    p.vigenciaFim?.toISOString()    ?? null,
     }));
 
     if (projetos.length === 0) return res.json({ projetos: [], linhas: [], fechado, custoPorProjeto: {} });

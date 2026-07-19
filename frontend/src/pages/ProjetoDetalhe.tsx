@@ -40,12 +40,15 @@ interface MacroEntrega {
 interface MetaMes {
   ano: number; mes: number;
   medicao: string; oficialAlocado: string; metaHT: string;
-  pinado: boolean; fechado: boolean;
+  pinado: boolean; pinadaMedicao: boolean; fechado: boolean;
   receitaPlanejada: string; deficit: string;
+  avisoPiso?: string;
 }
 interface MetaResumo {
   valorTotal: string; valorOficial: string; valorHT: string; somaMetaHT: string;
+  totalCortadoPeloPiso: string;
   cascataPendente: boolean; numeroMeses: number; estrategiaOficial: string;
+  avisoEstouroMedicao?: string;
   saldoNaoPlanejado?: string;
   precisaDecisaoManual?: { faltam: string; folgaPorMes: { ano: number; mes: number; folga: string }[] };
 }
@@ -127,6 +130,8 @@ export default function ProjetoDetalhe() {
 
   const [editingMeta, setEditingMeta] = useState<{ ano: number; mes: number; valor: number | null } | null>(null);
   const [savingPino, setSavingPino] = useState(false);
+  const [editingMedicao, setEditingMedicao] = useState<{ ano: number; mes: number; valor: number | null } | null>(null);
+  const [savingPinoMedicao, setSavingPinoMedicao] = useState(false);
 
   const canWrite = user?.role === 'admin' ||
     (user?.role === 'gestor' && projeto?.gestorId === user.id);
@@ -297,6 +302,30 @@ export default function ProjetoDetalhe() {
 
   async function removePino(ano: number, mes: number) {
     const res = await fetch(`/api/projetos/${projetoId}/meta-apropriacao/pino/${ano}/${mes}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) await fetchMeta();
+  }
+
+  async function savePinoMedicao(ano: number, mes: number, valor: number | null) {
+    if (valor === null || valor < 0) { setEditingMedicao(null); return; }
+    setSavingPinoMedicao(true);
+    try {
+      const res = await fetch(`/api/projetos/${projetoId}/meta-apropriacao/pino-medicao`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ano, mes, medicao: valor }),
+      });
+      if (res.ok) await fetchMeta();
+    } finally {
+      setSavingPinoMedicao(false);
+      setEditingMedicao(null);
+    }
+  }
+
+  async function removePinoMedicao(ano: number, mes: number) {
+    const res = await fetch(`/api/projetos/${projetoId}/meta-apropriacao/pino-medicao/${ano}/${mes}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -496,6 +525,17 @@ export default function ProjetoDetalhe() {
                 </p>
               </div>
             </div>
+            {parseFloat(metaData.resumo.totalCortadoPeloPiso) > 0 && (
+              <div
+                className="flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
+                style={{ background: 'hsl(38 92% 50% / 0.08)', color: 'hsl(38 92% 45%)', border: '1px solid hsl(38 92% 50% / 0.2)' }}
+              >
+                <Info size={13} className="shrink-0 mt-0.5" />
+                <span>
+                  {fmtMoeda(metaData.resumo.totalCortadoPeloPiso)} de valor oficial não convertidos em Meta HT — a medição desses meses é menor que o oficial.
+                </span>
+              </div>
+            )}
 
             {metaData.resumo.saldoNaoPlanejado && (
               <div
@@ -527,6 +567,15 @@ export default function ProjetoDetalhe() {
                 Cascata pendente — a soma dos meses não fecha com o valorHT. Ajuste os pinos.
               </div>
             )}
+            {metaData.resumo.avisoEstouroMedicao && (
+              <div
+                className="flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
+                style={{ background: 'hsl(0 84% 60% / 0.1)', color: '#f87171', border: '1px solid hsl(0 84% 60% / 0.2)' }}
+              >
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                <span>{metaData.resumo.avisoEstouroMedicao}</span>
+              </div>
+            )}
 
             {/* Tabela por mês */}
             <div style={{ overflowX: 'auto' }}>
@@ -550,6 +599,8 @@ export default function ProjetoDetalhe() {
                       const metaCents = Math.round(parseFloat(m.metaHT) * 100);
                       const ajustado  = !m.pinado && !m.fechado && temPinos && metaCents !== baseCents;
                       const isEditing = editingMeta?.ano === m.ano && editingMeta?.mes === m.mes;
+                      const isEditingMedicao = editingMedicao?.ano === m.ano && editingMedicao?.mes === m.mes;
+                      const anyPinoSaving = savingPino || savingPinoMedicao;
                       return (
                         <tr key={`${m.ano}-${m.mes}`}>
                           <td style={tdMeta}>
@@ -560,14 +611,14 @@ export default function ProjetoDetalhe() {
                                   className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                                   style={{ background: 'color-mix(in srgb, var(--brand-500) 15%, transparent)', color: 'var(--brand-500)' }}
                                 >
-                                  pin
+                                  pin meta
                                 </span>
                               )}
                               {m.pinado && canWrite && (
                                 <button
                                   onClick={() => removePino(m.ano, m.mes)}
-                                  disabled={savingPino}
-                                  title="Remover pino"
+                                  disabled={anyPinoSaving}
+                                  title="Remover pino de meta"
                                   className="w-4 h-4 rounded flex items-center justify-center shrink-0 transition-colors"
                                   style={{ color: 'var(--text-3)' }}
                                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#f87171'}
@@ -594,12 +645,86 @@ export default function ProjetoDetalhe() {
                               )}
                             </div>
                           </td>
-                          <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.medicao)}</td>
+                          {/* Coluna Medição — editável, com pino de medição */}
+                          <td
+                            style={{ ...tdMeta, textAlign: 'right', fontWeight: m.pinadaMedicao ? 600 : undefined, padding: isEditingMedicao ? '4px 8px' : tdMeta.padding, cursor: (!m.fechado && canWrite && !isEditingMedicao && !isEditing && !anyPinoSaving) ? 'pointer' : undefined }}
+                            onClick={() => {
+                              if (!canWrite || m.fechado || isEditingMedicao || isEditing || anyPinoSaving) return;
+                              setEditingMedicao({ ano: m.ano, mes: m.mes, valor: parseFloat(m.medicao) });
+                            }}
+                          >
+                            {isEditingMedicao ? (
+                              <NumericFormat
+                                value={editingMedicao!.valor ?? ''}
+                                thousandSeparator="."
+                                decimalSeparator=","
+                                decimalScale={2}
+                                fixedDecimalScale
+                                prefix="R$ "
+                                allowNegative={false}
+                                onValueChange={({ floatValue }) =>
+                                  setEditingMedicao(e => e ? { ...e, valor: floatValue ?? null } : null)
+                                }
+                                onBlur={() => savePinoMedicao(m.ano, m.mes, editingMedicao!.valor)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') { e.currentTarget.blur(); }
+                                  if (e.key === 'Escape') { setEditingMedicao(null); }
+                                }}
+                                autoFocus
+                                disabled={savingPinoMedicao}
+                                style={{
+                                  background: 'var(--surface-2)',
+                                  border: '1px solid var(--brand-500)',
+                                  borderRadius: 6,
+                                  padding: '4px 8px',
+                                  color: 'var(--text-1)',
+                                  fontSize: 13,
+                                  outline: 'none',
+                                  width: 150,
+                                  textAlign: 'right',
+                                  fontWeight: 600,
+                                }}
+                              />
+                            ) : (
+                              <div className={`flex items-center justify-end gap-1.5${canWrite && !m.fechado ? ' group' : ''}`}>
+                                {m.pinadaMedicao && canWrite && (
+                                  <button
+                                    onClick={e => { e.stopPropagation(); removePinoMedicao(m.ano, m.mes); }}
+                                    disabled={anyPinoSaving}
+                                    title="Remover pino de medição"
+                                    className="w-4 h-4 rounded flex items-center justify-center shrink-0 transition-colors"
+                                    style={{ color: 'var(--text-3)' }}
+                                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#f87171'}
+                                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'}
+                                  >
+                                    <X size={10} />
+                                  </button>
+                                )}
+                                {m.pinadaMedicao && (
+                                  <span
+                                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                    style={{ background: 'color-mix(in srgb, var(--brand-500) 15%, transparent)', color: 'var(--brand-500)' }}
+                                  >
+                                    pin med.
+                                  </span>
+                                )}
+                                <span>{fmtMoeda(m.medicao)}</span>
+                                {m.avisoPiso && (
+                                  <span title={m.avisoPiso} style={{ lineHeight: 0 }}>
+                                    <AlertTriangle size={11} style={{ color: 'hsl(38 92% 50%)' }} className="shrink-0" />
+                                  </span>
+                                )}
+                                {canWrite && !m.fechado && (
+                                  <Pencil size={10} className="opacity-0 group-hover:opacity-40 transition-opacity shrink-0" />
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ ...tdMeta, textAlign: 'right' }}>{fmtMoeda(m.oficialAlocado)}</td>
                           <td
-                            style={{ ...tdMeta, textAlign: 'right', fontWeight: 600, padding: isEditing ? '4px 8px' : tdMeta.padding, cursor: (!m.fechado && canWrite && !isEditing && !savingPino) ? 'pointer' : undefined }}
+                            style={{ ...tdMeta, textAlign: 'right', fontWeight: 600, padding: isEditing ? '4px 8px' : tdMeta.padding, cursor: (!m.fechado && canWrite && !isEditing && !anyPinoSaving) ? 'pointer' : undefined }}
                             onClick={() => {
-                              if (!canWrite || m.fechado || isEditing || savingPino) return;
+                              if (!canWrite || m.fechado || isEditing || anyPinoSaving) return;
                               setEditingMeta({ ano: m.ano, mes: m.mes, valor: parseFloat(m.metaHT) });
                             }}
                           >
@@ -621,7 +746,7 @@ export default function ProjetoDetalhe() {
                                   if (e.key === 'Escape') { setEditingMeta(null); }
                                 }}
                                 autoFocus
-                                disabled={savingPino}
+                                disabled={anyPinoSaving}
                                 style={{
                                   background: 'var(--surface-2)',
                                   border: '1px solid var(--brand-500)',

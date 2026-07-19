@@ -230,6 +230,95 @@ router.delete('/:id/meta-apropriacao/pino/:ano/:mes', authenticate, requireRole(
   }
 });
 
+// ── PUT /:id/meta-apropriacao/pino-medicao — cria/atualiza pino de medição ──
+// Análogo ao pino de meta. Mês deve estar dentro da vigência e aberto.
+router.put('/:id/meta-apropriacao/pino-medicao', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({
+      where: { id },
+      select: { gestorId: true, vigenciaInicio: true, vigenciaFim: true },
+    });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const { ano, mes, medicao: medicaoBody } = req.body;
+    const anoN = Number.isInteger(ano) ? ano : parseInt(ano);
+    const mesN = Number.isInteger(mes) ? mes : parseInt(mes);
+    if (!Number.isInteger(anoN) || anoN < 2020 || anoN > 2100) {
+      return res.status(400).json({ error: 'ano inválido' });
+    }
+    if (!Number.isInteger(mesN) || mesN < 1 || mesN > 12) {
+      return res.status(400).json({ error: 'mes inválido' });
+    }
+    const medicaoN = typeof medicaoBody === 'number' ? medicaoBody : parseFloat(medicaoBody);
+    if (isNaN(medicaoN) || medicaoN < 0) {
+      return res.status(400).json({ error: 'medicao deve ser um número >= 0' });
+    }
+
+    if (!projeto.vigenciaInicio || !projeto.vigenciaFim) {
+      return res.status(400).json({ error: 'Projeto sem vigência definida — configure a vigência antes de pinar' });
+    }
+    const mesesVigencia = gerarMeses(projeto.vigenciaInicio, projeto.vigenciaFim);
+    if (!mesesVigencia.some(m => m.ano === anoN && m.mes === mesN)) {
+      return res.status(400).json({ error: `Mês ${mesN}/${anoN} fora da vigência do projeto` });
+    }
+
+    if (await mesEstaFechado(anoN, mesN)) {
+      return res.status(409).json({ error: 'Mês fechado — não é possível pinar medição em mês com fechamento registrado' });
+    }
+
+    const pino = await prisma.medicaoMensalAjuste.upsert({
+      where:  { projetoId_ano_mes: { projetoId: id, ano: anoN, mes: mesN } },
+      update: { medicao: medicaoN },
+      create: { projetoId: id, ano: anoN, mes: mesN, medicao: medicaoN },
+    });
+
+    return res.json(pino);
+  } catch (error) {
+    console.error('Pino medição upsert error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /:id/meta-apropriacao/pino-medicao/:ano/:mes — remove pino de medição
+router.delete('/:id/meta-apropriacao/pino-medicao/:ano/:mes', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id, ano: anoStr, mes: mesStr } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id }, select: { gestorId: true } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const anoN = parseInt(anoStr);
+    const mesN = parseInt(mesStr);
+    if (isNaN(anoN) || isNaN(mesN)) {
+      return res.status(400).json({ error: 'ano/mes inválidos na URL' });
+    }
+
+    const deleted = await prisma.medicaoMensalAjuste.deleteMany({
+      where: { projetoId: id, ano: anoN, mes: mesN },
+    });
+    if (deleted.count === 0) {
+      return res.status(404).json({ error: 'Pino de medição não encontrado para esse mês' });
+    }
+
+    return res.json({ removed: true, ano: anoN, mes: mesN });
+  } catch (error) {
+    console.error('Delete pino medição error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── GET /:id/meta-apropriacao — Meta Mensal de Apropriação (F2a) ──────────
 // READ-ONLY. Computa sob demanda a meta de HT por mês da vigência + receita
 // já planejada, reusando carregarTarifas/resolverTarifa de lib/tarifa.ts
@@ -261,38 +350,45 @@ router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) 
     const {
       valorTotal, valorOficial, valorHT, numMeses,
       estrategiaOficial: estrategia,
-      mesCalcs, somaMetaHT, temPinos,
+      mesCalcs, somaMetaHT, totalCortadoPeloPiso,
+      temPinos, avisoEstouroMedicao,
       saldoNaoPlanejado, precisaDecisaoManual,
     } = calc;
 
+    // Cascata pendente cobre APENAS problemas de distribuição da meta —
+    // não inclui !somaMetaHT.equals(valorHT) que seria falso positivo quando
+    // o piso max(0) corta legitimamente (reportado via totalCortadoPeloPiso).
     const cascataPendente = temPinos && (
       saldoNaoPlanejado !== null ||
-      precisaDecisaoManual !== null ||
-      !somaMetaHT.equals(valorHT)
+      precisaDecisaoManual !== null
     );
 
     return res.json({
       configurado: true,
       resumo: {
-        valorTotal:        valorTotal.toFixed(2),
-        valorOficial:      valorOficial.toFixed(2),
-        valorHT:           valorHT.toFixed(2),
-        somaMetaHT:        somaMetaHT.toFixed(2),
+        valorTotal:           valorTotal.toFixed(2),
+        valorOficial:         valorOficial.toFixed(2),
+        valorHT:              valorHT.toFixed(2),
+        somaMetaHT:           somaMetaHT.toFixed(2),
+        totalCortadoPeloPiso: totalCortadoPeloPiso.toFixed(2),
         cascataPendente,
-        numeroMeses:       numMeses,
-        estrategiaOficial: estrategia,
-        ...(saldoNaoPlanejado    !== null ? { saldoNaoPlanejado: saldoNaoPlanejado.toFixed(2) } : {}),
+        numeroMeses:          numMeses,
+        estrategiaOficial:    estrategia,
+        ...(avisoEstouroMedicao !== null ? { avisoEstouroMedicao }                               : {}),
+        ...(saldoNaoPlanejado   !== null ? { saldoNaoPlanejado: saldoNaoPlanejado.toFixed(2) }  : {}),
         ...(precisaDecisaoManual !== null ? { precisaDecisaoManual }                             : {}),
       },
-      meses: mesCalcs.map(({ ano, mes, medicao, oficialAlocado, metaHT, pinado, fechado, receitaPlanejada, deficit }) => ({
+      meses: mesCalcs.map(({ ano, mes, medicao, pinadaMedicao, oficialAlocado, metaHT, pinado, fechado, receitaPlanejada, deficit, avisoPiso }) => ({
         ano, mes,
         medicao:          medicao.toFixed(2),
+        pinadaMedicao,
         oficialAlocado:   oficialAlocado.toFixed(2),
         metaHT:           metaHT.toFixed(2),
         pinado,
         fechado,
         receitaPlanejada: receitaPlanejada.toFixed(2),
         deficit:          deficit.toFixed(2),
+        ...(avisoPiso !== null ? { avisoPiso } : {}),
       })),
     });
   } catch (error) {

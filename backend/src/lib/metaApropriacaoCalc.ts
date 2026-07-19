@@ -26,12 +26,14 @@ export interface MetaMesCalc {
   mes: number;
   key: string;
   medicao: Prisma.Decimal;
+  pinadaMedicao: boolean;       // true se este mês tem pino de medição
   oficialAlocado: Prisma.Decimal;
   metaHT: Prisma.Decimal;
   pinado: boolean;
   fechado: boolean;
   receitaPlanejada: Prisma.Decimal;
   deficit: Prisma.Decimal;
+  avisoPiso: string | null;     // §4.1: não-null quando oficial > medição (e sem pino de meta)
 }
 
 export interface ComputarMetaApropriacaoResult {
@@ -43,7 +45,9 @@ export interface ComputarMetaApropriacaoResult {
   meses: { ano: number; mes: number }[];
   mesCalcs: MetaMesCalc[];
   somaMetaHT: Prisma.Decimal;
+  totalCortadoPeloPiso: Prisma.Decimal; // R$ cortado pelo piso max(0) em meses sem pino de meta
   temPinos: boolean;
+  avisoEstouroMedicao: string | null;   // §4.2: não-null quando pinos somam > valorTotal
   saldoNaoPlanejado: Prisma.Decimal | null;
   precisaDecisaoManual: {
     faltam: string;
@@ -84,14 +88,66 @@ export async function computarMetaApropriacao(
   const numMeses = meses.length;
   if (numMeses === 0) return null;
 
-  // Medição uniforme — último mês absorve resíduo de arredondamento,
-  // garantindo soma(medicao) = valorTotal EXATO (sem centavo faltando).
-  const medicaoBase = valorTotal.dividedBy(numMeses).toDecimalPlaces(2);
-  const medicoes: Prisma.Decimal[] = meses.map((_, i) =>
-    i < numMeses - 1
-      ? medicaoBase
-      : valorTotal.minus(medicaoBase.times(numMeses - 1))
+  // ── Pinos de medição (1 query) — determinam medicao de cada mês ─────────────
+  const pinosMedicaoRaw = await prisma.medicaoMensalAjuste.findMany({
+    where: { projetoId },
+    select: { ano: true, mes: true, medicao: true },
+  });
+  const pinosMedicaoPorMes = new Map<string, Prisma.Decimal>(
+    pinosMedicaoRaw.map(p => [`${p.ano}-${p.mes}`, p.medicao])
   );
+
+  // Medição por mês: pinoMedicao ?? redistribuição uniforme entre não-pinados.
+  // Sem nenhum pino → comportamento original (uniforme, último absorve resíduo).
+  let medicoes: Prisma.Decimal[];
+  let avisoEstouroMedicao: string | null = null;
+
+  if (pinosMedicaoPorMes.size === 0) {
+    // Comportamento original inalterado
+    const medicaoBase = valorTotal.dividedBy(numMeses).toDecimalPlaces(2);
+    medicoes = meses.map((_, i) =>
+      i < numMeses - 1
+        ? medicaoBase
+        : valorTotal.minus(medicaoBase.times(numMeses - 1))
+    );
+  } else {
+    const somaPinosMed = pinosMedicaoRaw.reduce((acc, p) => acc.plus(p.medicao), D0);
+
+    if (somaPinosMed.greaterThan(valorTotal)) {
+      // §4.2: estouro — não-pinados ficam com 0 e emite aviso
+      avisoEstouroMedicao =
+        `As medições fixadas somam R$ ${somaPinosMed.minus(valorTotal).toFixed(2)} acima do valor total do projeto`;
+      medicoes = meses.map(({ ano, mes }) =>
+        pinosMedicaoPorMes.get(`${ano}-${mes}`) ?? D0
+      );
+    } else {
+      // Redistribui (valorTotal - somaPinos) entre os não-pinados; último absorve resíduo
+      const valorRestante = valorTotal.minus(somaPinosMed);
+      const naoPinadosIdx: number[] = [];
+      meses.forEach(({ ano, mes }, i) => {
+        if (!pinosMedicaoPorMes.has(`${ano}-${mes}`)) naoPinadosIdx.push(i);
+      });
+      const nNaoPinados = naoPinadosIdx.length;
+
+      if (nNaoPinados === 0) {
+        // Todos pinados (soma exata = valorTotal — já passamos pelo greaterThan acima)
+        medicoes = meses.map(({ ano, mes }) => pinosMedicaoPorMes.get(`${ano}-${mes}`) ?? D0);
+      } else {
+        const medicaoBaseNP = valorRestante.dividedBy(nNaoPinados).toDecimalPlaces(2);
+        const ultimoNPIdx   = naoPinadosIdx[naoPinadosIdx.length - 1]!;
+        const somaBaseAntes = medicaoBaseNP.times(nNaoPinados - 1);
+        const naoPinadosSet = new Set(naoPinadosIdx);
+
+        medicoes = meses.map(({ ano, mes }, i) => {
+          const pino = pinosMedicaoPorMes.get(`${ano}-${mes}`);
+          if (pino !== undefined) return pino;
+          if (i === ultimoNPIdx) return valorRestante.minus(somaBaseAntes); // absorve resíduo
+          return medicaoBaseNP;
+        });
+        void naoPinadosSet; // usado implicitamente pelo filtro acima
+      }
+    }
+  }
 
   // ── Distribuição do oficial por mês ─────────────────────────────────────────
   let oficialAlocados: Prisma.Decimal[];
@@ -116,6 +172,7 @@ export async function computarMetaApropriacao(
     });
   }
 
+  // metasHT SEM piso (pode ser negativo quando oficial > medição)
   const metasHT = medicoes.map((med, i) => med.minus(oficialAlocados[i]));
 
   // ── Receita planejada por mês — reusa carregarTarifas/resolverTarifa ────────
@@ -166,16 +223,21 @@ export async function computarMetaApropriacao(
   const mesesFechadosSet = new Set<string>(fechamentosRaw.map(f => `${f.ano}-${f.mes}`));
 
   // ── Classifica meses (F2b-ii) ────────────────────────────────────────────────
-  // Intocáveis: pinados OU fechados. Editáveis: os demais.
+  // Intocáveis: pinados (de meta) OU fechados. Editáveis: os demais.
+  // baseMetaHT aplica o piso max(0): quando oficial > medicao a meta não vai negativa.
   const classificados = meses.map(({ ano, mes }, i) => {
-    const key       = `${ano}-${mes}`;
-    const pinoValor = pinosPorMes.get(key);
-    const pinado    = pinoValor !== undefined;
-    const fechado   = mesesFechadosSet.has(key);
+    const key           = `${ano}-${mes}`;
+    const pinoValor     = pinosPorMes.get(key);
+    const pinado        = pinoValor !== undefined;    // pino de META
+    const fechado       = mesesFechadosSet.has(key);
+    const pinadaMedicao = pinosMedicaoPorMes.has(key);
+    const metaHTSemPiso = metasHT[i]!;
+    const baseMetaHT    = metaHTSemPiso.lessThan(D0) ? D0 : metaHTSemPiso; // piso max(0)
     return {
-      i, key, ano, mes, pinado, fechado,
+      i, key, ano, mes, pinado, fechado, pinadaMedicao,
       editavel:   !pinado && !fechado,
-      baseMetaHT: metasHT[i],
+      baseMetaHT,
+      metaHTSemPiso,
       pinoValor:  pinoValor as Prisma.Decimal | undefined,
     };
   });
@@ -293,8 +355,9 @@ export async function computarMetaApropriacao(
 
   // ── Monta mesCalcs (com Decimals, sem serialização) ──────────────────────────
   // O GET serializa para string (.toFixed(2)); o motor usa os Decimals diretamente.
-  let somaMetaHT = D0;
-  const mesCalcs: MetaMesCalc[] = classificados.map(({ i, ano, mes, pinado, fechado, baseMetaHT, pinoValor, key }) => {
+  let somaMetaHT         = D0;
+  let totalCortadoPeloPiso = D0;
+  const mesCalcs: MetaMesCalc[] = classificados.map(({ i, ano, mes, pinado, fechado, pinadaMedicao, baseMetaHT, metaHTSemPiso, pinoValor, key }) => {
     let metaHT: Prisma.Decimal;
     if (pinado) {
       metaHT = pinoValor!;
@@ -303,24 +366,39 @@ export async function computarMetaApropriacao(
       metaHT = baseMetaHT.plus(ajustes.get(i) ?? D0);
     }
     somaMetaHT = somaMetaHT.plus(metaHT);
+
+    // Piso: rastreia valor cortado em meses sem pino de meta (pino de meta sobrescreve a regra)
+    if (!pinado && metaHTSemPiso.lessThan(D0)) {
+      totalCortadoPeloPiso = totalCortadoPeloPiso.plus(metaHTSemPiso.negated());
+    }
+
     const receitaPlanejada = receitaPorMes.get(key) ?? D0;
     const deficit = metaHT.greaterThan(receitaPlanejada)
       ? metaHT.minus(receitaPlanejada) : D0;
+
+    // §4.1: aviso de piso (meses sem pino de meta onde oficial > medição)
+    const avisoPiso = (!pinado && metaHTSemPiso.lessThan(D0))
+      ? `R$ ${metaHTSemPiso.negated().toFixed(2)} de valor oficial excede a medição deste mês`
+      : null;
+
     return {
       ano, mes, key,
-      medicao:          medicoes[i],
-      oficialAlocado:   oficialAlocados[i],
+      medicao:          medicoes[i]!,
+      pinadaMedicao,
+      oficialAlocado:   oficialAlocados[i]!,
       metaHT,
       pinado, fechado,
       receitaPlanejada,
       deficit,
+      avisoPiso,
     };
   });
 
   return {
     valorTotal, valorOficial, valorHT, numMeses,
     estrategiaOficial: estrategia,
-    meses, mesCalcs, somaMetaHT, temPinos,
+    meses, mesCalcs, somaMetaHT, totalCortadoPeloPiso,
+    temPinos, avisoEstouroMedicao,
     saldoNaoPlanejado, precisaDecisaoManual,
   };
 }

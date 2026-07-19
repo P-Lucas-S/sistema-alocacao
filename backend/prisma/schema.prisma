@@ -173,6 +173,7 @@ model Projeto {
   prestacoesContas                 PrestacaoContas[]
   alocacoes                        Alocacao[]
   metaMensalAjustes                MetaMensalAjuste[]
+  medicaoMensalAjustes             MedicaoMensalAjuste[]
   solicitacoesDestinoRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoProjetoDestino")
 
   @@map("projetos")
@@ -271,6 +272,26 @@ model MetaMensalAjuste {
   @@unique([projetoId, ano, mes])
   @@index([projetoId])
   @@map("meta_mensal_ajustes")
+}
+
+// ─── Pino de medição mensal (medição editável) ────────────────────
+// Tabela própria para não fragilizar a garantia NOT NULL do meta_ht.
+// Coexistência natural: uma linha em cada tabela, casadas por (projetoId, ano, mes).
+
+model MedicaoMensalAjuste {
+  id        String   @id @default(cuid())
+  projetoId String   @map("projeto_id") @db.VarChar(191)
+  ano       Int
+  mes       Int
+  medicao   Decimal  @map("medicao") @db.Decimal(10, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  projeto Projeto @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+
+  @@unique([projetoId, ano, mes])
+  @@index([projetoId])
+  @@map("medicao_mensal_ajustes")
 }
 
 // ─── Fase 3: Fechamento mensal (read-only lock) + log de auditoria ─

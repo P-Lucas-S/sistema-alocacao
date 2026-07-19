@@ -518,6 +518,8 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
 
     const projetoId = generateId();
 
+    const macroGeralId = generateId();
+
     const projeto = await prisma.$transaction(async (tx) => {
       await tx.projeto.create({
         data: {
@@ -528,6 +530,13 @@ router.post('/', authenticate, requireRole('admin', 'gestor', 'chefe'), async (r
       });
       await tx.prestacaoContas.createMany({
         data: datas.map(d => ({ id: generateId(), projetoId, data: d })),
+      });
+      // Macro "Geral" automática — mesmo padrão do POST /macros (macro + micro na mesma tx)
+      await tx.macroEntrega.create({
+        data: { id: macroGeralId, projetoId, nome: 'Geral', descricao: null, status: 'ativa' },
+      });
+      await tx.microEntrega.create({
+        data: { id: generateId(), macroEntregaId: macroGeralId, nome: 'Geral', status: 'pendente' },
       });
       return tx.projeto.findUniqueOrThrow({
         where: { id: projetoId },

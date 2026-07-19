@@ -6,14 +6,14 @@ import { TETO_HORAS_MES } from './alocacoes.js';
 import { computeProxima } from './projetos.js';
 
 const router = express.Router();
+const generateId = () => Math.random().toString(36).substring(2, 15);
 
 // ID fixo do registro único de configuração (upsert sempre mira este id)
 export const CONFIG_PRIORIZACAO_ID = 'config-priorizacao';
 
 type CategoriaPrazo = 'alta' | 'media' | 'baixa' | 'sem_prazo';
 
-// Ordem final da lista: alta, media, baixa, sem_prazo (dentro de cada uma,
-// por horasPendentes desc — aplicado no .sort() abaixo).
+// Ordem final da lista: categoria -> fixado antes de não-fixado -> horas pendentes desc.
 const ORDEM_CATEGORIA: Record<CategoriaPrazo, number> = {
   alta: 0, media: 1, baixa: 2, sem_prazo: 3,
 };
@@ -34,6 +34,8 @@ export interface PriorizacaoItem {
   horasPendentes:    string;
   porque:            string;
   sinalCapacidade:   boolean;
+  fixado:            boolean;
+  pausado:           boolean;
   ordem:             number;
 }
 
@@ -53,7 +55,8 @@ export interface CalcularPriorizacaoParams {
 }
 
 export interface CalcularPriorizacaoResult {
-  itens: PriorizacaoItem[];
+  itens:         PriorizacaoItem[];
+  itensPausados: PriorizacaoItem[];  // projetos pausados, em seção separada
   // ── Dados crus reaproveitáveis por quem enriquece depois (ex.: o dashboard
   // de Projetos) — NÃO fazem parte do contrato de resposta do GET /priorizacao.
   categoriaIdPorProjeto:           Map<string, string | null>;
@@ -92,6 +95,8 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
     select: {
       id: true, codigo: true, nome: true, categoriaId: true,
       gestorId: true,
+      prioridadeFixada: true,
+      prioridadePausada: true,
       gestor: { select: { name: true } },
       prestacoesContas: { select: { id: true, data: true } },
     },
@@ -106,8 +111,8 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
 
   if (projetos.length === 0) {
     return {
-      itens: [], categoriaIdPorProjeto, colabsPorProjeto: new Map(), alocsDoMes: [],
-      colabsSobrecarregadosPorProjeto: new Map(), gestorInfoPorProjeto,
+      itens: [], itensPausados: [], categoriaIdPorProjeto, colabsPorProjeto: new Map(),
+      alocsDoMes: [], colabsSobrecarregadosPorProjeto: new Map(), gestorInfoPorProjeto,
     };
   }
 
@@ -204,20 +209,37 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
       horasPendentes:    horasPendentes.toString(),
       porque,
       sinalCapacidade:   (colabsSobrecarregadosPorProjeto.get(proj.id) ?? 0) > 0,
+      fixado:            proj.prioridadeFixada,
+      pausado:           proj.prioridadePausada,
     };
   });
 
-  // ── Ordem final: categoria (alta < media < baixa < sem_prazo), depois
-  // horas pendentes desc dentro da categoria ──────────────────────────────
-  resultado.sort((a, b) => {
+  // ── Separar pausados — saem da fila principal, não recebem categoria nas
+  // contagens e são devolvidos em seção separada ao fim. ──────────────────
+  const ativos   = resultado.filter(r => !r.pausado);
+  const pausados = resultado.filter(r => r.pausado);
+
+  // ── Ordenação da fila ativa:
+  //    1. categoria (alta < media < baixa < sem_prazo) — soberana
+  //    2. fixado antes de não-fixado DENTRO da mesma categoria
+  //    3. horas pendentes desc (desempate final)
+  // CORREÇÃO DA CLIENTE: fixar leva ao topo DA CATEGORIA, não da lista inteira.
+  // Um projeto Média fixado aparece abaixo de todos os Altas.
+  ativos.sort((a, b) => {
     const catDiff = ORDEM_CATEGORIA[a.categoria] - ORDEM_CATEGORIA[b.categoria];
     if (catDiff !== 0) return catDiff;
+    if (a.fixado !== b.fixado) return a.fixado ? -1 : 1;
     return parseFloat(b.horasPendentes) - parseFloat(a.horasPendentes);
   });
 
-  const itens: PriorizacaoItem[] = resultado.map((r, i) => ({ ...r, ordem: i + 1 }));
+  const itens: PriorizacaoItem[] = ativos.map((r, i) => ({ ...r, ordem: i + 1 }));
 
-  return { itens, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto };
+  const itensPausados: PriorizacaoItem[] = pausados.map((r, i) => ({
+    ...r,
+    ordem: itens.length + i + 1,
+  }));
+
+  return { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto };
 }
 
 // ── GET / — projetos priorizados por categoria de prazo + horas pendentes ──
@@ -243,12 +265,57 @@ router.get('/', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenac
       gestorIdFiltro = gestorIdParam;
     }
 
-    const { itens } = await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
-    res.json(itens);
+    const { itens, itensPausados } = await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
+    res.json({ itens, itensPausados, totalPausados: itensPausados.length });
   } catch (error) {
     console.error('Priorizacao error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ── PATCH /:projetoId/fixar — fixa prioridade (topo da categoria). Limpa pausar.
+// ── PATCH /:projetoId/desfixar
+// ── PATCH /:projetoId/pausar — pausa (sai da fila). Limpa fixar.
+// ── PATCH /:projetoId/despausar
+// Permissões: gestor só em projeto próprio; chefe/admin qualquer; coordenacao/diretor → 403 (via requireRole)
+async function patchPrioridade(
+  req: AuthRequest,
+  res: express.Response,
+  acao: 'fixar' | 'desfixar' | 'pausar' | 'despausar',
+) {
+  const { projetoId } = req.params;
+  const userId = req.user!.id;
+  const role   = req.user!.role;
+
+  const projeto = await prisma.projeto.findUnique({
+    where: { id: projetoId },
+    select: { id: true, gestorId: true, status: true },
+  });
+  if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+  if (projeto.status !== 'ativo') return res.status(400).json({ error: 'Projeto não está ativo' });
+  if (role === 'gestor' && projeto.gestorId !== userId) {
+    return res.status(403).json({ error: 'Gestor só pode alterar prioridade de projetos próprios' });
+  }
+
+  const data =
+    acao === 'fixar'     ? { prioridadeFixada: true,  prioridadePausada: false } :
+    acao === 'desfixar'  ? { prioridadeFixada: false,  prioridadePausada: false } :
+    acao === 'pausar'    ? { prioridadeFixada: false,  prioridadePausada: true  } :
+  /* despausar */          { prioridadeFixada: false,  prioridadePausada: false };
+
+  await prisma.$transaction([
+    prisma.projeto.update({ where: { id: projetoId }, data }),
+    prisma.prioridadeLog.create({
+      data: { id: generateId(), projetoId, acao, usuarioId: userId },
+    }),
+  ]);
+
+  return res.json({ ok: true, acao });
+}
+
+router.patch('/:projetoId/fixar',     authenticate, requireRole('admin', 'gestor', 'chefe'), (req: AuthRequest, res) => patchPrioridade(req, res, 'fixar'));
+router.patch('/:projetoId/desfixar',  authenticate, requireRole('admin', 'gestor', 'chefe'), (req: AuthRequest, res) => patchPrioridade(req, res, 'desfixar'));
+router.patch('/:projetoId/pausar',    authenticate, requireRole('admin', 'gestor', 'chefe'), (req: AuthRequest, res) => patchPrioridade(req, res, 'pausar'));
+router.patch('/:projetoId/despausar', authenticate, requireRole('admin', 'gestor', 'chefe'), (req: AuthRequest, res) => patchPrioridade(req, res, 'despausar'));
 
 export default router;

@@ -141,8 +141,8 @@ async function main() {
 
   {
     // Config nos defaults: alta <= 7 dias → vence em 6 dias → 'alta'
-    const { data } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
-    const p = data.find(x => x.projetoId === proj6d.id);
+    const { data: raw } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
+    const p = raw.itens.find(x => x.projetoId === proj6d.id);
     check('Config default (alta≤7d): projeto +6d → categoria alta',
       p?.categoria === 'alta', { categoria: p?.categoria, prazoAltaDias: 7 });
   }
@@ -156,8 +156,8 @@ async function main() {
 
   {
     // Config alterada: alta <= 5 dias → vence em 6 dias > 5 → faixa media
-    const { data } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
-    const p = data.find(x => x.projetoId === proj6d.id);
+    const { data: raw } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
+    const p = raw.itens.find(x => x.projetoId === proj6d.id);
     check('Config alterada (alta≤5d): projeto +6d saiu de alta → agora media',
       p?.categoria === 'media', { categoria: p?.categoria, prazoAltaDias: 5 });
   }
@@ -167,8 +167,8 @@ async function main() {
     { prazoAltaDias: 7, prazoMediaDias: 30, tetoCapacidadeSinalPct: 95 });
   {
     // Confirma que volta pra 'alta' após restaurar
-    const { data } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
-    const p = data.find(x => x.projetoId === proj6d.id);
+    const { data: raw } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
+    const p = raw.itens.find(x => x.projetoId === proj6d.id);
     check('Após restaurar defaults: projeto +6d volta pra alta',
       p?.categoria === 'alta', { categoria: p?.categoria });
   }

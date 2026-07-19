@@ -136,9 +136,11 @@ async function main() {
   console.log(`Setup ok — ${projetosCriados.length} projetos criados.\n`);
 
   console.log('── GET /priorizacao como gestor1 ────────────────────');
-  const { status, data } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenGestor1);
-  check('Status 200', status === 200, { status, data });
+  const { status, data: dataGestor1 } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenGestor1);
+  check('Status 200', status === 200, { status, dataGestor1 });
+  check('Resposta tem itens + itensPausados + totalPausados', Array.isArray(dataGestor1?.itens) && Array.isArray(dataGestor1?.itensPausados), dataGestor1);
 
+  const data = dataGestor1.itens;
   const porCodigo = codigo => data.find(p => p.codigo === codigo);
 
   console.log('\n── Categoria por faixa de prazo ─────────────────────');
@@ -211,8 +213,9 @@ async function main() {
   {
     check('gestor1 NÃO vê o projeto do gestor3', !porCodigo(gestor3Proj.codigo), data.map(p => p.codigo));
 
-    const { data: dataAdmin } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
-    const porCodigoAdmin = codigo => dataAdmin.find(p => p.codigo === gestor3Proj.codigo);
+    const { data: dataAdminRaw } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenAdmin);
+    const dataAdmin = dataAdminRaw.itens;
+    const porCodigoAdmin = () => dataAdmin.find(p => p.codigo === gestor3Proj.codigo);
     check('admin VÊ o projeto do gestor3', !!porCodigoAdmin(), dataAdmin.map(p => p.codigo).filter(c => c.includes('PRIORTESTE')));
     check('admin vê MAIS projetos que gestor1 (escopo maior)', dataAdmin.length > data.length, { admin: dataAdmin.length, gestor1: data.length });
   }

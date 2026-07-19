@@ -173,7 +173,8 @@ async function main() {
 
   console.log('\n── Ordem preservada — igual à do /priorizacao ───────');
   {
-    const { data: prioriza } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenGestor1);
+    const { data: priorizaRaw } = await api('GET', `/priorizacao?ano=${ANO}&mes=${MES}`, tokenGestor1);
+    const prioriza             = priorizaRaw.itens;
     const ordemDashboard   = data.filter(p => p.codigo.startsWith('DASHTESTE')).map(p => p.codigo);
     const ordemPriorizacao = prioriza.filter(p => p.codigo.startsWith('DASHTESTE')).map(p => p.codigo);
     check(

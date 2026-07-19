@@ -35,6 +35,7 @@ model User {
   exclusoesSolicitadas                ProjetoExcluido[]            @relation("ProjetoExcluidoSolicitante")
   exclusoesAprovadas                  ProjetoExcluido[]            @relation("ProjetoExcluidoAprovador")
   configPriorizacaoEditadas           ConfiguracaoPriorizacao[]    @relation("ConfigPriorizacaoUpdatedBy")
+  prioridadeLogs                      PrioridadeLog[]              @relation("PrioridadeLogUsuario")
 
   @@map("users")
 }
@@ -162,6 +163,9 @@ model Projeto {
   estrategiaOficial String    @default("inicial")        @map("estrategia_oficial") @db.VarChar(50)
   vigenciaInicio    DateTime? @map("vigencia_inicio")    @db.Date
   vigenciaFim       DateTime? @map("vigencia_fim")       @db.Date
+  // ── Priorização manual (P3 — fixar/pausar) ──────────────────────────────
+  prioridadeFixada  Boolean   @default(false) @map("prioridade_fixada")
+  prioridadePausada Boolean   @default(false) @map("prioridade_pausada")
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
@@ -398,6 +402,22 @@ model Redelegacao {
 
   @@index([projetoId])
   @@map("redelegacoes")
+}
+
+// ─── P3: Log de fixar/pausar na priorização ──────────────────────
+// Segue o padrão de Redelegacao: projetoId SEM FK (sobrevive à exclusão
+// do projeto); apenas usuarioId com FK (User nunca é apagado por este fluxo).
+model PrioridadeLog {
+  id         String   @id @db.VarChar(191)
+  projetoId  String   @map("projeto_id") @db.VarChar(191)
+  acao       String   @db.VarChar(20)
+  usuarioId  String   @map("usuario_id") @db.VarChar(191)
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  usuario User @relation("PrioridadeLogUsuario", fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([projetoId])
+  @@map("prioridade_logs")
 }
 
 // ─── Spec_Papeis_Posse_Exclusao: lápide de projeto excluído ────────

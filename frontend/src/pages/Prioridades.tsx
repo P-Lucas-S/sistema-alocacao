@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useGestorFiltro } from '../context/GestorFiltroContext';
-import { BarChart2, AlertTriangle, Settings, Pin, Pause, Play } from 'lucide-react';
+import { BarChart2, AlertTriangle, Settings, Pin, Pause, Play, ChevronDown } from 'lucide-react';
 import SeletorMes from '../components/SeletorMes';
 import SeletorGestor from '../components/SeletorGestor';
 
@@ -48,39 +48,51 @@ function fmtMoeda(v: string): string {
   return parseFloat(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-function fmtHoras(h: string): string {
-  const n = parseFloat(h);
-  return Number.isInteger(n) ? `${n}h` : `${n.toFixed(1)}h`;
-}
-
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', {
     timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric',
   });
 }
 
-// ── Badge de categoria ────────────────────────────────────────────────────────
+// Único lugar onde a decisão null vs 0 em horas realizadas acontece.
+function fmtRealizado(real: string | null, plan: string): {
+  temRealizado: boolean; barPct: number; texto: string;
+} {
+  const planN = parseFloat(plan);
+  const planStr = Number.isInteger(planN) ? `${planN}` : planN.toFixed(1);
+  if (real === null) {
+    return { temRealizado: false, barPct: 0, texto: `${planStr}h · —` };
+  }
+  const realN = parseFloat(real);
+  const realStr = Number.isInteger(realN) ? `${realN}` : realN.toFixed(1);
+  const pct = planN > 0 ? Math.round((realN / planN) * 100) : 0;
+  return {
+    temRealizado: true,
+    barPct: planN > 0 ? Math.min((realN / planN) * 100, 100) : 0,
+    texto: `${realStr}/${planStr}h · ${pct}%`,
+  };
+}
 
-const CATEGORIA: Record<CategoriaPrazo, { label: string; bg: string; color: string }> = {
-  alta:      { label: 'Alta',      bg: 'hsl(0 85% 60% / 0.15)',    color: '#ef4444' },
-  media:     { label: 'Média',     bg: 'hsl(38 95% 55% / 0.15)',   color: '#f59e0b' },
-  baixa:     { label: 'Baixa',     bg: 'hsl(142 71% 45% / 0.12)', color: '#4ade80' },
-  sem_prazo: { label: 'Sem prazo', bg: 'hsl(0 0% 50% / 0.12)',     color: 'var(--text-3)' },
+// ── Badge de categoria — dot colorido + label neutro (sem preenchimento) ────
+
+const CAT_DOT: Record<CategoriaPrazo, { label: string; dot: string }> = {
+  alta:      { label: 'Alta',      dot: '#ef4444' },
+  media:     { label: 'Média',     dot: '#f59e0b' },
+  baixa:     { label: 'Baixa',     dot: '#4ade80' },
+  sem_prazo: { label: 'Sem prazo', dot: 'var(--text-2)' },
 };
 
-function BadgeCategoria({ cat }: { cat: CategoriaPrazo }) {
-  const { label, bg, color } = CATEGORIA[cat] ?? CATEGORIA.sem_prazo;
+function BadgeCategoriaMudo({ cat }: { cat: CategoriaPrazo }) {
+  const { label, dot } = CAT_DOT[cat] ?? CAT_DOT.sem_prazo;
   return (
-    <span
-      className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap"
-      style={{ background: bg, color }}
-    >
-      {label}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+      <span style={{ fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{label}</span>
     </span>
   );
 }
 
-// ── Estilos de tabela (mesmo padrão de Custos.tsx) ───────────────────────────
+// ── Estilos de tabela ─────────────────────────────────────────────────────────
 
 const th: React.CSSProperties = {
   padding: '8px 12px', fontSize: 11, fontWeight: 700,
@@ -91,7 +103,7 @@ const th: React.CSSProperties = {
 
 const td: React.CSSProperties = {
   padding: '10px 12px', fontSize: 13, color: 'var(--text-1)',
-  borderBottom: '1px solid var(--border)', verticalAlign: 'top',
+  borderBottom: '1px solid var(--border)', verticalAlign: 'middle',
 };
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -100,9 +112,7 @@ export default function Prioridades() {
   const { token, user } = useAuth();
   const { gestorIdFiltro } = useGestorFiltro();
 
-  // quem pode CLICAR nos botões de ação
   const podeVerAcoes = user?.role === 'admin' || user?.role === 'chefe' || user?.role === 'gestor';
-  // dentro das linhas visíveis, só age em projetos que lhe pertencem
   const podeAgir = (item: ItemDashboard) =>
     user?.role === 'admin' || user?.role === 'chefe' ||
     (user?.role === 'gestor' && item.gestorId === user.id);
@@ -114,13 +124,22 @@ export default function Prioridades() {
   const [mes, setMes] = useState(now.getMonth() + 1);
   const [ano, setAno] = useState(now.getFullYear());
 
-  const [itens,   setItens]   = useState<ItemDashboard[]>([]);
+  const [itens,    setItens]    = useState<ItemDashboard[]>([]);
   const [pausados, setPausados] = useState<ItemDashboard[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [erro, setErro]       = useState('');
+  const [loading,  setLoading]  = useState(true);
+  const [erro,     setErro]     = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [savingId, setSavingId] = useState<string | null>(null);
+
+  // ── Expansão de linhas ────────────────────────────────────────────────────
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) =>
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   // ── Estado do modal de configuração ──────────────────────────────────────
   const [modalConfig,  setModalConfig]  = useState(false);
@@ -194,7 +213,7 @@ export default function Prioridades() {
   }, [token]);
 
   async function salvarConfig() {
-    const alta = parseInt(fAlta);
+    const alta  = parseInt(fAlta);
     const media = parseInt(fMedia);
     const pct   = parseInt(fPct);
 
@@ -234,202 +253,237 @@ export default function Prioridades() {
     }
   }
 
-  // ── Linha da tabela (reusada em ativos e pausados) ───────────────────────
+  // ── Linha da tabela ───────────────────────────────────────────────────────
   function LinhaTabela({ item, dimmed }: { item: ItemDashboard; dimmed?: boolean }) {
-    const isSaving = savingId === item.projetoId;
-    const agir     = podeAgir(item);
+    const isSaving   = savingId === item.projetoId;
+    const agir       = podeAgir(item);
+    const isExpanded = expandedIds.has(item.projetoId);
+    const isVencida  = item.diasAteVencimento !== null && item.diasAteVencimento < 0;
+    const exec       = fmtRealizado(item.horasRealizadas, item.horasPlanejadas);
+    // 8 colunas fixas (CAT, PROJ, PRESTAÇÃO, EXEC, CUSTO, EQUIPE, EXPANSÃO)
+    // + GESTOR condicional + AÇÕES condicional
+    const numCols = 7 + (mostrarGestor ? 1 : 0) + (podeVerAcoes ? 1 : 0);
 
     return (
-      <tr
-        key={item.projetoId}
-        className="hover:bg-[var(--surface-3)] transition-colors duration-100"
-        style={{ opacity: dimmed ? 0.6 : 1 }}
-      >
-        {/* Badge categoria + nº ordem + indicador de fixado */}
-        <td style={td}>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-mono" style={{ color: 'var(--text-3)', minWidth: 16 }}>
-              {item.ordem}
-            </span>
-            <BadgeCategoria cat={item.categoria} />
-            {item.fixado && (
-              <span title="Fixado no topo da categoria" style={{ display: 'inline-flex' }}>
+      <>
+        <tr
+          className="hover:bg-[var(--surface-3)] transition-colors duration-100"
+          style={{ opacity: dimmed ? 0.6 : 1 }}
+        >
+          {/* CATEGORIA — dot badge mudo. Borda esquerda 3px só para vencida; transparente preserva o alinhamento. */}
+          <td style={{ ...td, borderLeft: isVencida ? '3px solid #ef4444' : '3px solid transparent' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BadgeCategoriaMudo cat={item.categoria} />
+              {item.fixado && (
                 <Pin size={11} fill="var(--brand-500)" style={{ color: 'var(--brand-500)', flexShrink: 0 }} />
-              </span>
-            )}
-          </div>
-        </td>
-
-        {/* Código + Nome */}
-        <td style={td}>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-bold font-mono" style={{ color: 'var(--brand-500)' }}>
-              {item.codigo}
-            </span>
-            <span className="text-sm" style={{ color: 'var(--text-1)' }}>
-              {item.nome}
-            </span>
-          </div>
-        </td>
-
-        {/* Por quê */}
-        <td style={{ ...td, maxWidth: 260 }}>
-          <span className="text-sm" style={{ color: 'var(--text-2)' }}>
-            {item.porque}
-          </span>
-        </td>
-
-        {/* Próxima prestação */}
-        <td style={{ ...td, whiteSpace: 'nowrap' }}>
-          {item.proximaPrestacao
-            ? <span style={{ color: item.categoria === 'alta' ? '#ef4444' : 'var(--text-1)' }}>
-                {fmtDate(item.proximaPrestacao)}
-              </span>
-            : <span style={{ color: 'var(--text-3)' }}>—</span>
-          }
-        </td>
-
-        {/* Programa de fomento */}
-        <td style={{ ...td, whiteSpace: 'nowrap' }}>
-          {item.categoriaNome
-            ? <span
-                className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-                style={{ background: 'hsl(221 83% 53% / 0.12)', color: 'var(--brand-500)' }}
-              >
-                {item.categoriaNome}
-              </span>
-            : <span style={{ color: 'var(--text-3)' }}>—</span>
-          }
-        </td>
-
-        {/* Gestor (oculto para papel gestor) */}
-        {mostrarGestor && (
-          <td style={{ ...td, whiteSpace: 'nowrap' }}>
-            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
-              {item.gestorNome ?? '—'}
-            </span>
+              )}
+            </div>
           </td>
-        )}
 
-        {/* Horas planejadas */}
-        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-          {parseFloat(item.horasPlanejadas) > 0
-            ? fmtHoras(item.horasPlanejadas)
-            : <span style={{ color: 'var(--text-3)' }}>—</span>
-          }
-        </td>
-
-        {/* Horas realizadas */}
-        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-          {item.horasRealizadas != null
-            ? fmtHoras(item.horasRealizadas)
-            : <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>sem apontamento</span>
-          }
-        </td>
-
-        {/* % Execução */}
-        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-          {(() => {
-            const real = item.horasRealizadas != null ? parseFloat(item.horasRealizadas) : null;
-            if (real == null || real === 0) {
-              return <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>N/D</span>;
-            }
-            const plan = parseFloat(item.horasPlanejadas);
-            const pct  = plan > 0 ? Math.round((real / plan) * 100) : 100;
-            return (
-              <span style={{ fontWeight: 600, color: pct >= 100 ? '#4ade80' : 'var(--text-1)' }}>
-                {pct}%
+          {/* PROJETO — nome principal + código muted abaixo */}
+          <td style={td}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>
+                {item.nome}
               </span>
-            );
-          })()}
-        </td>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-2)' }}>
+                {item.codigo}
+              </span>
+            </div>
+          </td>
 
-        {/* Custo planejado */}
-        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
-          {item.custoPlanejado != null
-            ? fmtMoeda(item.custoPlanejado)
-            : <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>—</span>
-          }
-        </td>
-
-        {/* Custo realizado */}
-        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
-          {item.custoRealizado != null
-            ? fmtMoeda(item.custoRealizado)
-            : <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>—</span>
-          }
-        </td>
-
-        {/* Tamanho da equipe */}
-        <td style={{ ...td, textAlign: 'right' }}>
-          {item.tamanhoEquipe > 0
-            ? item.tamanhoEquipe
-            : <span style={{ color: 'var(--text-3)' }}>—</span>
-          }
-        </td>
-
-        {/* Gargalo */}
-        <td style={{ ...td, textAlign: 'center' }}>
-          {item.qtdColabsGargalo > 0 && (
-            <span
-              title={`${item.qtdColabsGargalo} colaborador(es) no limite de capacidade`}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#f59e0b' }}
-            >
-              <AlertTriangle size={13} />
-              <span style={{ fontSize: 12, fontWeight: 700 }}>{item.qtdColabsGargalo}</span>
-            </span>
+          {/* GESTOR (oculto para papel gestor) */}
+          {mostrarGestor && (
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                {item.gestorNome ?? '—'}
+              </span>
+            </td>
           )}
-        </td>
 
-        {/* Ações — só visível para gestor/chefe/admin */}
-        {podeVerAcoes && (
-          <td style={{ ...td, textAlign: 'right', paddingRight: 8 }}>
-            {agir && (
-              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-                {/* Fixar / Desfixar — padrão ProjetoDetalhe: sempre visível em text-3, hover→brand */}
-                <button
-                  disabled={isSaving}
-                  onClick={() => acaoPrioridade(item.projetoId, item.fixado ? 'desfixar' : 'fixar')}
-                  title={item.fixado ? 'Desfixar (volta à ordem natural)' : 'Fixar no topo da categoria'}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center"
-                  style={{
-                    color: item.fixado ? 'var(--brand-500)' : 'var(--text-3)',
-                    background: item.fixado ? 'hsl(221 83% 53% / 0.1)' : 'transparent',
-                    border: item.fixado ? '1px solid hsl(221 83% 53% / 0.25)' : '1px solid transparent',
-                    cursor: isSaving ? 'not-allowed' : 'pointer',
-                    opacity: isSaving ? 0.5 : 1,
-                    flexShrink: 0,
-                  }}
-                  onMouseEnter={e => { if (!isSaving && !item.fixado) (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; }}
-                  onMouseLeave={e => { if (!item.fixado) (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
-                >
-                  <Pin size={13} fill={item.fixado ? 'var(--brand-500)' : 'none'} />
-                </button>
-
-                {/* Pausar / Despausar */}
-                <button
-                  disabled={isSaving}
-                  onClick={() => acaoPrioridade(item.projetoId, item.pausado ? 'despausar' : 'pausar')}
-                  title={item.pausado ? 'Retomar (volta à fila)' : 'Pausar (retira da fila)'}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center"
-                  style={{
-                    color: item.pausado ? '#f59e0b' : 'var(--text-3)',
-                    background: item.pausado ? 'hsl(38 95% 55% / 0.1)' : 'transparent',
-                    border: item.pausado ? '1px solid hsl(38 95% 55% / 0.25)' : '1px solid transparent',
-                    cursor: isSaving ? 'not-allowed' : 'pointer',
-                    opacity: isSaving ? 0.5 : 1,
-                    flexShrink: 0,
-                  }}
-                  onMouseEnter={e => { if (!isSaving && !item.pausado) (e.currentTarget as HTMLElement).style.color = '#f59e0b'; }}
-                  onMouseLeave={e => { if (!item.pausado) (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
-                >
-                  {item.pausado ? <Play size={13} /> : <Pause size={13} />}
-                </button>
-              </div>
+          {/* PRESTAÇÃO — vencida: vermelho + ícone; alta: negrito; sem data: travessão */}
+          <td style={{ ...td, whiteSpace: 'nowrap' }}>
+            {item.proximaPrestacao ? (
+              isVencida ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#ef4444', fontWeight: 600 }}>
+                  <AlertTriangle size={12} />
+                  {fmtDate(item.proximaPrestacao)}
+                </span>
+              ) : item.categoria === 'alta' ? (
+                <span style={{ fontWeight: 700, color: 'var(--text-1)' }}>
+                  {fmtDate(item.proximaPrestacao)}
+                </span>
+              ) : (
+                <span style={{ color: 'var(--text-1)' }}>
+                  {fmtDate(item.proximaPrestacao)}
+                </span>
+              )
+            ) : (
+              <span style={{ color: 'var(--text-3)' }}>—</span>
             )}
           </td>
+
+          {/* EXECUÇÃO — mini-barra + "312/480h · 65%". Contorno vazio quando sem realizado. */}
+          <td style={{ ...td, whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div style={{
+                width: 60, height: 4, borderRadius: 2,
+                background: exec.temRealizado ? 'hsl(0 0% 50% / 0.15)' : 'transparent',
+                border: exec.temRealizado ? 'none' : '1.5px solid var(--border-strong)',
+                position: 'relative', overflow: 'hidden',
+              }}>
+                {exec.temRealizado && (
+                  <div style={{
+                    position: 'absolute', inset: '0 auto 0 0',
+                    width: `${exec.barPct}%`,
+                    background: exec.barPct >= 100 ? '#4ade80' : 'var(--brand-500)',
+                    borderRadius: 2,
+                  }} />
+                )}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--text-2)', fontVariantNumeric: 'tabular-nums' }}>
+                {exec.texto}
+              </span>
+            </div>
+          </td>
+
+          {/* CUSTO — planejado primary, realizado muted abaixo */}
+          <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-end' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                {item.custoPlanejado != null
+                  ? fmtMoeda(item.custoPlanejado)
+                  : <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>—</span>
+                }
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>
+                {item.custoRealizado != null ? fmtMoeda(item.custoRealizado) : '—'}
+              </span>
+            </div>
+          </td>
+
+          {/* EQUIPE — tamanho · gargalo⚠ (⚠ some quando zero) */}
+          <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-1)' }}>
+              {item.tamanhoEquipe > 0 ? item.tamanhoEquipe : '—'}
+              {item.qtdColabsGargalo > 0 && (
+                <span
+                  title={`${item.qtdColabsGargalo} colaborador(es) no limite de capacidade`}
+                  style={{ color: '#f59e0b', marginLeft: 4 }}
+                >
+                  {' · '}{item.qtdColabsGargalo}
+                  <AlertTriangle size={11} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: 2 }} />
+                </span>
+              )}
+            </span>
+          </td>
+
+          {/* EXPANSÃO */}
+          <td style={{ ...td, padding: '4px 8px', width: 36 }}>
+            <button
+              onClick={() => toggleExpand(item.projetoId)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 28, height: 28, borderRadius: 6,
+                border: '1px solid transparent',
+                background: 'transparent',
+                color: 'var(--text-2)',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-3)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            >
+              <ChevronDown
+                size={14}
+                style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 150ms' }}
+              />
+            </button>
+          </td>
+
+          {/* AÇÕES */}
+          {podeVerAcoes && (
+            <td style={{ ...td, textAlign: 'right', paddingRight: 8 }}>
+              {agir && (
+                <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                  <button
+                    disabled={isSaving}
+                    onClick={() => acaoPrioridade(item.projetoId, item.fixado ? 'desfixar' : 'fixar')}
+                    title={item.fixado ? 'Desfixar (volta à ordem natural)' : 'Fixar no topo da categoria'}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center"
+                    style={{
+                      color: item.fixado ? 'var(--brand-500)' : 'var(--text-3)',
+                      background: item.fixado ? 'hsl(221 83% 53% / 0.1)' : 'transparent',
+                      border: item.fixado ? '1px solid hsl(221 83% 53% / 0.25)' : '1px solid transparent',
+                      cursor: isSaving ? 'not-allowed' : 'pointer',
+                      opacity: isSaving ? 0.5 : 1,
+                      flexShrink: 0,
+                    }}
+                    onMouseEnter={e => { if (!isSaving && !item.fixado) (e.currentTarget as HTMLElement).style.color = 'var(--brand-500)'; }}
+                    onMouseLeave={e => { if (!item.fixado) (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
+                  >
+                    <Pin size={13} fill={item.fixado ? 'var(--brand-500)' : 'none'} />
+                  </button>
+
+                  <button
+                    disabled={isSaving}
+                    onClick={() => acaoPrioridade(item.projetoId, item.pausado ? 'despausar' : 'pausar')}
+                    title={item.pausado ? 'Retomar (volta à fila)' : 'Pausar (retira da fila)'}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center"
+                    style={{
+                      color: item.pausado ? '#f59e0b' : 'var(--text-3)',
+                      background: item.pausado ? 'hsl(38 95% 55% / 0.1)' : 'transparent',
+                      border: item.pausado ? '1px solid hsl(38 95% 55% / 0.25)' : '1px solid transparent',
+                      cursor: isSaving ? 'not-allowed' : 'pointer',
+                      opacity: isSaving ? 0.5 : 1,
+                      flexShrink: 0,
+                    }}
+                    onMouseEnter={e => { if (!isSaving && !item.pausado) (e.currentTarget as HTMLElement).style.color = '#f59e0b'; }}
+                    onMouseLeave={e => { if (!item.pausado) (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; }}
+                  >
+                    {item.pausado ? <Play size={13} /> : <Pause size={13} />}
+                  </button>
+                </div>
+              )}
+            </td>
+          )}
+        </tr>
+
+        {/* Linha de expansão — Programa de fomento + Por quê */}
+        {isExpanded && (
+          <tr style={{ background: 'var(--surface-2)' }}>
+            <td
+              colSpan={numCols}
+              style={{ padding: '8px 16px 12px 20px', borderBottom: '1px solid var(--border)' }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {item.porque && (
+                  <div>
+                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)' }}>
+                      Por quê está na fila
+                    </span>
+                    <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--text-2)' }}>{item.porque}</p>
+                  </div>
+                )}
+                {item.categoriaNome && (
+                  <div>
+                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)' }}>
+                      Programa de fomento
+                    </span>
+                    <p style={{ margin: '3px 0 0' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: 'hsl(221 83% 53% / 0.12)', color: 'var(--brand-500)' }}>
+                        {item.categoriaNome}
+                      </span>
+                    </p>
+                  </div>
+                )}
+                {!item.porque && !item.categoriaNome && (
+                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Sem informações adicionais.</span>
+                )}
+              </div>
+            </td>
+          </tr>
         )}
-      </tr>
+      </>
     );
   }
 
@@ -438,19 +492,14 @@ export default function Prioridades() {
     return (
       <thead>
         <tr>
-          <th style={th}>Prioridade</th>
+          <th style={{ ...th, paddingLeft: 12 }}>Categoria</th>
           <th style={th}>Projeto</th>
-          <th style={th}>Por quê</th>
-          <th style={th}>Próx. prestação</th>
-          <th style={th}>Programa</th>
           {mostrarGestor && <th style={th}>Gestor</th>}
-          <th style={{ ...th, textAlign: 'right' }}>Planejadas</th>
-          <th style={{ ...th, textAlign: 'right' }}>Realizadas</th>
-          <th style={{ ...th, textAlign: 'right' }}>% Exec.</th>
-          <th style={{ ...th, textAlign: 'right' }}>Custo plan.</th>
-          <th style={{ ...th, textAlign: 'right' }}>Custo real.</th>
+          <th style={th}>Prestação</th>
+          <th style={th}>Execução</th>
+          <th style={{ ...th, textAlign: 'right' }}>Custo</th>
           <th style={{ ...th, textAlign: 'right' }}>Equipe</th>
-          <th style={{ ...th, textAlign: 'center' }}>Gargalo</th>
+          <th style={{ ...th, width: 36 }}></th>
           {podeVerAcoes && <th style={{ ...th, textAlign: 'right', width: 68 }}></th>}
         </tr>
       </thead>
@@ -518,7 +567,7 @@ export default function Prioridades() {
           {/* ── Fila ativa ───────────────────────────────────────────────── */}
           {itens.length > 0 && (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1450 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                 <THead />
                 <tbody>
                   {itens.map(item => <LinhaTabela key={item.projetoId} item={item} />)}
@@ -530,7 +579,6 @@ export default function Prioridades() {
           {/* ── Seção pausados ───────────────────────────────────────────── */}
           {pausados.length > 0 && (
             <div>
-              {/* Cabeçalho da seção */}
               <div
                 className="flex items-center gap-2 mb-3"
                 style={{ paddingBottom: 8, borderBottom: '1px solid var(--border)' }}
@@ -545,7 +593,7 @@ export default function Prioridades() {
               </div>
 
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1450 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                   <THead />
                   <tbody>
                     {pausados.map(item => <LinhaTabela key={item.projetoId} item={item} dimmed />)}

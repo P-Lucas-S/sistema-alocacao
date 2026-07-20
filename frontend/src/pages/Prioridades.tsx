@@ -92,6 +92,9 @@ function BadgeCategoriaMudo({ cat }: { cat: CategoriaPrazo }) {
   );
 }
 
+// Ordem canônica dos chips — preserva consistência visual com a tabela
+const CATS: CategoriaPrazo[] = ['alta', 'media', 'baixa', 'sem_prazo'];
+
 // ── Estilos de tabela ─────────────────────────────────────────────────────────
 
 const th: React.CSSProperties = {
@@ -141,6 +144,18 @@ export default function Prioridades() {
       return next;
     });
 
+  // ── Chips de categoria — toggle combinável (OR) ────────────────────────────
+  const [chipsFiltro, setChipsFiltro] = useState<Set<CategoriaPrazo>>(new Set());
+  const toggleChip = (cat: CategoriaPrazo) =>
+    setChipsFiltro(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+
+  // ── Nome do gestor quando "ver como" está ativo ───────────────────────────
+  const [gestorNomeVis, setGestorNomeVis] = useState<string | null>(null);
+
   // ── Estado do modal de configuração ──────────────────────────────────────
   const [modalConfig,  setModalConfig]  = useState(false);
   const [cfg,          setCfg]          = useState<ConfigPriorizacao | null>(null);
@@ -177,6 +192,29 @@ export default function Prioridades() {
       }
     })();
   }, [token, ano, mes, refreshKey, gestorIdFiltro]);
+
+  // Carrega config no mount — prazoAltaDias precisa estar disponível para a
+  // FaixaVeredito sem depender de o usuário abrir o modal de configuração.
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/config/priorizacao', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: ConfigPriorizacao | null) => {
+        if (!d) return;
+        setCfg(d);
+        setFAlta(String(d.prazoAltaDias));
+        setFMedia(String(d.prazoMediaDias));
+        setFPct(String(d.tetoCapacidadeSinalPct));
+      })
+      .catch(() => {});
+  }, [token]);
+
+  // Atualiza nome do gestor visível para o label de escopo
+  useEffect(() => {
+    if (!gestorIdFiltro) { setGestorNomeVis(null); return; }
+    const nome = itens[0]?.gestorNome ?? pausados[0]?.gestorNome ?? null;
+    if (nome) setGestorNomeVis(nome);
+  }, [gestorIdFiltro, itens, pausados]);
 
   // ── Ação de fixar/pausar ─────────────────────────────────────────────────
   async function acaoPrioridade(projetoId: string, tipo: 'fixar' | 'desfixar' | 'pausar' | 'despausar') {
@@ -252,6 +290,29 @@ export default function Prioridades() {
       setCfgSalvando(false);
     }
   }
+
+  // ── Derivados (spec 4.1): todos = escopo completo, ignora chipsFiltro ───────
+  const todos     = [...itens, ...pausados];
+  const altaDias  = cfg?.prazoAltaDias ?? 7;
+  const nTotal    = todos.length;
+  const nAlta     = todos.filter(x => x.categoria === 'alta').length;
+  // nPrestac: prestações próximas mas ainda não vencidas (upcoming ≤ altaDias)
+  const nPrestac  = todos.filter(x =>
+    x.diasAteVencimento !== null && x.diasAteVencimento >= 0 && x.diasAteVencimento <= altaDias
+  ).length;
+  const nSemApon  = todos.filter(x => x.horasRealizadas === null).length;
+  const totalPlan = todos.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+
+  // Itens filtrados pelos chips ativos (vazio = sem filtro = mostra todos)
+  const itensFiltrados    = chipsFiltro.size === 0 ? itens    : itens.filter(x => chipsFiltro.has(x.categoria));
+  const pausadosFiltrados = chipsFiltro.size === 0 ? pausados : pausados.filter(x => chipsFiltro.has(x.categoria));
+
+  // Escopo (spec 2.6)
+  const escopoLabel = gestorIdFiltro
+    ? `visualizando como ${gestorNomeVis ?? '…'}`
+    : user?.role === 'gestor'
+      ? `seus ${nTotal} projetos`
+      : 'todos os gestores';
 
   // ── Linha da tabela ───────────────────────────────────────────────────────
   function LinhaTabela({ item, dimmed }: { item: ItemDashboard; dimmed?: boolean }) {
@@ -543,6 +604,11 @@ export default function Prioridades() {
         <div className="flex items-center gap-3 flex-wrap">
           <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
           <SeletorGestor />
+          {!loading && (
+            <span style={{ fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+              Escopo: {escopoLabel}
+            </span>
+          )}
         </div>
       </div>
 
@@ -557,49 +623,142 @@ export default function Prioridades() {
         </div>
       ) : erro ? (
         <div className="text-sm" style={{ color: '#b42318' }}>{erro}</div>
-      ) : semNada ? (
-        <div className="flex flex-col items-center justify-center flex-1 gap-2 pt-16" style={{ color: 'var(--text-3)' }}>
-          <BarChart2 size={40} strokeWidth={1} />
-          <p className="text-sm">Nenhum projeto ativo no escopo deste mês.</p>
-        </div>
       ) : (
-        <div className="flex flex-col gap-8">
-          {/* ── Fila ativa ───────────────────────────────────────────────── */}
-          {itens.length > 0 && (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
-                <THead />
-                <tbody>
-                  {itens.map(item => <LinhaTabela key={item.projetoId} item={item} />)}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div className="flex flex-col" style={{ gap: 12 }}>
 
-          {/* ── Seção pausados ───────────────────────────────────────────── */}
-          {pausados.length > 0 && (
-            <div>
-              <div
-                className="flex items-center gap-2 mb-3"
-                style={{ paddingBottom: 8, borderBottom: '1px solid var(--border)' }}
+          {/* ── Faixa de veredito (spec 4.1) — sempre visível, ignora chipsFiltro ── */}
+          <div style={{
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 14px',
+            padding: '7px 0', borderBottom: '1px solid var(--border)', fontSize: 13,
+          }}>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <b style={{ color: 'var(--text-1)' }}>{nTotal}</b>{' '}
+              <span style={{ color: 'var(--text-3)' }}>projetos</span>
+            </span>
+
+            <span style={{ color: 'var(--border-strong)' }}>·</span>
+
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: nAlta > 0 ? '#ef4444' : 'var(--text-3)' }}>
+              <b>{nAlta}</b>{' '}em Alta
+            </span>
+
+            <span style={{ color: 'var(--border-strong)' }}>·</span>
+
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: nPrestac > 0 ? '#ef4444' : 'var(--text-3)' }}>
+              <b>{nPrestac}</b>{' '}prestações ≤{altaDias}d
+            </span>
+
+            <span style={{ color: 'var(--border-strong)' }}>·</span>
+
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: nSemApon > 0 ? 'var(--text-1)' : 'var(--text-3)' }}>
+              <b>{nSemApon}</b>{' '}sem apontamento
+            </span>
+
+            <span style={{ color: 'var(--border-strong)' }}>·</span>
+
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: totalPlan > 0 ? 'var(--text-2)' : 'var(--text-3)' }}>
+              {totalPlan > 0
+                ? totalPlan.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+                : 'R$ —'}
+            </span>
+          </div>
+
+          {/* ── Chips de categoria — toggle combinável (OR) (spec 4.2) ───────── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {CATS.map(cat => {
+              const { label, dot } = CAT_DOT[cat];
+              const count   = todos.filter(x => x.categoria === cat).length;
+              const ativo   = chipsFiltro.has(cat);
+              const isCssVar = dot.startsWith('var(');
+              return (
+                <button
+                  key={cat}
+                  onClick={() => toggleChip(cat)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
+                    fontSize: 12,
+                    border: ativo
+                      ? (isCssVar ? '1px solid var(--border-strong)' : `1px solid ${dot}99`)
+                      : '1px solid var(--border)',
+                    background: ativo
+                      ? (isCssVar ? 'var(--surface-3)' : `${dot}18`)
+                      : 'transparent',
+                    transition: 'border-color 120ms, background 120ms',
+                  }}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+                  <span style={{ color: 'var(--text-2)' }}>{label}</span>
+                  <span style={{
+                    marginLeft: 2, fontVariantNumeric: 'tabular-nums',
+                    color: ativo ? 'var(--text-1)' : 'var(--text-3)',
+                    fontWeight: ativo ? 600 : 400,
+                  }}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+            {chipsFiltro.size > 0 && (
+              <button
+                onClick={() => setChipsFiltro(new Set())}
+                style={{ fontSize: 11, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px' }}
               >
-                <Pause size={14} style={{ color: 'var(--text-3)' }} />
-                <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
-                  Pausados ({pausados.length})
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                  — fora da fila de priorização
-                </span>
-              </div>
+                Limpar filtro
+              </button>
+            )}
+          </div>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
-                  <THead />
-                  <tbody>
-                    {pausados.map(item => <LinhaTabela key={item.projetoId} item={item} dimmed />)}
-                  </tbody>
-                </table>
-              </div>
+          {/* ── Tabelas (filtradas pelos chips) ──────────────────────────────── */}
+          {semNada ? (
+            <div className="flex flex-col items-center justify-center flex-1 gap-2 pt-16" style={{ color: 'var(--text-3)' }}>
+              <BarChart2 size={40} strokeWidth={1} />
+              <p className="text-sm">Nenhum projeto ativo no escopo deste mês.</p>
+            </div>
+          ) : itensFiltrados.length === 0 && pausadosFiltrados.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '24px 0' }}>
+              Nenhum projeto nas categorias selecionadas.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-8">
+              {/* ── Fila ativa */}
+              {itensFiltrados.length > 0 && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                    <THead />
+                    <tbody>
+                      {itensFiltrados.map(item => <LinhaTabela key={item.projetoId} item={item} />)}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Seção pausados */}
+              {pausadosFiltrados.length > 0 && (
+                <div>
+                  <div
+                    className="flex items-center gap-2 mb-3"
+                    style={{ paddingBottom: 8, borderBottom: '1px solid var(--border)' }}
+                  >
+                    <Pause size={14} style={{ color: 'var(--text-3)' }} />
+                    <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
+                      Pausados ({pausadosFiltrados.length})
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                      — fora da fila de priorização
+                    </span>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                      <THead />
+                      <tbody>
+                        {pausadosFiltrados.map(item => <LinhaTabela key={item.projetoId} item={item} dimmed />)}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

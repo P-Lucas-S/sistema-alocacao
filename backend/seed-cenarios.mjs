@@ -302,7 +302,7 @@ async function main() {
   //   24 meses (Jul/26 – Jun/28), valorTotal=240.000, SEM alocações pré-existentes
   //   Usado exclusivamente para reprovar o bug de limite de meses no wizard
   // ══════════════════════════════════════════════════════════════════════════════
-  console.log('── [5/5] CEN-24MESES…');
+  console.log('── [5/7] CEN-24MESES…');
   const VT_24  = 240_000;
   const META_MES_24 = VT_24 / 24;  // R$ 10.000/mês
 
@@ -326,6 +326,74 @@ async function main() {
     collabs: [],
     meses: meses24.slice(0, 3).map(({ ano, mes }) => ({ label: fmtMes(ano, mes), meta: META_MES_24, receita: 0 })),
     testar: 'Bug do wizard com 24 meses: Gerar → Limpar → selecionar 1 mês',
+  });
+  console.log('   ✓ criado');
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // [6/7] CEN-OFICIAL  (estrategia='proporcional')
+  //   12 meses Jan/2027–Dez/2027, valorTotal=600.000, valorOficial=120.000
+  //   medicao uniforme: 50.000/mês  |  oficial flat: 10.000/mês
+  //   SEM alocações — pinador manual na tela revela o transbordo:
+  //     pin mes1=5.000 → mes1.oa=5.000 (carry=5.000) → mes2.oa=15.000
+  // ══════════════════════════════════════════════════════════════════════════════
+  console.log('── [6/7] CEN-OFICIAL (proporcional)…');
+  const meses12_2027  = gerarMeses(2027, 1, 12);
+  const vig_of_ini    = primeiroDia(2027, 1);   // '2027-01-01'
+  const vig_of_fim    = ultimoDia(2027, 12);     // '2027-12-31'
+  const VT_OF         = 600_000;
+  const VO_OF         = 120_000;
+  const META_MES_OF   = VT_OF / 12;             // 50.000/mês
+  const OFICIAL_MES   = VO_OF / 12;             // 10.000/mês
+
+  await prisma.projeto.create({ data: {
+    id: 'cen-oficial', codigo: 'CEN-OFICIAL', nome: 'Cenário: Transbordo do Oficial (proporcional)',
+    gestorId: G1, criadoPorId: G1, categoriaId: CAT_BNDES, status: 'ativo',
+    valorTotal: VT_OF, valorOficial: VO_OF, estrategiaOficial: 'proporcional',
+    vigenciaInicio: new Date(vig_of_ini), vigenciaFim: new Date(vig_of_fim),
+  }});
+  await prisma.prestacaoContas.create({ data: { id: 'cen-oficial-pc', projetoId: 'cen-oficial', data: new Date(dataPC(vig_of_fim)) } });
+  await criarMacroGeral('cen-oficial', 'cen-oficial-m1', 'cen-oficial-mi1', 'Geral');
+  // SEM alocações — o usuário pina medições na tela
+
+  summary.push({
+    codigo: 'CEN-OFICIAL',
+    nome: 'Cenário: Transbordo do Oficial (proporcional)',
+    vigencia: `${vig_of_ini} → ${vig_of_fim}`,
+    collabs: [],
+    meses: meses12_2027.slice(0, 3).map(({ ano, mes }) => ({
+      label: fmtMes(ano, mes), meta: META_MES_OF, receita: 0,
+    })),
+    testar: `Pin mes1=5.000 → mes1.oa=5.000 (carry=5.000) → mes2.oa=15.000 (transbordo). Oficial flat=${fmtBRL(OFICIAL_MES)}/mês, medicao=${fmtBRL(META_MES_OF)}/mês.`,
+  });
+  console.log('   ✓ criado');
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // [7/7] CEN-OFICIAL-INI  (estrategia='inicial')
+  //   Mesmo valorTotal/valorOficial/vigência — para comparar as duas estratégias
+  //   'inicial' (guloso): mes1.oa=50k, mes2.oa=50k, mes3.oa=20k, mes4-12.oa=0
+  //   Com pin mes1=5.000: mes1.oa=5k, mes2.oa=50k, mes3.oa=50k, mes4.oa=15k, mes5-12=0
+  // ══════════════════════════════════════════════════════════════════════════════
+  console.log('── [7/7] CEN-OFICIAL-INI (inicial)…');
+
+  await prisma.projeto.create({ data: {
+    id: 'cen-oficial-ini', codigo: 'CEN-OFICIAL-INI', nome: 'Cenário: Transbordo do Oficial (inicial)',
+    gestorId: G1, criadoPorId: G1, categoriaId: CAT_BNDES, status: 'ativo',
+    valorTotal: VT_OF, valorOficial: VO_OF, estrategiaOficial: 'inicial',
+    vigenciaInicio: new Date(vig_of_ini), vigenciaFim: new Date(vig_of_fim),
+  }});
+  await prisma.prestacaoContas.create({ data: { id: 'cen-oficial-ini-pc', projetoId: 'cen-oficial-ini', data: new Date(dataPC(vig_of_fim)) } });
+  await criarMacroGeral('cen-oficial-ini', 'cen-oficial-ini-m1', 'cen-oficial-ini-mi1', 'Geral');
+  // SEM alocações
+
+  summary.push({
+    codigo: 'CEN-OFICIAL-INI',
+    nome: 'Cenário: Transbordo do Oficial (inicial)',
+    vigencia: `${vig_of_ini} → ${vig_of_fim}`,
+    collabs: [],
+    meses: meses12_2027.slice(0, 4).map(({ ano, mes }) => ({
+      label: fmtMes(ano, mes), meta: META_MES_OF, receita: 0,
+    })),
+    testar: `Sem pin: mes1-2.oa=50k, mes3.oa=20k, mes4-12.oa=0 (guloso). Com pin mes1=5k: mes2-3.oa=50k, mes4.oa=15k.`,
   });
   console.log('   ✓ criado');
 

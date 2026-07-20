@@ -152,13 +152,35 @@ export async function computarMetaApropriacao(
   // ── Distribuição do oficial por mês ─────────────────────────────────────────
   let oficialAlocados: Prisma.Decimal[];
   if (estrategia === 'proporcional') {
-    // Último mês absorve resíduo: soma(oficialAlocado) = valorOficial EXATO
+    // Divisão uniforme: último mês absorve resíduo de arredondamento.
     const oficialBase = valorOficial.dividedBy(numMeses).toDecimalPlaces(2);
     oficialAlocados = meses.map((_, i) =>
       i < numMeses - 1
         ? oficialBase
         : valorOficial.minus(oficialBase.times(numMeses - 1))
     );
+    // Transbordo: mês com pino de medição baixo (medicao < oficialAlocado) passa o
+    // excedente para o mês seguinte — "o que sobra do oficial cobre o próximo mês".
+    // Invariante preservado: soma(oficialAlocado) = valorOficial (só redistribui).
+    let carry = D0;
+    for (let i = 0; i < oficialAlocados.length; i++) {
+      const raw = oficialAlocados[i]!.plus(carry);
+      const med = medicoes[i]!;
+      if (raw.greaterThan(med)) {
+        carry = raw.minus(med);
+        oficialAlocados[i] = med;
+      } else {
+        oficialAlocados[i] = raw;
+        carry = D0;
+      }
+    }
+    // Carry residual só ocorre se valorOficial > valorTotal (dado inválido). Acumula
+    // no último mês: o piso max(0) e avisoPiso sinalizam a anomalia, e
+    // soma(oficialAlocado) = valorOficial continua exato ao centavo.
+    if (carry.greaterThan(D0)) {
+      oficialAlocados[oficialAlocados.length - 1] =
+        oficialAlocados[oficialAlocados.length - 1]!.plus(carry);
+    }
   } else {
     // 'inicial': guloso por medicao do mês; saldo Decimal consumido exatamente
     let saldo = valorOficial;

@@ -136,62 +136,80 @@ console.log('\n── 3. Vários meses pinados + ultimo nao-pinado absorve resid
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-console.log('\n── 4. CASO DA CLIENTE: medicao=51000 + oficial=61538 → meta=0, deficit=0 ──');
+console.log('\n── 4. CASO DA CLIENTE: medicao=51000 + oficial=61538 → transbordo para mes2 ──');
 {
-  // Estrategia 'proporcional' distribui oficial UNIFORMEMENTE (nao proporcional a medicao).
-  // Com valorOficial=123076 em 2 meses: oficialBase = 61538/mes.
-  // Pin mes1 em 51000: medicao<oficial → metaHTSemPiso=-10538 → piso → metaHT=0, deficit=0.
+  // Com transbordo: oficialBase=61538/mes. Mes1 (pin=51000 < 61538):
+  //   carry = 61538-51000 = 10538 → oa[mes1]=51000, oa[mes2]=61538+10538=72076.
+  //   medicao[mes2] = 200000-51000 = 149000 > 72076 → sem piso.
+  // Antes do transbordo: piso disparava no mes1, metaHT=0 por corte. Agora: metaHT=0
+  // porque oa=medicao (sem corte), e avisoPiso = null. soma(oa)=123076 exato.
   const id = await criarProjeto({ codigo: 'MT-004', valorTotal: 200000, valorOficial: 123076, mesesN: 2, estrategia: 'proporcional' });
   projIds.push(id);
   await pinMedicao(id, 2030, 1, 51000);
   const m = await getMeta(id);
-  const mes1 = m.meses[0];
-  ok('medicao=51000.00', mes1.medicao === '51000.00');
-  ok('oficialAlocado=61538.00 (metade uniforme de 123076)', mes1.oficialAlocado === '61538.00');
-  ok('metaHT=0.00 (piso max(0))', mes1.metaHT === '0.00');
-  ok('deficit=0.00 (nao negativo)', mes1.deficit === '0.00');
-  ok('avisoPiso presente com valor 10538.00', mes1.avisoPiso?.includes('10538.00') ?? false);
-  ok('totalCortadoPeloPiso=10538.00', m.resumo.totalCortadoPeloPiso === '10538.00');
+  const [mes1, mes2] = m.meses;
+  ok('mes1: medicao=51000.00', mes1.medicao === '51000.00');
+  ok('mes1: oficial capped na medicao (51000.00, carry=10538 → mes2)', mes1.oficialAlocado === '51000.00');
+  ok('mes1: metaHT=0.00 (oa=medicao, sem piso)', mes1.metaHT === '0.00');
+  ok('mes1: deficit=0.00', mes1.deficit === '0.00');
+  ok('mes1: avisoPiso=null (transbordo elimina o piso)', mes1.avisoPiso == null);
+  ok('mes2: oficial=72076.00 (61538 + 10538 carry)', mes2.oficialAlocado === '72076.00');
+  ok('mes2: metaHT=76924.00 (149000-72076)', mes2.metaHT === '76924.00');
+  ok('totalCortadoPeloPiso=0.00 (nenhum mes com piso)', m.resumo.totalCortadoPeloPiso === '0.00');
+  // soma(oa) = 51000+72076 = 123076 exato
+  const somaOa = m.meses.reduce((acc, x) => acc + Math.round(parseFloat(x.oficialAlocado) * 100), 0) / 100;
+  ok('INVARIANTE soma(oficialAlocado)=123076.00 exato', somaOa.toFixed(2) === '123076.00', somaOa);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-console.log('\n── 5. Piso com multiplos meses: totalCortadoPeloPiso acumula ───');
+console.log('\n── 5. Piso com multiplos meses: transbordo resolve mes1, mes3 ainda preso ──');
 {
-  // 3 meses, valorTotal=150000, valorOficial=120000, proporcional
-  // oficialBase = 40000/mes. Pin mes1=30000, mes3=20000 (ambos abaixo de 40000).
-  // totalCortadoPeloPiso = (40000-30000) + (40000-20000) = 10000+20000 = 30000
+  // 3 meses, vT=150000, vO=120000, proporcional. oficialBase=40000/mes.
+  // Pin mes1=30000, mes3=20000. medicao[mes2]=100000.
+  // Carry pass: mes1 raw=40000>30000 → oa=30000, carry=10000.
+  //   mes2 raw=50000<100000 → oa=50000, carry=0.
+  //   mes3 raw=40000>20000 → oa=20000, carry=20000.
+  // Carry residual: mes3 e o ultimo mes → oa[mes3]+=20000 → oa=40000.
+  // mes3 oa=40000>med=20000: piso ainda dispara (nao ha proximo mes).
+  // Resultado: mes1 sem piso (carry resolveu), mes3 com piso (sem saida).
+  // soma(oa) = 30000+50000+40000 = 120000 exato.
   const id = await criarProjeto({ codigo: 'MT-005', valorTotal: 150000, valorOficial: 120000, mesesN: 3, estrategia: 'proporcional' });
   projIds.push(id);
   await pinMedicao(id, 2030, 1, 30000);
   await pinMedicao(id, 2030, 3, 20000);
   const m = await getMeta(id);
   const mMap = Object.fromEntries(m.meses.map(x => [x.mes, x]));
-  ok('mes 1 metaHT=0.00 (piso)', mMap[1].metaHT === '0.00');
-  ok('mes 1 avisoPiso=10000.00', mMap[1].avisoPiso?.includes('10000.00') ?? false);
-  ok('mes 2 sem piso (medicao=100000 > oficial=40000)', mMap[2].avisoPiso == null);
-  ok('mes 3 metaHT=0.00 (piso)', mMap[3].metaHT === '0.00');
-  ok('mes 3 avisoPiso=20000.00', mMap[3].avisoPiso?.includes('20000.00') ?? false);
-  ok('totalCortadoPeloPiso=30000.00', m.resumo.totalCortadoPeloPiso === '30000.00');
+  ok('mes 1 metaHT=0.00 (oa=medicao, sem piso)', mMap[1].metaHT === '0.00');
+  ok('mes 1 avisoPiso=null (carry transferiu o excesso para mes2)', mMap[1].avisoPiso == null);
+  ok('mes 2 sem piso (oa=50000 absorveu carry, medicao=100000)', mMap[2].avisoPiso == null);
+  ok('mes 3 metaHT=0.00 (piso: oa=40000>med=20000, sem proximo mes)', mMap[3].metaHT === '0.00');
+  ok('mes 3 avisoPiso=20000.00 (excesso sem saida)', mMap[3].avisoPiso?.includes('20000.00') ?? false);
+  ok('totalCortadoPeloPiso=20000.00 (so mes3, carry resolveu mes1)', m.resumo.totalCortadoPeloPiso === '20000.00');
   ok('cascataPendente=false (piso nao e cascata)', m.resumo.cascataPendente === false);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-console.log('\n── 6. §4.1 piso ativo: aviso por mes ───────────────────────────');
+console.log('\n── 6. §4.1 transbordo absorve carry em cadeia, piso some totalmente ──');
 {
-  // 3 meses, valorTotal=90, valorOficial=90, estrategia proporcional (30/mes)
-  // Pinar mes 1 em 20 (< 30 de oficial) → piso corta, avisoPiso no mes 1
+  // 3 meses, vT=90, vO=90, proporcional (30/mes). Pin mes1=20.
+  // medicao: mes1=20, mes2=35, mes3=35 (70 dividido em 2).
+  // Carry pass: mes1 raw=30>20 → oa=20, carry=10.
+  //   mes2 raw=40>35 → oa=35, carry=5.
+  //   mes3 raw=35=35 → oa=35, carry=0.
+  // Todos os meses ficam com oa=medicao: metaHT=0 em todos, sem piso em nenhum.
+  // valorHT=0 → soma(metaHT)=0 correto. totalCortadoPeloPiso=0.
   const id = await criarProjeto({ codigo: 'MT-006', valorTotal: 90, valorOficial: 90, mesesN: 3, estrategia: 'proporcional' });
   projIds.push(id);
   await pinMedicao(id, 2030, 1, 20);
   const m = await getMeta(id);
   const [m1, m2, m3] = m.meses;
-  ok('mes 1 metaHT=0 (piso)', m1.metaHT === '0.00');
-  ok('mes 1 avisoPiso presente', m1.avisoPiso != null);
-  ok('mes 1 avisoPiso contem o valor correto (10.00)', m1.avisoPiso?.includes('10.00') ?? false);
-  ok('mes 2 sem avisoPiso (oficial = medicao)', m2.avisoPiso == null);
+  ok('mes 1 metaHT=0 (oa=20=medicao, sem piso)', m1.metaHT === '0.00');
+  ok('mes 1 avisoPiso=null (carry eliminou o excesso)', m1.avisoPiso == null);
+  ok('mes 2 metaHT=0 (oa=35=medicao, carry de mes1 absorvido)', m2.metaHT === '0.00');
+  ok('mes 2 sem avisoPiso', m2.avisoPiso == null);
   ok('mes 3 sem avisoPiso', m3.avisoPiso == null);
-  ok('totalCortadoPeloPiso = 10.00', m.resumo.totalCortadoPeloPiso === '10.00');
-  ok('cascataPendente = false (piso nao e cascata)', m.resumo.cascataPendente === false);
+  ok('totalCortadoPeloPiso = 0.00 (transbordo em cadeia eliminou todos os pisos)', m.resumo.totalCortadoPeloPiso === '0.00');
+  ok('cascataPendente = false', m.resumo.cascataPendente === false);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -300,6 +318,107 @@ console.log('\n── 12. Validacoes dos endpoints ─────────�
   ok('ano invalido → 400',   (await pinMedicao(id, 1900, 1, 10)).status === 400);
   ok('mes fora vigencia → 400', (await pinMedicao(id, 2031, 6, 10)).status === 400);
   ok('DELETE sem pino → 404', (await delMedicao(id, 2030, 1)).status === 404);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n── 13. Exemplo numerico: 12 meses, mes1 pinado baixo, carry para mes2 ──');
+{
+  // vT=600000, vO=120000, proporcional, 12 meses, pin mes1=5000.
+  // oficialBase = 120000/12 = 10000 exato.
+  // medicao: mes1=5000; mes2-mes11=54090.91; mes12=54090.90 (residuo).
+  // Carry pass: mes1 raw=10000>5000 → oa=5000, carry=5000.
+  //   mes2 raw=15000<54090.91 → oa=15000, carry=0. Demais: oa=10000.
+  // soma(oa) = 5000+15000+10×10000 = 120000 exato.
+  // soma(metaHT) = 0+39090.91+9×44090.91+44090.90 = 480000 = valorHT exato.
+  // ANTES do transbordo: soma(metaHT) = 485000 ≠ 480000 (5000 presos no piso).
+  // O transbordo corrige uma inconsistencia real, nao so atende a cliente.
+  const id = await criarProjeto({ codigo: 'MT-013', valorTotal: 600000, valorOficial: 120000, mesesN: 12, estrategia: 'proporcional' });
+  projIds.push(id);
+  await pinMedicao(id, 2030, 1, 5000);
+  const m = await getMeta(id);
+  const mes = Object.fromEntries(m.meses.map(x => [x.mes, x]));
+
+  ok('mes1: oficial=5000.00 (carry=5000 para mes2)', mes[1].oficialAlocado === '5000.00');
+  ok('mes1: metaHT=0.00 (oa=medicao, sem piso)', mes[1].metaHT === '0.00');
+  ok('mes1: avisoPiso=null', mes[1].avisoPiso == null);
+  ok('mes2: oficial=15000.00 (10000+5000 carry)', mes[2].oficialAlocado === '15000.00');
+  ok('mes2: metaHT=39090.91 (54090.91-15000)', mes[2].metaHT === '39090.91');
+  ok('mes3: oficial=10000.00 (sem carry)', mes[3].oficialAlocado === '10000.00');
+  ok('mes3: metaHT=44090.91', mes[3].metaHT === '44090.91');
+  ok('totalCortadoPeloPiso=0.00', m.resumo.totalCortadoPeloPiso === '0.00');
+
+  const somaOa  = m.meses.reduce((acc, x) => acc + Math.round(parseFloat(x.oficialAlocado) * 100), 0);
+  const somaMHT = m.meses.reduce((acc, x) => acc + Math.round(parseFloat(x.metaHT) * 100), 0);
+  ok('INVARIANTE soma(oficialAlocado)=120000.00 exato', somaOa === 12000000, somaOa);
+  ok('INVARIANTE soma(metaHT)=480000.00 exato (era 485000 antes do transbordo)', somaMHT === 48000000, somaMHT);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n── 14. Carry em cadeia: dois meses baixos seguidos, excedente acumula ──');
+{
+  // 4 meses, vT=100000, vO=90000, proporcional. oficialBase=22500.
+  // Pin mes1=10000, mes2=10000. medicao: mes3=40000, mes4=40000.
+  // Carry pass:
+  //   mes1 raw=22500>10000 → oa=10000, carry=12500.
+  //   mes2 raw=35000>10000 → oa=10000, carry=25000.
+  //   mes3 raw=47500>40000 → oa=40000, carry=7500.
+  //   mes4 raw=30000<40000 → oa=30000, carry=0.
+  // soma(oa) = 10000+10000+40000+30000 = 90000 exato.
+  // metaHT: mes1=0, mes2=0, mes3=0, mes4=10000. soma=10000=vHT exato.
+  // totalCortadoPeloPiso=0.
+  const id = await criarProjeto({ codigo: 'MT-014', valorTotal: 100000, valorOficial: 90000, mesesN: 4, estrategia: 'proporcional' });
+  projIds.push(id);
+  await pinMedicao(id, 2030, 1, 10000);
+  await pinMedicao(id, 2030, 2, 10000);
+  const m = await getMeta(id);
+  const mes = Object.fromEntries(m.meses.map(x => [x.mes, x]));
+
+  ok('mes1: oficial=10000.00 (carry=12500)', mes[1].oficialAlocado === '10000.00');
+  ok('mes1: metaHT=0.00, avisoPiso=null', mes[1].metaHT === '0.00' && mes[1].avisoPiso == null);
+  ok('mes2: oficial=10000.00 (carry acumulou=25000)', mes[2].oficialAlocado === '10000.00');
+  ok('mes2: metaHT=0.00, avisoPiso=null', mes[2].metaHT === '0.00' && mes[2].avisoPiso == null);
+  ok('mes3: oficial=40000.00 (carry=25000 absorvido)', mes[3].oficialAlocado === '40000.00');
+  ok('mes3: metaHT=0.00 (oa=medicao)', mes[3].metaHT === '0.00');
+  ok('mes4: oficial=30000.00 (carry=7500 absorvido, sobra=10000 p/ metaHT)', mes[4].oficialAlocado === '30000.00');
+  ok('mes4: metaHT=10000.00', mes[4].metaHT === '10000.00');
+  ok('totalCortadoPeloPiso=0.00 (carry resolveu todos)', m.resumo.totalCortadoPeloPiso === '0.00');
+
+  const somaOa  = m.meses.reduce((acc, x) => acc + Math.round(parseFloat(x.oficialAlocado) * 100), 0);
+  const somaMHT = m.meses.reduce((acc, x) => acc + Math.round(parseFloat(x.metaHT) * 100), 0);
+  ok('INVARIANTE soma(oa)=90000.00 exato', somaOa === 9000000, somaOa);
+  ok('INVARIANTE soma(metaHT)=10000.00 exato', somaMHT === 1000000, somaMHT);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n── 15. Regressao: inicial NAO foi afetada pelo transbordo ───────');
+{
+  // Mesmo cenario do T13 mas com estrategia='inicial'. O resultado deve ser
+  // identico ao comportamento pre-transbordo (a 'inicial' ja era transbordo
+  // por construcao — o carry da 'proporcional' nao toca nela).
+  // 12 meses, vT=600000, vO=120000, pin mes1=5000.
+  // Greedy: mes1=5000(saldo 115000), mes2=54090.91(saldo 60909.09),
+  //   mes3=54090.91(saldo 6818.18), mes4=6818.18(saldo 0), mes5-12=0.
+  // soma(oa)=120000, soma(metaHT)=480000.
+  const id = await criarProjeto({ codigo: 'MT-015', valorTotal: 600000, valorOficial: 120000, mesesN: 12, estrategia: 'inicial' });
+  projIds.push(id);
+  await pinMedicao(id, 2030, 1, 5000);
+  const m = await getMeta(id);
+  const mes = Object.fromEntries(m.meses.map(x => [x.mes, x]));
+
+  ok('inicial: mes1 oficialAlocado=5000.00 (saldo→115000)', mes[1].oficialAlocado === '5000.00');
+  ok('inicial: mes1 metaHT=0.00', mes[1].metaHT === '0.00');
+  ok('inicial: mes2 oficialAlocado=54090.91 (greedy, saldo→60909.09)', mes[2].oficialAlocado === '54090.91');
+  ok('inicial: mes2 metaHT=0.00', mes[2].metaHT === '0.00');
+  ok('inicial: mes3 oficialAlocado=54090.91 (saldo→6818.18)', mes[3].oficialAlocado === '54090.91');
+  ok('inicial: mes4 oficialAlocado=6818.18 (saldo esgotado)', mes[4].oficialAlocado === '6818.18');
+  ok('inicial: mes4 metaHT=47272.73 (54090.91-6818.18)', mes[4].metaHT === '47272.73');
+  ok('inicial: mes5 oficialAlocado=0.00', mes[5].oficialAlocado === '0.00');
+  ok('inicial: totalCortadoPeloPiso=0.00 (piso nunca dispara na inicial)', m.resumo.totalCortadoPeloPiso === '0.00');
+
+  const somaOa  = m.meses.reduce((acc, x) => acc + Math.round(parseFloat(x.oficialAlocado) * 100), 0);
+  const somaMHT = m.meses.reduce((acc, x) => acc + Math.round(parseFloat(x.metaHT) * 100), 0);
+  ok('INVARIANTE soma(oa)=120000.00 exato', somaOa === 12000000, somaOa);
+  ok('INVARIANTE soma(metaHT)=480000.00 exato', somaMHT === 48000000, somaMHT);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

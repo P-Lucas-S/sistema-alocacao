@@ -262,6 +262,7 @@ export async function initDb() {
   await prisma.pushSubscription.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.passwordReset.deleteMany();
+  await prisma.prioridadeLog.deleteMany();
   // FK nullable em configuracaoPriorizacao → limpa antes de apagar users
   await prisma.configuracaoPriorizacao.updateMany({ data: { updatedById: null } });
   await prisma.user.deleteMany();

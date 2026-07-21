@@ -62,7 +62,7 @@ router.get('/', authenticate, requireRole('admin', 'gestor', 'coordenacao', 'che
 // Estágio 1 (sem confirmarSimilar): EXATO (case-insensitive) → 409 sempre;
 //   SIMILAR (não idêntico) → { needsConfirmation: true, similares } sem criar.
 // Estágio 2 (confirmarSimilar: true): pula o check de similar e cria direto.
-router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/', authenticate, requireRole('admin', 'chefe', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { nome, confirmarSimilar } = req.body;
 
@@ -105,7 +105,7 @@ router.post('/', authenticate, requireRole('admin', 'gestor'), async (req: AuthR
 });
 
 // ── PATCH /:id ────────────────────────────────────────────────────────────
-router.patch('/:id', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.patch('/:id', authenticate, requireRole('admin', 'chefe', 'gestor'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { nome, ativo, confirmarSimilar } = req.body;

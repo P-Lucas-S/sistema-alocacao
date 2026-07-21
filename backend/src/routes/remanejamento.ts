@@ -56,7 +56,7 @@ class CessaoError extends Error {
 }
 
 // ── POST /solicitacoes — criar solicitação de remanejamento ───────────────
-router.post('/solicitacoes', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/solicitacoes', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
     const role   = req.user!.role;
@@ -132,7 +132,7 @@ router.post('/solicitacoes', authenticate, requireRole('admin', 'gestor'), async
 });
 
 // ── GET /solicitacoes — listar (minhas + broadcast de recebidas) ───────────
-router.get('/solicitacoes', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.get('/solicitacoes', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
     const role   = req.user!.role;
@@ -188,7 +188,7 @@ router.get('/solicitacoes', authenticate, requireRole('admin', 'gestor'), async 
 });
 
 // ── POST /solicitacoes/:id/cessoes — transferir horas (net-zero) ──────────
-router.post('/solicitacoes/:id/cessoes', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/solicitacoes/:id/cessoes', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   const solicitacaoId = req.params.id;
   const userId        = req.user!.id;
   const role          = req.user!.role;
@@ -417,7 +417,7 @@ router.post('/solicitacoes/:id/cessoes', authenticate, requireRole('admin', 'ges
 // ── POST /solicitacoes/:id/cancelar ──────────────────────────────────────
 // Só o solicitante ou admin. Requer SEM cessões (se houver, use encerrar).
 // Não checa mês fechado — não move horas.
-router.post('/solicitacoes/:id/cancelar', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/solicitacoes/:id/cancelar', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   const solicitacaoId = req.params.id;
   const userId        = req.user!.id;
   const role          = req.user!.role;
@@ -474,7 +474,7 @@ router.post('/solicitacoes/:id/cancelar', authenticate, requireRole('admin', 'ge
 // ── POST /solicitacoes/:id/encerrar ──────────────────────────────────────
 // Só o solicitante ou admin. Requer COM cessões (se não houver, use cancelar).
 // As horas já cedidas ficam. Não checa mês fechado — não move horas.
-router.post('/solicitacoes/:id/encerrar', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.post('/solicitacoes/:id/encerrar', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
   const solicitacaoId = req.params.id;
   const userId        = req.user!.id;
   const role          = req.user!.role;

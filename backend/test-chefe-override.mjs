@@ -6,6 +6,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const BASE = 'http://localhost:3001/api';
+const prisma = new PrismaClient();
 
 let pass = 0;
 let fail = 0;
@@ -108,11 +109,21 @@ async function main() {
 
   console.log('\n── Chefe roda copiar-realizado cobrindo OUTRO gestor (como admin) ──');
   {
-    // Garante que há ao menos uma alocação SEM realizado em algum projeto do gestor2 em 2026/06 (seed)
+    // Fixture, não comportamento: copiar-realizado só atualiza linhas com
+    // horas_realizadas NULL. Rodar este teste 1x já zera o que o seed tinha
+    // em 2026/06 — reexecuções encontrariam "nada a copiar" e o teste
+    // quebraria por falta de cenário, não por regressão. Preparamos o
+    // cenário aqui (via Prisma direto, como a limpeza já faz neste arquivo):
+    // zera horasRealizadas das alocações do gestor2 nesse mês ANTES de
+    // copiar, garantindo que há sempre algo pra atualizar.
     const { data: projetosG2 } = await api('GET', '/projetos?status=ativo', tokenGestor2);
     const projG2 = projetosG2.find(p => p.gestorId === gestor2.id);
     const { data: alocsG2 } = await api('GET', `/alocacoes?projetoId=${projG2.id}&ano=2026&mes=6`, tokenChefe);
-    const semRealizado = alocsG2.filter(a => a.horasRealizadas === null).length;
+    await prisma.alocacao.updateMany({
+      where: { id: { in: alocsG2.map(a => a.id) } },
+      data: { horasRealizadas: null },
+    });
+    const semRealizado = alocsG2.length;
 
     const { status, data } = await api('POST', '/alocacoes/copiar-realizado', tokenChefe, { ano: 2026, mes: 6 });
     check('Status 200', status === 200, { status, data });
@@ -155,7 +166,6 @@ async function main() {
 
   // ── Limpeza ────────────────────────────────────────────────────────────────
   console.log('\n── Limpeza ──────────────────────────────────────────');
-  const prisma = new PrismaClient();
   try {
     for (const alocId of alocacoesCriadas) {
       await prisma.alocacaoLog.deleteMany({ where: { alocacaoId: alocId } });

@@ -43,7 +43,10 @@ const NAV_ITEMS: NavEntry[] = [
   {
     groupLabel: 'Operação',
     items: [
-      // Coordenação vê em leitura (o Grid já trata isso); diretor não vê ainda
+      // Coordenação vê em leitura — GridAlocacao.tsx trava por papel: célula
+      // readonly (mesFechado || role === 'coordenacao') e o botão "Copiar
+      // plan. → real." escondido pra ela (fase B da auditoria, item 2.3+3.1).
+      // Diretor não vê ainda.
       { to: '/grid', label: 'Grid de Alocação', icon: LayoutGrid, roles: ['admin', 'chefe', 'gestor', 'coordenacao'] },
       { to: '/remanejamento', label: 'Remanejamento', icon: ArrowLeftRight, roles: ['admin', 'chefe', 'gestor'] },
     ],

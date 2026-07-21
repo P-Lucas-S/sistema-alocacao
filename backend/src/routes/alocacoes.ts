@@ -441,7 +441,7 @@ router.get('/grid', authenticate, requireRole('admin', 'gestor', 'chefe', 'coord
 // alocados por MIM (escopo igual ao do grid) naquele (ano,mes), com vaga
 // (disponivel > 0). SÓ LEITURA — não grava nada, não usa lock (o lock entra
 // no POST /alocacoes já existente, quando o gestor de fato alocar alguém).
-router.get('/candidatos', authenticate, requireRole('admin', 'gestor'), async (req: AuthRequest, res) => {
+router.get('/candidatos', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
     const role   = req.user!.role;

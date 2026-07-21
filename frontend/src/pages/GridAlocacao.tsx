@@ -1626,7 +1626,7 @@ export default function GridAlocacao() {
                 </button>
               )}
             </div>
-            {!mesFechado && <button
+            {!mesFechado && user?.role !== 'coordenacao' && <button
               onClick={() => setConfirmCopiar(true)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
@@ -1838,7 +1838,7 @@ export default function GridAlocacao() {
                         projNome={p.nome}
                         saldo={linha.saldo}
                         isHighlighted={isHighlight}
-                        readonly={mesFechado}
+                        readonly={mesFechado || user?.role === 'coordenacao'}
                       />
                     ))}
                   </tr>
@@ -1982,7 +1982,7 @@ export default function GridAlocacao() {
                             projCodigo={p.codigo}
                             projNome={p.nome}
                             saldo={saldoSintetico}
-                            readonly={mesFechado}
+                            readonly={mesFechado || user?.role === 'coordenacao'}
                           />
                         ))}
                       </tr>
@@ -2107,7 +2107,7 @@ export default function GridAlocacao() {
       )}
 
       {/* Drawer lateral de detalhamento */}
-      {drawer && <Drawer info={drawer} token={token!} onClose={() => setDrawer(null)} onSaved={() => { fetchGrid(true); fetchCandidatos(true); }} onBlocked={() => fetchCandidatos(true)} readonly={mesFechado} />}
+      {drawer && <Drawer info={drawer} token={token!} onClose={() => setDrawer(null)} onSaved={() => { fetchGrid(true); fetchCandidatos(true); }} onBlocked={() => fetchCandidatos(true)} readonly={mesFechado || user?.role === 'coordenacao'} />}
     </div>
   );
 }

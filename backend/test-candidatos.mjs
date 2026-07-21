@@ -102,15 +102,18 @@ async function main() {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  console.log('\n── Permissão: coordenação/diretor → 403 ────────────────');
+  console.log('\n── Permissão: coordenação lê, diretor continua fora ────');
   // ════════════════════════════════════════════════════════════════════════
   {
+    // Fase B da auditoria (item 2.4): /candidatos é SÓ LEITURA e a faixa do
+    // Grid dispara pra qualquer papel que filtre por profissão — coordenação
+    // (que já vê o Grid em modo leitura) passou a ter acesso de propósito.
     const { status } = await api('GET', `/alocacoes/candidatos?profissaoId=${profDev.id}&ano=2026&mes=6`, tokenCoord);
-    check('Coordenação → 403', status === 403, status);
+    check('Coordenação → 200 (fase B liberou leitura)', status === 200, status);
   }
   {
     const { status } = await api('GET', `/alocacoes/candidatos?profissaoId=${profDev.id}&ano=2026&mes=6`, tokenDiretor);
-    check('Diretor → 403', status === 403, status);
+    check('Diretor → 403 (continua fora — não usa o Grid)', status === 403, status);
   }
 
   console.log('\n──────────────────────────────────────────────────');

@@ -133,7 +133,7 @@ export default function ProjetoDetalhe() {
   const [editingMedicao, setEditingMedicao] = useState<{ ano: number; mes: number; valor: number | null } | null>(null);
   const [savingPinoMedicao, setSavingPinoMedicao] = useState(false);
 
-  const canWrite = user?.role === 'admin' ||
+  const canWrite = user?.role === 'admin' || user?.role === 'chefe' ||
     (user?.role === 'gestor' && projeto?.gestorId === user.id);
 
   // ── Fetch ──────────────────────────────────────────────────────────────

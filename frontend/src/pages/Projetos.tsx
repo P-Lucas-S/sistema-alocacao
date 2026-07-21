@@ -119,7 +119,7 @@ export default function Projetos() {
   const showGestor = user?.role === 'admin' || user?.role === 'coordenacao';
 
   const canEditProject = (p: Projeto) =>
-    user?.role === 'admin' || (user?.role === 'gestor' && p.gestorId === user.id);
+    user?.role === 'admin' || user?.role === 'chefe' || (user?.role === 'gestor' && p.gestorId === user.id);
 
   const fetchProjetos = useCallback(async () => {
     try {

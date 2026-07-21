@@ -64,6 +64,12 @@ export interface CalcularPriorizacaoResult {
   alocsDoMes:                      AlocMes[];
   colabsSobrecarregadosPorProjeto: Map<string, number>;
   gestorInfoPorProjeto:            Map<string, { gestorId: string; gestorNome: string }>;
+  // ── Agregados de pessoas — union, não soma por projeto (evita double-count).
+  // Zero query extra: derivados de todosColabIds + totalPorColab já computados.
+  todosColabIds:    string[];
+  totalPorColab:    Map<string, Prisma.Decimal>;
+  headcountAlocado: number;   // count único de colabs com alocação no mês/escopo
+  emSobrecarga:     number;   // count único de colabs com total >= limiarCapacidade
 }
 
 // Núcleo do P1 — extraído pra ser reusado (ex.: dashboard de Projetos) sem
@@ -113,6 +119,7 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
     return {
       itens: [], itensPausados: [], categoriaIdPorProjeto, colabsPorProjeto: new Map(),
       alocsDoMes: [], colabsSobrecarregadosPorProjeto: new Map(), gestorInfoPorProjeto,
+      todosColabIds: [], totalPorColab: new Map(), headcountAlocado: 0, emSobrecarga: 0,
     };
   }
 
@@ -163,6 +170,11 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
     }
     colabsSobrecarregadosPorProjeto.set(projetoId, count);
   }
+
+  const headcountAlocado = todosColabIds.length;
+  const emSobrecarga = todosColabIds.filter(id =>
+    (totalPorColab.get(id) ?? D0).greaterThanOrEqualTo(limiarCapacidade)
+  ).length;
 
   // ── Categoria + "porquê" por projeto, a partir da próxima prestação ─────
   const hojeUTC = (() => { const h = new Date(); h.setUTCHours(0, 0, 0, 0); return h.getTime(); })();
@@ -239,7 +251,9 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
     ordem: itens.length + i + 1,
   }));
 
-  return { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto };
+  return { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes,
+    colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto,
+    todosColabIds, totalPorColab, headcountAlocado, emSobrecarga };
 }
 
 // ── GET / — projetos priorizados por categoria de prazo + horas pendentes ──

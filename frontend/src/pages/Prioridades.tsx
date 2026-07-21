@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useGestorFiltro } from '../context/GestorFiltroContext';
 import { BarChart2, AlertTriangle, Settings, Pin, Pause, Play, ChevronDown } from 'lucide-react';
@@ -114,6 +115,7 @@ const td: React.CSSProperties = {
 export default function Prioridades() {
   const { token, user } = useAuth();
   const { gestorIdFiltro } = useGestorFiltro();
+  const [searchParams] = useSearchParams();
 
   const podeVerAcoes = user?.role === 'admin' || user?.role === 'chefe' || user?.role === 'gestor';
   const podeAgir = (item: ItemDashboard) =>
@@ -144,8 +146,11 @@ export default function Prioridades() {
       return next;
     });
 
-  // ── Chips de categoria — toggle combinável (OR) ────────────────────────────
-  const [chipsFiltro, setChipsFiltro] = useState<Set<CategoriaPrazo>>(new Set());
+  // ── Chips de categoria — toggle combinável (OR); pré-ativo via ?categoria= ──
+  const [chipsFiltro, setChipsFiltro] = useState<Set<CategoriaPrazo>>(() => {
+    const cat = searchParams.get('categoria') as CategoriaPrazo | null;
+    return cat && CATS.includes(cat) ? new Set([cat]) : new Set();
+  });
   const toggleChip = (cat: CategoriaPrazo) =>
     setChipsFiltro(prev => {
       const next = new Set(prev);

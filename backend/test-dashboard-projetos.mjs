@@ -201,6 +201,55 @@ async function main() {
     });
   }
 
+  // ── headcountAlocado = UNION (mês 2031/03, isolado) ───────────────────────
+  // colabHC: 120h proj1 + 90h proj2 = 210h ≥ 209h (95% × 220) → sobrecarregado
+  // colabLeve: 20h proj1 → não sobrecarregado
+  // tamanhoEquipe: proj1=2, proj2=1 → soma=3 (colabHC conta 2×)
+  // headcountAlocado deve = 2 (union), emSobrecarga deve = 1
+  const ANO_HC = 2031, MES_HC = 3;
+  console.log('\n── headcountAlocado = UNION dos colabs (não soma) ───────');
+  {
+    const colabHC   = await criarColaborador(tokenAdmin, 'HC',   { valorHora: 50, profissaoId });
+    const colabLeve = await criarColaborador(tokenAdmin, 'LEVE', { valorHora: 50, profissaoId });
+    const projHC1   = await criarProjeto(tokenGestor1, 'HC1', { categoriaId, dataPrestacao: addDays(20) });
+    const projHC2   = await criarProjeto(tokenGestor1, 'HC2', { categoriaId, dataPrestacao: addDays(30) });
+
+    await api('POST', '/alocacoes', tokenGestor1, {
+      colaboradorId: colabHC, projetoId: projHC1.id, macroEntregaId: projHC1.macroId,
+      microEntregaId: projHC1.microId, ano: ANO_HC, mes: MES_HC, horasPlanejadas: 120,
+    });
+    await api('POST', '/alocacoes', tokenGestor1, {
+      colaboradorId: colabHC, projetoId: projHC2.id, macroEntregaId: projHC2.macroId,
+      microEntregaId: projHC2.microId, ano: ANO_HC, mes: MES_HC, horasPlanejadas: 90,
+    });
+    await api('POST', '/alocacoes', tokenGestor1, {
+      colaboradorId: colabLeve, projetoId: projHC1.id, macroEntregaId: projHC1.macroId,
+      microEntregaId: projHC1.microId, ano: ANO_HC, mes: MES_HC, horasPlanejadas: 20,
+    });
+
+    const { data: hcRaw } = await api('GET', `/dashboards/projetos?ano=${ANO_HC}&mes=${MES_HC}`, tokenGestor1);
+    const hcItens = hcRaw?.itens ?? [];
+    const hc1 = hcItens.find(p => p.codigo === projHC1.codigo);
+    const hc2 = hcItens.find(p => p.codigo === projHC2.codigo);
+
+    const somaEquipes = (hc1?.tamanhoEquipe ?? 0) + (hc2?.tamanhoEquipe ?? 0);
+    check('projHC1: tamanhoEquipe=2', hc1?.tamanhoEquipe === 2, hc1?.tamanhoEquipe);
+    check('projHC2: tamanhoEquipe=1', hc2?.tamanhoEquipe === 1, hc2?.tamanhoEquipe);
+    check('Soma tamanhoEquipe = 3 (inflada, colabHC contado 2x)', somaEquipes === 3, somaEquipes);
+    check(
+      'headcountAlocado = 2 (union, não 3; colabHC conta 1x apesar de 2 projetos)',
+      hcRaw?.headcountAlocado === 2,
+      { headcountAlocado: hcRaw?.headcountAlocado, somaInflada: somaEquipes },
+    );
+    check(
+      'emSobrecarga = 1 (só colabHC com 210h ≥ 209h; colabLeve com 20h não conta)',
+      hcRaw?.emSobrecarga === 1,
+      { emSobrecarga: hcRaw?.emSobrecarga },
+    );
+    check('headcountAlocado é number no response', typeof hcRaw?.headcountAlocado === 'number', hcRaw?.headcountAlocado);
+    check('emSobrecarga é number no response',     typeof hcRaw?.emSobrecarga     === 'number', hcRaw?.emSobrecarga);
+  }
+
   // ── Limpeza ────────────────────────────────────────────────────────────────
   console.log('\n── Limpeza ──────────────────────────────────────────');
   try {

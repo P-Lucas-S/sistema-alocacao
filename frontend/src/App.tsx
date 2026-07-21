@@ -17,6 +17,7 @@ import Custos from './pages/Custos';
 import Programas from './pages/Programas';
 import Profissoes from './pages/Profissoes';
 import Prioridades from './pages/Prioridades';
+import DashboardGeral from './pages/DashboardGeral';
 import Layout from './components/Layout';
 import { GestorFiltroProvider } from './context/GestorFiltroContext';
 
@@ -32,15 +33,6 @@ const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.Re
   return <>{children}</>;
 };
 
-function EmConstrucao() {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: 'var(--text-3)' }}>
-      <p className="text-lg font-semibold" style={{ color: 'var(--text-2)' }}>Em construção</p>
-      <p className="text-sm">O sistema de alocação está sendo implementado.</p>
-    </div>
-  );
-}
-
 export default function App() {
   return (
     <ThemeProvider>
@@ -54,7 +46,7 @@ export default function App() {
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/" element={
                 <ProtectedRoute>
-                  <Layout><EmConstrucao /></Layout>
+                  <Layout><DashboardGeral /></Layout>
                 </ProtectedRoute>
               } />
               <Route path="/team" element={

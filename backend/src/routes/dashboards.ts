@@ -34,11 +34,12 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
       gestorIdFiltro = gestorIdParam;
     }
 
-    const { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes, colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto } =
+    const { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes,
+      colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto, headcountAlocado, emSobrecarga } =
       await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
 
     if (itens.length === 0 && itensPausados.length === 0) {
-      return res.json({ itens: [], pausados: [], totalPausados: 0 });
+      return res.json({ itens: [], pausados: [], totalPausados: 0, headcountAlocado, emSobrecarga });
     }
 
     // ── Custo planejado do MÊS — horasPlanejadas x tarifa resolvida, MESMA
@@ -141,9 +142,11 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
     });
 
     res.json({
-      itens:         enriquecer(itens),
-      pausados:      enriquecer(itensPausados),
-      totalPausados: itensPausados.length,
+      itens:            enriquecer(itens),
+      pausados:         enriquecer(itensPausados),
+      totalPausados:    itensPausados.length,
+      headcountAlocado,
+      emSobrecarga,
     });
   } catch (error) {
     console.error('Dashboard projetos error:', error);

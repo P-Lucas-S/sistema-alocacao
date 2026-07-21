@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { useGestorFiltro } from '../context/GestorFiltroContext';
 import SeletorMes from '../components/SeletorMes';
 import SeletorGestor from '../components/SeletorGestor';
+import KpiCard from '../components/KpiCard';
+import Bloco from '../components/Bloco';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -82,32 +84,6 @@ function BarraOcupacao({ horas, height = 8 }: { horas: number; height?: number }
       <div style={{ position: 'absolute', left: 0, width: `${pct}%`, height: '100%', background: cor }} />
       <div style={{ position: 'absolute', left: '50%', top: 0, width: 1, height: '100%', background: 'var(--border)', opacity: 0.5 }} />
       <div style={{ position: 'absolute', left: '95%', top: 0, width: 1, height: '100%', background: 'var(--border)', opacity: 0.5 }} />
-    </div>
-  );
-}
-
-// ── KPI card ─────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, valueColor }: {
-  label: string; value: string | number; valueColor?: string;
-}) {
-  return (
-    <div style={{
-      background: 'var(--surface-1)', border: '1px solid var(--border)',
-      borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4,
-    }}>
-      <span style={{
-        fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-        letterSpacing: '0.05em', color: 'var(--text-3)',
-      }}>
-        {label}
-      </span>
-      <span style={{
-        fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
-        lineHeight: 1.1, color: valueColor ?? 'var(--text-1)',
-      }}>
-        {value}
-      </span>
     </div>
   );
 }
@@ -346,17 +322,7 @@ export default function DashboardCapacidade() {
           </div>
 
           {/* ── Bloco de tiers: barra empilhada + chips ───────────────────── */}
-          <div style={{
-            background: 'var(--surface-1)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: '16px 20px',
-          }}>
-            <h2 style={{
-              fontSize: 11, fontWeight: 700, color: 'var(--text-3)',
-              textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12,
-            }}>
-              Por Ocupação
-            </h2>
-
+          <Bloco titulo="Por Ocupação">
             {/* Barra empilhada proporcional por tier */}
             <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
               {TIER_ORDER.map(tier => {
@@ -410,7 +376,7 @@ export default function DashboardCapacidade() {
                 );
               })}
             </div>
-          </div>
+          </Bloco>
 
           {/* ── Tabela (oculta para diretor — regra absoluta) ─────────────── */}
           {!isDiretor && (

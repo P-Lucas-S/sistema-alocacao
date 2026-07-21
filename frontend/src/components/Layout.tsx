@@ -55,9 +55,11 @@ const NAV_ITEMS: NavEntry[] = [
   {
     groupLabel: 'Painéis',
     items: [
-      // Visível a todos os 5 papéis (incluindo diretor, que por ora só vê Início e Painéis)
-      { to: '/prioridades', label: 'Prioridades', icon: BarChart2 },
-      { to: '/capacidade',  label: 'Capacidade',  icon: Gauge },
+      // Diretor NÃO vê — o Início dele já consolida os agregados destas duas
+      // telas (custo por categoria + ocupação da equipe). As ROTAS continuam
+      // acessíveis pra ele (sem redirect) — só o item de menu some.
+      { to: '/prioridades', label: 'Prioridades', icon: BarChart2, roles: ['admin', 'chefe', 'gestor', 'coordenacao'] },
+      { to: '/capacidade',  label: 'Capacidade',  icon: Gauge,     roles: ['admin', 'chefe', 'gestor', 'coordenacao'] },
     ],
   },
   {

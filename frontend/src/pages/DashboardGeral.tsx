@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import { useGestorFiltro } from '../context/GestorFiltroContext';
 import SeletorMes from '../components/SeletorMes';
 import SeletorGestor from '../components/SeletorGestor';
+import KpiCard from '../components/KpiCard';
+import Bloco from '../components/Bloco';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +53,18 @@ interface DashResponseDiretor {
 
 type DashResponse = DashResponsePadrao | DashResponseDiretor;
 
+// Payload de /dashboards/capacidade para o diretor — mesmo contrato de
+// DashboardCapacidade.tsx (fase A-meio). Consolidação: o Início do diretor
+// chama esse endpoint TAMBÉM, só pra ele, pra montar o bloco de ocupação.
+type Tier = 'sobrecarregado' | 'saudavel' | 'ocioso';
+
+interface CapAggDiretor {
+  contagensPorTier: Record<Tier, number>;
+  headcountAlocado: number;
+  emSobrecarga:     number;
+  gestorNome:       string | null;
+}
+
 // ── Constantes ───────────────────────────────────────────────────────────────
 
 const CATS: CategoriaPrazo[] = ['alta', 'media', 'baixa', 'sem_prazo'];
@@ -60,6 +74,13 @@ const CAT_INFO: Record<CategoriaPrazo, { label: string; dot: string }> = {
   media:     { label: 'Média',     dot: '#f59e0b' },
   baixa:     { label: 'Baixa',     dot: '#4ade80' },
   sem_prazo: { label: 'Sem prazo', dot: 'var(--text-2)' },
+};
+
+const TIER_ORDER: Tier[] = ['sobrecarregado', 'saudavel', 'ocioso'];
+const TIER_INFO: Record<Tier, { label: string; cor: string }> = {
+  sobrecarregado: { label: 'Sobrecarregado', cor: '#ef4444' },
+  saudavel:       { label: 'Saudável',       cor: '#22c55e' },
+  ocioso:         { label: 'Ocioso',          cor: '#94a3b8' },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -76,56 +97,6 @@ function fmtMoeda(v: number): string {
 
 function fmtH(h: number): string {
   return `${Math.round(h)}h`;
-}
-
-// ── Sub-componentes ──────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, valueColor }: {
-  label:       string;
-  value:       string | number;
-  valueColor?: string;
-}) {
-  const isStr = typeof value === 'string';
-  return (
-    <div style={{
-      background: 'var(--surface-1)', border: '1px solid var(--border)',
-      borderRadius: 10, padding: '14px 16px',
-      display: 'flex', flexDirection: 'column', gap: 4,
-    }}>
-      <span style={{
-        fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-        letterSpacing: '0.05em', color: 'var(--text-3)',
-      }}>
-        {label}
-      </span>
-      <span style={{
-        fontSize: isStr ? 18 : 28,
-        fontWeight: 700,
-        fontVariantNumeric: 'tabular-nums',
-        lineHeight: 1.1,
-        color: valueColor ?? 'var(--text-1)',
-      }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function Bloco({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  return (
-    <div style={{
-      background: 'var(--surface-1)', border: '1px solid var(--border)',
-      borderRadius: 10, padding: '16px 20px',
-    }}>
-      <h2 style={{
-        fontSize: 11, fontWeight: 700, color: 'var(--text-3)',
-        textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14,
-      }}>
-        {titulo}
-      </h2>
-      {children}
-    </div>
-  );
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -147,6 +118,12 @@ export default function DashboardGeral() {
   const [erro, setErro]         = useState('');
   const [gestorNomeVis, setGestorNomeVis] = useState<string | null>(null);
 
+  // Consolidação: o Início do diretor reúne tudo que estava espalhado em
+  // Prioridades e Capacidade — inclui o bloco de ocupação da equipe, que
+  // exige chamar /dashboards/capacidade TAMBÉM, só pra ele.
+  const [capAgg, setCapAgg]         = useState<CapAggDiretor | null>(null);
+  const [capLoading, setCapLoading] = useState(true);
+
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -160,6 +137,19 @@ export default function DashboardGeral() {
       .catch(() => setErro('Erro ao carregar dashboard.'))
       .finally(() => setLoading(false));
   }, [token, ano, mes, gestorIdFiltro]);
+
+  useEffect(() => {
+    if (!token || !isDiretor) { setCapAgg(null); setCapLoading(false); return; }
+    setCapLoading(true);
+    const qs = gestorIdFiltro
+      ? `/api/dashboards/capacidade?ano=${ano}&mes=${mes}&gestorId=${gestorIdFiltro}`
+      : `/api/dashboards/capacidade?ano=${ano}&mes=${mes}`;
+    fetch(qs, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : Promise.reject(r))
+      .then((d: CapAggDiretor) => setCapAgg(d))
+      .catch(() => setCapAgg(null))
+      .finally(() => setCapLoading(false));
+  }, [token, ano, mes, gestorIdFiltro, isDiretor]);
 
   useEffect(() => {
     if (!gestorIdFiltro) { setGestorNomeVis(null); return; }
@@ -241,6 +231,17 @@ export default function DashboardGeral() {
       .sort((a, b) => (a.pct ?? -1) - (b.pct ?? -1)); // sem horas planejadas vai ao final
   }, [todos, isGestor, isDiretor]);
 
+  // Custo por categoria (4 linhas) — mesmo bloco que hoje vive em Prioridades
+  // para o diretor, agora consolidado aqui.
+  const custoPorCategoriaDiretor = isDiretor
+    ? (dadosDiretor?.custoPorCategoria ?? [])
+        .map(c => ({ cat: c.categoria, count: c.count, custo: parseFloat(c.custo) }))
+        .filter(c => c.count > 0)
+    : [];
+
+  // Página só termina de carregar pro diretor quando os DOIS fetches voltam.
+  const contentLoading = loading || (isDiretor && capLoading);
+
   return (
     <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
 
@@ -258,7 +259,7 @@ export default function DashboardGeral() {
         <div className="flex items-center gap-3 flex-wrap">
           <SeletorMes mes={mes} ano={ano} onMes={setMes} onAno={setAno} />
           <SeletorGestor />
-          {!loading && (
+          {!contentLoading && (
             <span style={{ fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
               Escopo: {escopoLabel}
             </span>
@@ -267,7 +268,7 @@ export default function DashboardGeral() {
       </div>
 
       {/* ── Conteúdo ───────────────────────────────────────────────────────── */}
-      {loading ? (
+      {contentLoading ? (
         <div className="flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
           <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
@@ -352,6 +353,82 @@ export default function DashboardGeral() {
               })}
             </div>
           </Bloco>
+
+          {/* ── Custo por Categoria (só diretor) — consolidado de Prioridades ── */}
+          {isDiretor && (
+            <Bloco titulo="Custo por Categoria">
+              {custoPorCategoriaDiretor.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Nenhum projeto no período.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {custoPorCategoriaDiretor.map(({ cat, count, custo }) => {
+                    const { label, dot } = CAT_INFO[cat];
+                    const isCssVar = dot.startsWith('var(');
+                    const dotColor = isCssVar ? 'var(--text-2)' : dot;
+                    const barPct   = totalPlan > 0 ? (custo / totalPlan) * 100 : (count / nTotal) * 100;
+                    return (
+                      <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 110, flexShrink: 0 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+                          <span style={{ fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{label}</span>
+                          <span style={{ fontSize: 12, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>{count}</span>
+                        </div>
+                        <div style={{ flex: 1, background: 'var(--surface-3)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                          <div style={{
+                            width: `${barPct}%`, height: '100%',
+                            background: dotColor, borderRadius: 4, opacity: 0.8,
+                            transition: 'width 300ms ease',
+                          }} />
+                        </div>
+                        <span style={{ width: 100, fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: 'var(--text-2)', flexShrink: 0 }}>
+                          {custo > 0
+                            ? custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+                            : '—'
+                          }
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Bloco>
+          )}
+
+          {/* ── Ocupação da Equipe (só diretor) — consolidado de Capacidade ─── */}
+          {isDiretor && capAgg && (
+            <Bloco titulo="Ocupação da Equipe">
+              <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+                {TIER_ORDER.map(tier => {
+                  const n = capAgg.contagensPorTier[tier];
+                  if (n === 0 || capAgg.headcountAlocado === 0) return null;
+                  return (
+                    <div key={tier} style={{
+                      width: `${(n / capAgg.headcountAlocado) * 100}%`,
+                      background: TIER_INFO[tier].cor,
+                      opacity: 0.9,
+                    }} />
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {TIER_ORDER.map(tier => {
+                  const count = capAgg.contagensPorTier[tier];
+                  const { label, cor } = TIER_INFO[tier];
+                  return (
+                    <span key={tier} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '6px 14px', borderRadius: 20, fontSize: 13,
+                      border: '1px solid var(--border)', background: 'var(--surface-2)',
+                    }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cor, flexShrink: 0 }} />
+                      <span style={{ color: 'var(--text-2)' }}>{label}</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--text-1)' }}>{count}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            </Bloco>
+          )}
 
           {/* ── Apontamento ───────────────────────────────────────────────── */}
           <Bloco titulo="Apontamento do mês">

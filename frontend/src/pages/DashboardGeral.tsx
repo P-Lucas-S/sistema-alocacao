@@ -292,8 +292,8 @@ export default function DashboardGeral() {
 
           {/* ── Apontamento ───────────────────────────────────────────────── */}
           <Bloco titulo="Apontamento do mês">
-            {isGestor ? (
-              // Gestor: percentual de HORAS em destaque
+            {isGestor || isDiretor ? (
+              // Gestor e diretor: percentual de HORAS em destaque com cor contextual
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
                   <span style={{
@@ -311,21 +311,6 @@ export default function DashboardGeral() {
                 <p style={{ fontSize: 12, color: 'var(--text-3)' }}>
                   {taxaGlobal === null ? 'Nenhuma hora planejada no período' : 'Horas com realizado preenchido'}
                 </p>
-              </div>
-            ) : isDiretor ? (
-              // Diretor: texto plano, sem barras, sem links
-              <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
-                {taxaGlobal === null ? (
-                  <span style={{ color: 'var(--text-3)' }}>Nenhuma hora planejada no período.</span>
-                ) : (
-                  <>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      <b style={{ color: 'var(--text-1)' }}>{fmtH(totalHorasReal)}</b> de{' '}
-                      <b style={{ color: 'var(--text-1)' }}>{fmtH(totalHorasPlan)}</b>
-                    </span>
-                    {' '}com realizado preenchido ({taxaGlobal}%)
-                  </>
-                )}
               </div>
             ) : rankingGestores.length === 0 ? (
               <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Sem dados no período.</p>

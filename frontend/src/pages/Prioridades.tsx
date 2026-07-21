@@ -124,6 +124,7 @@ export default function Prioridades() {
 
   const mostrarGestor = user?.role !== 'gestor';
   const podeEditar    = user?.role === 'admin' || user?.role === 'chefe';
+  const isDiretor     = user?.role === 'diretor';
 
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
@@ -307,6 +308,13 @@ export default function Prioridades() {
   ).length;
   const nSemApon  = todos.filter(x => x.horasRealizadas === null).length;
   const totalPlan = todos.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+
+  const custoPorCategoria = CATS.map(cat => {
+    const itensCateg = todos.filter(x => x.categoria === cat);
+    const count = itensCateg.length;
+    const custo = itensCateg.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+    return { cat, count, custo };
+  }).filter(c => c.count > 0);
 
   // Itens filtrados pelos chips ativos (vazio = sem filtro = mostra todos)
   const itensFiltrados    = chipsFiltro.size === 0 ? itens    : itens.filter(x => chipsFiltro.has(x.categoria));
@@ -668,13 +676,26 @@ export default function Prioridades() {
             </span>
           </div>
 
-          {/* ── Chips de categoria — toggle combinável (OR) (spec 4.2) ───────── */}
+          {/* ── Chips de categoria — toggle para demais papéis; texto plano para diretor ── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {CATS.map(cat => {
               const { label, dot } = CAT_DOT[cat];
               const count   = todos.filter(x => x.categoria === cat).length;
               const ativo   = chipsFiltro.has(cat);
               const isCssVar = dot.startsWith('var(');
+              if (isDiretor) {
+                return (
+                  <span key={cat} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 20, fontSize: 12,
+                    border: '1px solid var(--border)', background: 'transparent',
+                  }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: isCssVar ? 'var(--text-2)' : dot, flexShrink: 0 }} />
+                    <span style={{ color: 'var(--text-2)' }}>{label}</span>
+                    <span style={{ marginLeft: 2, fontVariantNumeric: 'tabular-nums', color: 'var(--text-3)' }}>{count}</span>
+                  </span>
+                );
+              }
               return (
                 <button
                   key={cat}
@@ -704,7 +725,7 @@ export default function Prioridades() {
                 </button>
               );
             })}
-            {chipsFiltro.size > 0 && (
+            {!isDiretor && chipsFiltro.size > 0 && (
               <button
                 onClick={() => setChipsFiltro(new Set())}
                 style={{ fontSize: 11, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px' }}
@@ -714,57 +735,98 @@ export default function Prioridades() {
             )}
           </div>
 
-          {/* ── Tabelas (filtradas pelos chips) ──────────────────────────────── */}
-          {semNada ? (
-            <div className="flex flex-col items-center justify-center flex-1 gap-2 pt-16" style={{ color: 'var(--text-3)' }}>
-              <BarChart2 size={40} strokeWidth={1} />
-              <p className="text-sm">Nenhum projeto ativo no escopo deste mês.</p>
-            </div>
-          ) : itensFiltrados.length === 0 && pausadosFiltrados.length === 0 ? (
-            <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '24px 0' }}>
-              Nenhum projeto nas categorias selecionadas.
-            </p>
+          {/* ── Vista diretor: custo agregado por categoria, sem tabela, sem nomes ── */}
+          {isDiretor ? (
+            semNada ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-2 pt-16" style={{ color: 'var(--text-3)' }}>
+                <BarChart2 size={40} strokeWidth={1} />
+                <p className="text-sm">Nenhum projeto ativo no escopo deste mês.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
+                {custoPorCategoria.map(({ cat, count, custo }) => {
+                  const { label, dot } = CAT_DOT[cat];
+                  const isCssVar = dot.startsWith('var(');
+                  const dotColor = isCssVar ? 'var(--text-2)' : dot;
+                  const barPct   = totalPlan > 0 ? (custo / totalPlan) * 100 : (count / nTotal) * 100;
+                  return (
+                    <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 110, flexShrink: 0 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{label}</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>{count}</span>
+                      </div>
+                      <div style={{ flex: 1, background: 'var(--surface-3)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${barPct}%`, height: '100%',
+                          background: dotColor, borderRadius: 4, opacity: 0.8,
+                          transition: 'width 300ms ease',
+                        }} />
+                      </div>
+                      <span style={{ width: 100, fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: 'var(--text-2)', flexShrink: 0 }}>
+                        {custo > 0
+                          ? custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+                          : '—'
+                        }
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )
           ) : (
-            <div className="flex flex-col gap-8">
-              {/* ── Fila ativa */}
-              {itensFiltrados.length > 0 && (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
-                    <THead />
-                    <tbody>
-                      {itensFiltrados.map(item => <LinhaTabela key={item.projetoId} item={item} />)}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* ── Seção pausados */}
-              {pausadosFiltrados.length > 0 && (
-                <div>
-                  <div
-                    className="flex items-center gap-2 mb-3"
-                    style={{ paddingBottom: 8, borderBottom: '1px solid var(--border)' }}
-                  >
-                    <Pause size={14} style={{ color: 'var(--text-3)' }} />
-                    <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
-                      Pausados ({pausadosFiltrados.length})
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                      — fora da fila de priorização
-                    </span>
-                  </div>
-
+            /* ── Tabelas (filtradas pelos chips) para demais papéis ──────── */
+            semNada ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-2 pt-16" style={{ color: 'var(--text-3)' }}>
+                <BarChart2 size={40} strokeWidth={1} />
+                <p className="text-sm">Nenhum projeto ativo no escopo deste mês.</p>
+              </div>
+            ) : itensFiltrados.length === 0 && pausadosFiltrados.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '24px 0' }}>
+                Nenhum projeto nas categorias selecionadas.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-8">
+                {/* ── Fila ativa */}
+                {itensFiltrados.length > 0 && (
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                       <THead />
                       <tbody>
-                        {pausadosFiltrados.map(item => <LinhaTabela key={item.projetoId} item={item} dimmed />)}
+                        {itensFiltrados.map(item => <LinhaTabela key={item.projetoId} item={item} />)}
                       </tbody>
                     </table>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+
+                {/* ── Seção pausados */}
+                {pausadosFiltrados.length > 0 && (
+                  <div>
+                    <div
+                      className="flex items-center gap-2 mb-3"
+                      style={{ paddingBottom: 8, borderBottom: '1px solid var(--border)' }}
+                    >
+                      <Pause size={14} style={{ color: 'var(--text-3)' }} />
+                      <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
+                        Pausados ({pausadosFiltrados.length})
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                        — fora da fila de priorização
+                      </span>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                        <THead />
+                        <tbody>
+                          {pausadosFiltrados.map(item => <LinhaTabela key={item.projetoId} item={item} dimmed />)}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
           )}
         </div>
       )}

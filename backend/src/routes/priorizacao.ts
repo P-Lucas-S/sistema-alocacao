@@ -71,6 +71,7 @@ export interface CalcularPriorizacaoResult {
   realizadoPorColab: Map<string, Prisma.Decimal>;
   headcountAlocado:  number;   // count único de colabs com alocação no mês/escopo
   emSobrecarga:     number;   // count único de colabs com total >= limiarCapacidade
+  prazoAltaDias:     number;   // config vigente — reusado por agregados que precisam do limiar (ex.: nPrestac do diretor)
 }
 
 // Núcleo do P1 — extraído pra ser reusado (ex.: dashboard de Projetos) sem
@@ -121,6 +122,7 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
       itens: [], itensPausados: [], categoriaIdPorProjeto, colabsPorProjeto: new Map(),
       alocsDoMes: [], colabsSobrecarregadosPorProjeto: new Map(), gestorInfoPorProjeto,
       todosColabIds: [], totalPorColab: new Map(), realizadoPorColab: new Map(), headcountAlocado: 0, emSobrecarga: 0,
+      prazoAltaDias: PRAZO_ALTA_DIAS,
     };
   }
 
@@ -258,7 +260,8 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
 
   return { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes,
     colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto,
-    todosColabIds, totalPorColab, realizadoPorColab, headcountAlocado, emSobrecarga };
+    todosColabIds, totalPorColab, realizadoPorColab, headcountAlocado, emSobrecarga,
+    prazoAltaDias: PRAZO_ALTA_DIAS };
 }
 
 // ── GET / — projetos priorizados por categoria de prazo + horas pendentes ──

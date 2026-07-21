@@ -110,6 +110,94 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  console.log('\n── Fase A-meio: payload do diretor nos dashboards é só agregado ──');
+  // ═══════════════════════════════════════════════════════════════════════
+  const ANO_DASH = 2026, MES_DASH = 7;
+  {
+    // Chefe sem filtro e diretor sem filtro têm o MESMO escopo total — todos
+    // os projetos ativos — então dá pra comparar os agregados 1:1.
+    const { data: cfg } = await api('GET', '/config/priorizacao', tChefe);
+    const altaDias = cfg?.prazoAltaDias ?? 7;
+
+    const { data: chefeProj }   = await api('GET', `/dashboards/projetos?ano=${ANO_DASH}&mes=${MES_DASH}`, tChefe);
+    const { data: diretorProj } = await api('GET', `/dashboards/projetos?ano=${ANO_DASH}&mes=${MES_DASH}`, tDiretor);
+
+    const todosChefe = [...chefeProj.itens, ...chefeProj.pausados];
+    check('Cenário tem dados reais (senão a comparação seria vazia)', todosChefe.length > 0, { total: todosChefe.length });
+
+    // ── Ausência: nunca itens/pausados, nunca nomes ────────────────────────
+    check('Diretor /dashboards/projetos NÃO tem "itens"',    !('itens' in diretorProj),    diretorProj);
+    check('Diretor /dashboards/projetos NÃO tem "pausados"', !('pausados' in diretorProj), diretorProj);
+
+    const nomesDoChefe = [
+      ...chefeProj.itens.map(i => i.nome),
+      ...chefeProj.itens.map(i => i.gestorNome).filter(Boolean),
+      ...chefeProj.pausados.map(i => i.nome),
+    ];
+    const jsonDiretorProj = JSON.stringify(diretorProj);
+    const vazamentoNomesProj = nomesDoChefe.filter(n => n && jsonDiretorProj.includes(n));
+    check('Diretor /dashboards/projetos NÃO contém nenhum nome de projeto/gestor visto pelo chefe',
+      vazamentoNomesProj.length === 0, vazamentoNomesProj);
+
+    // ── Agregados batem com os derivados da resposta do chefe (mesmo cálculo
+    // que o frontend faria a partir das listas) ────────────────────────────
+    const custoPorCategoriaChefe = ['alta', 'media', 'baixa', 'sem_prazo'].map(categoria => {
+      const doCat  = todosChefe.filter(x => x.categoria === categoria);
+      const custo  = doCat.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+      return { categoria, count: doCat.length, custo };
+    });
+    const nPrestacChefe = todosChefe.filter(x =>
+      x.diasAteVencimento !== null && x.diasAteVencimento >= 0 && x.diasAteVencimento <= altaDias
+    ).length;
+    const nSemAponChefe      = todosChefe.filter(x => x.horasRealizadas === null).length;
+    const totalPlanChefe      = todosChefe.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+    const totalHorasPlanChefe = todosChefe.reduce((s, x) => s + parseFloat(x.horasPlanejadas), 0);
+    const totalHorasRealChefe = todosChefe.reduce((s, x) => s + (x.horasRealizadas ? parseFloat(x.horasRealizadas) : 0), 0);
+
+    check('Diretor.nTotal === chefe (itens+pausados)', diretorProj.nTotal === todosChefe.length, { diretor: diretorProj.nTotal, chefe: todosChefe.length });
+    check('Diretor.headcountAlocado === chefe.headcountAlocado', diretorProj.headcountAlocado === chefeProj.headcountAlocado, { diretor: diretorProj.headcountAlocado, chefe: chefeProj.headcountAlocado });
+    check('Diretor.emSobrecarga === chefe.emSobrecarga', diretorProj.emSobrecarga === chefeProj.emSobrecarga, { diretor: diretorProj.emSobrecarga, chefe: chefeProj.emSobrecarga });
+    check('Diretor.totalPausados === chefe.pausados.length', diretorProj.totalPausados === chefeProj.pausados.length, { diretor: diretorProj.totalPausados, chefe: chefeProj.pausados.length });
+    check('Diretor.nPrestac === derivado do chefe', diretorProj.nPrestac === nPrestacChefe, { diretor: diretorProj.nPrestac, chefe: nPrestacChefe });
+    check('Diretor.nSemApon === derivado do chefe', diretorProj.nSemApon === nSemAponChefe, { diretor: diretorProj.nSemApon, chefe: nSemAponChefe });
+    check('Diretor.totalPlan === derivado do chefe', Math.abs(parseFloat(diretorProj.totalPlan) - totalPlanChefe) < 0.01, { diretor: diretorProj.totalPlan, chefe: totalPlanChefe });
+    check('Diretor.totalHorasPlan === derivado do chefe', Math.abs(parseFloat(diretorProj.totalHorasPlan) - totalHorasPlanChefe) < 0.01, { diretor: diretorProj.totalHorasPlan, chefe: totalHorasPlanChefe });
+    check('Diretor.totalHorasReal === derivado do chefe', Math.abs(parseFloat(diretorProj.totalHorasReal) - totalHorasRealChefe) < 0.01, { diretor: diretorProj.totalHorasReal, chefe: totalHorasRealChefe });
+
+    for (const catChefe of custoPorCategoriaChefe) {
+      const catDiretor = diretorProj.custoPorCategoria.find(c => c.categoria === catChefe.categoria);
+      check(`Diretor.custoPorCategoria[${catChefe.categoria}].count === chefe`,
+        catDiretor?.count === catChefe.count, { diretor: catDiretor?.count, chefe: catChefe.count });
+      check(`Diretor.custoPorCategoria[${catChefe.categoria}].custo === chefe`,
+        Math.abs(parseFloat(catDiretor?.custo ?? 'NaN') - catChefe.custo) < 0.01, { diretor: catDiretor?.custo, chefe: catChefe.custo });
+    }
+  }
+  {
+    const { data: chefeCap }   = await api('GET', `/dashboards/capacidade?ano=${ANO_DASH}&mes=${MES_DASH}`, tChefe);
+    const { data: diretorCap } = await api('GET', `/dashboards/capacidade?ano=${ANO_DASH}&mes=${MES_DASH}`, tDiretor);
+
+    check('Cenário de capacidade tem colaboradores reais', chefeCap.colaboradores.length > 0, { total: chefeCap.colaboradores.length });
+    check('Diretor /dashboards/capacidade NÃO tem "colaboradores"', !('colaboradores' in diretorCap), diretorCap);
+
+    const nomesColabsChefe = chefeCap.colaboradores.map(c => c.nome);
+    const jsonDiretorCap   = JSON.stringify(diretorCap);
+    const vazamentoColabs  = nomesColabsChefe.filter(n => n && jsonDiretorCap.includes(n));
+    check('Diretor /dashboards/capacidade NÃO contém nenhum nome de colaborador visto pelo chefe',
+      vazamentoColabs.length === 0, vazamentoColabs);
+
+    const contPorTierChefe = { sobrecarregado: 0, saudavel: 0, ocioso: 0 };
+    for (const c of chefeCap.colaboradores) contPorTierChefe[c.tier]++;
+
+    check('Diretor.contagensPorTier === derivado do chefe',
+      JSON.stringify(diretorCap.contagensPorTier) === JSON.stringify(contPorTierChefe),
+      { diretor: diretorCap.contagensPorTier, chefe: contPorTierChefe });
+    check('Diretor.headcountAlocado === chefe.headcountAlocado (capacidade)',
+      diretorCap.headcountAlocado === chefeCap.headcountAlocado, { diretor: diretorCap.headcountAlocado, chefe: chefeCap.headcountAlocado });
+    check('Diretor.emSobrecarga === chefe.emSobrecarga (capacidade)',
+      diretorCap.emSobrecarga === chefeCap.emSobrecarga, { diretor: diretorCap.emSobrecarga, chefe: chefeCap.emSobrecarga });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   console.log('\n── Papéis legítimos continuam 200 ──────────────────────────');
   // ═══════════════════════════════════════════════════════════════════════
   {

@@ -26,19 +26,38 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
     if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
 
     let gestorIdFiltro: string | undefined;
+    let gestorNome: string | null = null;
     if (role !== 'gestor' && gestorIdParam) {
-      const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdParam }, select: { role: true } });
+      const gestorAlvo = await prisma.user.findUnique({ where: { id: gestorIdParam }, select: { role: true, name: true } });
       if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
         return res.status(400).json({ error: 'gestorId inválido ou não pertence a um usuário com papel gestor' });
       }
       gestorIdFiltro = gestorIdParam;
+      gestorNome     = gestorAlvo.name;
     }
 
     const { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes,
-      colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto, headcountAlocado, emSobrecarga } =
+      colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto, headcountAlocado, emSobrecarga, prazoAltaDias } =
       await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
 
+    // ── Diretor: SÓ agregados, nunca nomes de projeto/gestor/colaborador ────
+    // (fase A-meio da auditoria — item 7: a tela dele já esconde a tabela,
+    // mas o payload vinha completo; agora o recorte é no backend também).
+    const CATS_ORDEM = ['alta', 'media', 'baixa', 'sem_prazo'] as const;
+
     if (itens.length === 0 && itensPausados.length === 0) {
+      if (role === 'diretor') {
+        return res.json({
+          nTotal: 0,
+          custoPorCategoria: CATS_ORDEM.map(categoria => ({ categoria, count: 0, custo: '0.00' })),
+          nPrestac: 0,
+          nSemApon: 0,
+          totalPlan: '0.00',
+          totalHorasPlan: '0',
+          totalHorasReal: '0',
+          headcountAlocado, emSobrecarga, totalPausados: 0, gestorNome,
+        });
+      }
       return res.json({ itens: [], pausados: [], totalPausados: 0, headcountAlocado, emSobrecarga });
     }
 
@@ -141,9 +160,45 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
       };
     });
 
+    const itensEnriquecidos    = enriquecer(itens);
+    const pausadosEnriquecidos = enriquecer(itensPausados);
+
+    if (role === 'diretor') {
+      const todos  = [...itensEnriquecidos, ...pausadosEnriquecidos];
+      const D0dec  = new Prisma.Decimal(0);
+
+      const custoPorCategoria = CATS_ORDEM.map(categoria => {
+        const doCat  = todos.filter(x => x.categoria === categoria);
+        const custo  = doCat.reduce((s, x) => x.custoPlanejado != null ? s.plus(new Prisma.Decimal(x.custoPlanejado)) : s, D0dec);
+        return { categoria, count: doCat.length, custo: custo.toFixed(2) };
+      });
+
+      const nPrestac = todos.filter(x =>
+        x.diasAteVencimento !== null && x.diasAteVencimento >= 0 && x.diasAteVencimento <= prazoAltaDias
+      ).length;
+      const nSemApon = todos.filter(x => x.horasRealizadas === null).length;
+
+      const totalPlanDec      = todos.reduce((s, x) => x.custoPlanejado != null ? s.plus(new Prisma.Decimal(x.custoPlanejado)) : s, D0dec);
+      const totalHorasPlanDec = todos.reduce((s, x) => s.plus(new Prisma.Decimal(x.horasPlanejadas)), D0dec);
+      const totalHorasRealDec = todos.reduce((s, x) => x.horasRealizadas != null ? s.plus(new Prisma.Decimal(x.horasRealizadas)) : s, D0dec);
+
+      return res.json({
+        nTotal: todos.length,
+        custoPorCategoria,
+        nPrestac,
+        nSemApon,
+        totalPlan:      totalPlanDec.toFixed(2),
+        totalHorasPlan: totalHorasPlanDec.toString(),
+        totalHorasReal: totalHorasRealDec.toString(),
+        headcountAlocado, emSobrecarga,
+        totalPausados: itensPausados.length,
+        gestorNome,
+      });
+    }
+
     res.json({
-      itens:            enriquecer(itens),
-      pausados:         enriquecer(itensPausados),
+      itens:            itensEnriquecidos,
+      pausados:         pausadosEnriquecidos,
       totalPausados:    itensPausados.length,
       headcountAlocado,
       emSobrecarga,
@@ -188,6 +243,12 @@ router.get('/capacidade', authenticate, requireRole('admin', 'gestor', 'chefe', 
       await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
 
     if (todosColabIds.length === 0) {
+      if (role === 'diretor') {
+        return res.json({
+          contagensPorTier: { sobrecarregado: 0, saudavel: 0, ocioso: 0 },
+          headcountAlocado: 0, emSobrecarga: 0, gestorNome,
+        });
+      }
       return res.json({ colaboradores: [], headcountAlocado: 0, emSobrecarga: 0, gestorNome });
     }
 
@@ -214,6 +275,13 @@ router.get('/capacidade', authenticate, requireRole('admin', 'gestor', 'chefe', 
         tier,
       };
     }).sort((a, b) => parseFloat(b.horasPlanejadas) - parseFloat(a.horasPlanejadas));
+
+    // ── Diretor: só as contagens por tier, nunca o array com nomes ──────────
+    if (role === 'diretor') {
+      const contagensPorTier = { sobrecarregado: 0, saudavel: 0, ocioso: 0 };
+      for (const c of colaboradores) contagensPorTier[c.tier]++;
+      return res.json({ contagensPorTier, headcountAlocado, emSobrecarga, gestorNome });
+    }
 
     res.json({ colaboradores, headcountAlocado, emSobrecarga, gestorNome });
   } catch (error) {

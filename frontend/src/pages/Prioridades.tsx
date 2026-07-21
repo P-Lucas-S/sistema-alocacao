@@ -34,6 +34,28 @@ interface ItemDashboard {
   qtdColabsGargalo:  number;
 }
 
+interface CategoriaAgg {
+  categoria: CategoriaPrazo;
+  count:     number;
+  custo:     string;
+}
+
+// Payload do diretor: SÓ agregados — nunca nomes de projeto/gestor
+// (fase A-meio da auditoria, item 7).
+interface DiretorAgg {
+  nTotal:            number;
+  custoPorCategoria: CategoriaAgg[];
+  nPrestac:          number;
+  nSemApon:          number;
+  totalPlan:         string;
+  totalHorasPlan:    string;
+  totalHorasReal:    string;
+  headcountAlocado:  number;
+  emSobrecarga:      number;
+  totalPausados:     number;
+  gestorNome:        string | null;
+}
+
 // ── Tipos de config ──────────────────────────────────────────────────────────
 
 interface ConfigPriorizacao {
@@ -132,6 +154,7 @@ export default function Prioridades() {
 
   const [itens,    setItens]    = useState<ItemDashboard[]>([]);
   const [pausados, setPausados] = useState<ItemDashboard[]>([]);
+  const [diretorAgg, setDiretorAgg] = useState<DiretorAgg | null>(null);
   const [loading,  setLoading]  = useState(true);
   const [erro,     setErro]     = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -185,8 +208,14 @@ export default function Prioridades() {
         });
         if (res.ok) {
           const d = await res.json();
-          setItens(d.itens ?? []);
-          setPausados(d.pausados ?? []);
+          if (isDiretor) {
+            setDiretorAgg(d);
+            setItens([]);
+            setPausados([]);
+          } else {
+            setItens(d.itens ?? []);
+            setPausados(d.pausados ?? []);
+          }
         } else {
           const d = await res.json();
           setErro(d.error || 'Erro ao carregar o dashboard.');
@@ -197,7 +226,7 @@ export default function Prioridades() {
         setLoading(false);
       }
     })();
-  }, [token, ano, mes, refreshKey, gestorIdFiltro]);
+  }, [token, ano, mes, refreshKey, gestorIdFiltro, isDiretor]);
 
   // Carrega config no mount — prazoAltaDias precisa estar disponível para a
   // FaixaVeredito sem depender de o usuário abrir o modal de configuração.
@@ -215,12 +244,16 @@ export default function Prioridades() {
       .catch(() => {});
   }, [token]);
 
-  // Atualiza nome do gestor visível para o label de escopo
+  // Atualiza nome do gestor visível para o label de escopo. Diretor recebe o
+  // gestorNome pronto do backend (payload sem listas); os demais derivam do
+  // primeiro item das listas, como antes.
   useEffect(() => {
     if (!gestorIdFiltro) { setGestorNomeVis(null); return; }
-    const nome = itens[0]?.gestorNome ?? pausados[0]?.gestorNome ?? null;
+    const nome = isDiretor
+      ? diretorAgg?.gestorNome ?? null
+      : itens[0]?.gestorNome ?? pausados[0]?.gestorNome ?? null;
     if (nome) setGestorNomeVis(nome);
-  }, [gestorIdFiltro, itens, pausados]);
+  }, [gestorIdFiltro, itens, pausados, isDiretor, diretorAgg]);
 
   // ── Ação de fixar/pausar ─────────────────────────────────────────────────
   async function acaoPrioridade(projetoId: string, tipo: 'fixar' | 'desfixar' | 'pausar' | 'despausar') {
@@ -298,23 +331,50 @@ export default function Prioridades() {
   }
 
   // ── Derivados (spec 4.1): todos = escopo completo, ignora chipsFiltro ───────
+  // Diretor: agregados prontos do backend (payload sem itens/pausados).
+  // Demais papéis: derivam de itens+pausados, como sempre.
   const todos     = [...itens, ...pausados];
   const altaDias  = cfg?.prazoAltaDias ?? 7;
-  const nTotal    = todos.length;
-  const nAlta     = todos.filter(x => x.categoria === 'alta').length;
-  // nPrestac: prestações próximas mas ainda não vencidas (upcoming ≤ altaDias)
-  const nPrestac  = todos.filter(x =>
-    x.diasAteVencimento !== null && x.diasAteVencimento >= 0 && x.diasAteVencimento <= altaDias
-  ).length;
-  const nSemApon  = todos.filter(x => x.horasRealizadas === null).length;
-  const totalPlan = todos.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
 
-  const custoPorCategoria = CATS.map(cat => {
-    const itensCateg = todos.filter(x => x.categoria === cat);
-    const count = itensCateg.length;
-    const custo = itensCateg.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
-    return { cat, count, custo };
-  }).filter(c => c.count > 0);
+  const contagensPorCategoria: Record<CategoriaPrazo, number> = isDiretor
+    ? {
+        alta:      diretorAgg?.custoPorCategoria.find(c => c.categoria === 'alta')?.count ?? 0,
+        media:     diretorAgg?.custoPorCategoria.find(c => c.categoria === 'media')?.count ?? 0,
+        baixa:     diretorAgg?.custoPorCategoria.find(c => c.categoria === 'baixa')?.count ?? 0,
+        sem_prazo: diretorAgg?.custoPorCategoria.find(c => c.categoria === 'sem_prazo')?.count ?? 0,
+      }
+    : {
+        alta:      todos.filter(x => x.categoria === 'alta').length,
+        media:     todos.filter(x => x.categoria === 'media').length,
+        baixa:     todos.filter(x => x.categoria === 'baixa').length,
+        sem_prazo: todos.filter(x => x.categoria === 'sem_prazo').length,
+      };
+
+  const nTotal    = isDiretor ? (diretorAgg?.nTotal ?? 0) : todos.length;
+  const nAlta     = contagensPorCategoria.alta;
+  // nPrestac: prestações próximas mas ainda não vencidas (upcoming ≤ altaDias)
+  const nPrestac  = isDiretor
+    ? diretorAgg?.nPrestac ?? 0
+    : todos.filter(x =>
+        x.diasAteVencimento !== null && x.diasAteVencimento >= 0 && x.diasAteVencimento <= altaDias
+      ).length;
+  const nSemApon  = isDiretor
+    ? diretorAgg?.nSemApon ?? 0
+    : todos.filter(x => x.horasRealizadas === null).length;
+  const totalPlan = isDiretor
+    ? parseFloat(diretorAgg?.totalPlan ?? '0')
+    : todos.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+
+  const custoPorCategoria = isDiretor
+    ? (diretorAgg?.custoPorCategoria ?? [])
+        .map(c => ({ cat: c.categoria, count: c.count, custo: parseFloat(c.custo) }))
+        .filter(c => c.count > 0)
+    : CATS.map(cat => {
+        const itensCateg = todos.filter(x => x.categoria === cat);
+        const count = itensCateg.length;
+        const custo = itensCateg.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+        return { cat, count, custo };
+      }).filter(c => c.count > 0);
 
   // Itens filtrados pelos chips ativos (vazio = sem filtro = mostra todos)
   const itensFiltrados    = chipsFiltro.size === 0 ? itens    : itens.filter(x => chipsFiltro.has(x.categoria));
@@ -580,7 +640,7 @@ export default function Prioridades() {
     );
   }
 
-  const semNada = itens.length === 0 && pausados.length === 0;
+  const semNada = isDiretor ? nTotal === 0 : itens.length === 0 && pausados.length === 0;
 
   return (
     <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
@@ -680,7 +740,7 @@ export default function Prioridades() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {CATS.map(cat => {
               const { label, dot } = CAT_DOT[cat];
-              const count   = todos.filter(x => x.categoria === cat).length;
+              const count   = contagensPorCategoria[cat];
               const ativo   = chipsFiltro.has(cat);
               const isCssVar = dot.startsWith('var(');
               if (isDiretor) {

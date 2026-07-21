@@ -19,12 +19,37 @@ interface ItemDash {
   gestorNome:      string | null;
 }
 
-interface DashResponse {
+interface DashResponsePadrao {
   itens:            ItemDash[];
   pausados:         ItemDash[];
   headcountAlocado: number;
   emSobrecarga:     number;
 }
+
+interface CategoriaAgg {
+  categoria: CategoriaPrazo;
+  count:     number;
+  custo:     string;
+}
+
+// Payload do diretor: SÓ agregados — nunca nomes de projeto/gestor/colaborador.
+// A tela dele monta a mesma faixa de veredito e os mesmos chips, mas a partir
+// de números já prontos, não de listas (fase A-meio da auditoria, item 7).
+interface DashResponseDiretor {
+  nTotal:            number;
+  custoPorCategoria: CategoriaAgg[];
+  nPrestac:          number;
+  nSemApon:          number;
+  totalPlan:         string;
+  totalHorasPlan:    string;
+  totalHorasReal:    string;
+  headcountAlocado:  number;
+  emSobrecarga:      number;
+  totalPausados:     number;
+  gestorNome:        string | null;
+}
+
+type DashResponse = DashResponsePadrao | DashResponseDiretor;
 
 // ── Constantes ───────────────────────────────────────────────────────────────
 
@@ -110,6 +135,9 @@ export default function DashboardGeral() {
   const { gestorIdFiltro } = useGestorFiltro();
   const navigate = useNavigate();
 
+  const isDiretor = user?.role === 'diretor';
+  const isGestor  = user?.role === 'gestor';
+
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
   const [ano, setAno] = useState(now.getFullYear());
@@ -135,30 +163,65 @@ export default function DashboardGeral() {
 
   useEffect(() => {
     if (!gestorIdFiltro) { setGestorNomeVis(null); return; }
-    const nome = dados?.itens[0]?.gestorNome ?? dados?.pausados[0]?.gestorNome ?? null;
+    // Diretor recebe o gestorNome pronto do backend (payload sem listas);
+    // os demais papéis derivam do primeiro item das listas, como antes.
+    const nome = isDiretor
+      ? (dados as DashResponseDiretor | null)?.gestorNome ?? null
+      : (dados as DashResponsePadrao | null)?.itens[0]?.gestorNome
+        ?? (dados as DashResponsePadrao | null)?.pausados[0]?.gestorNome
+        ?? null;
     if (nome) setGestorNomeVis(nome);
-  }, [gestorIdFiltro, dados]);
+  }, [gestorIdFiltro, dados, isDiretor]);
 
-  const todos          = useMemo(() => [...(dados?.itens ?? []), ...(dados?.pausados ?? [])], [dados]);
-  const nTotal         = todos.length;
-  const nAlta          = todos.filter(x => x.categoria === 'alta').length;
-  const headcount      = dados?.headcountAlocado ?? 0;
-  const sobrecarga     = dados?.emSobrecarga ?? 0;
-  const totalPlan      = todos.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+  // Diretor: agregados já vêm prontos do backend. Demais papéis: derivam das
+  // listas itens+pausados, como sempre. Nunca misture as duas fontes.
+  const dadosDiretor = isDiretor ? (dados as DashResponseDiretor | null) : null;
+  const dadosPadrao  = !isDiretor ? (dados as DashResponsePadrao | null) : null;
+
+  const todos = useMemo(
+    () => [...(dadosPadrao?.itens ?? []), ...(dadosPadrao?.pausados ?? [])],
+    [dadosPadrao],
+  );
+
+  const nTotal = isDiretor ? (dadosDiretor?.nTotal ?? 0) : todos.length;
+
+  const contagensPorCategoria: Record<CategoriaPrazo, number> = isDiretor
+    ? {
+        alta:      dadosDiretor?.custoPorCategoria.find(c => c.categoria === 'alta')?.count ?? 0,
+        media:     dadosDiretor?.custoPorCategoria.find(c => c.categoria === 'media')?.count ?? 0,
+        baixa:     dadosDiretor?.custoPorCategoria.find(c => c.categoria === 'baixa')?.count ?? 0,
+        sem_prazo: dadosDiretor?.custoPorCategoria.find(c => c.categoria === 'sem_prazo')?.count ?? 0,
+      }
+    : {
+        alta:      todos.filter(x => x.categoria === 'alta').length,
+        media:     todos.filter(x => x.categoria === 'media').length,
+        baixa:     todos.filter(x => x.categoria === 'baixa').length,
+        sem_prazo: todos.filter(x => x.categoria === 'sem_prazo').length,
+      };
+
+  const nAlta      = contagensPorCategoria.alta;
+  const headcount  = dados?.headcountAlocado ?? 0;
+  const sobrecarga = dados?.emSobrecarga ?? 0;
+
+  const totalPlan = isDiretor
+    ? parseFloat(dadosDiretor?.totalPlan ?? '0')
+    : todos.reduce((s, x) => s + (x.custoPlanejado ? parseFloat(x.custoPlanejado) : 0), 0);
+
   // Taxa de horas: soma(realizado) / soma(planejado) — null tratado como 0h no numerador
   // taxaGlobal=null quando sem horas planejadas (não divide por zero, mostra "—")
-  const totalHorasPlan = todos.reduce((s, x) => s + parseFloat(x.horasPlanejadas), 0);
-  const totalHorasReal = todos.reduce((s, x) => s + (x.horasRealizadas ? parseFloat(x.horasRealizadas) : 0), 0);
-  const taxaGlobal     = totalHorasPlan > 0 ? Math.round((totalHorasReal / totalHorasPlan) * 100) : null;
+  const totalHorasPlan = isDiretor
+    ? parseFloat(dadosDiretor?.totalHorasPlan ?? '0')
+    : todos.reduce((s, x) => s + parseFloat(x.horasPlanejadas), 0);
+  const totalHorasReal = isDiretor
+    ? parseFloat(dadosDiretor?.totalHorasReal ?? '0')
+    : todos.reduce((s, x) => s + (x.horasRealizadas ? parseFloat(x.horasRealizadas) : 0), 0);
+  const taxaGlobal = totalHorasPlan > 0 ? Math.round((totalHorasReal / totalHorasPlan) * 100) : null;
 
   const escopoLabel = gestorIdFiltro
     ? `visualizando como ${gestorNomeVis ?? '…'}`
     : user?.role === 'gestor'
       ? `seus ${nTotal} projetos`
       : 'todos os gestores';
-
-  const isDiretor = user?.role === 'diretor';
-  const isGestor  = user?.role === 'gestor';
 
   // Ranking de apontamento por gestor (liderança = não gestor, não diretor)
   // Acumula HORAS (plan/real) por gestor — não contagem de projetos
@@ -240,7 +303,7 @@ export default function DashboardGeral() {
             {nTotal > 0 && (
               <div style={{ display: 'flex', height: 6, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
                 {CATS.map(cat => {
-                  const n = todos.filter(x => x.categoria === cat).length;
+                  const n = contagensPorCategoria[cat];
                   if (n === 0) return null;
                   const { dot } = CAT_INFO[cat];
                   return (
@@ -256,7 +319,7 @@ export default function DashboardGeral() {
             {/* Chips */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {CATS.map(cat => {
-                const count = todos.filter(x => x.categoria === cat).length;
+                const count = contagensPorCategoria[cat];
                 const { label, dot } = CAT_INFO[cat];
                 const isCssVar = dot.startsWith('var(');
                 const chipBase: React.CSSProperties = {

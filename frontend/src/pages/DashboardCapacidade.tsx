@@ -18,12 +18,23 @@ interface ColabCap {
   tier:            Tier;
 }
 
-interface CapResponse {
+interface CapResponsePadrao {
   colaboradores:    ColabCap[];
   headcountAlocado: number;
   emSobrecarga:     number;
   gestorNome:       string | null;
 }
+
+// Payload do diretor: SÓ as contagens por tier — nunca o array com nomes
+// (fase A-meio da auditoria, item 7).
+interface CapResponseDiretor {
+  contagensPorTier: Record<Tier, number>;
+  headcountAlocado: number;
+  emSobrecarga:     number;
+  gestorNome:       string | null;
+}
+
+type CapResponse = CapResponsePadrao | CapResponseDiretor;
 
 // ── Constantes ───────────────────────────────────────────────────────────────
 
@@ -135,16 +146,25 @@ export default function DashboardCapacidade() {
 
   useEffect(() => { setExpandedIds(new Set()); }, [dados]);
 
-  const colabs     = dados?.colaboradores ?? [];
+  // Diretor: contagens já vêm prontas do backend (payload sem o array de
+  // colaboradores). Demais papéis: derivam do array, como sempre.
+  const dadosDiretor = isDiretor ? (dados as CapResponseDiretor | null) : null;
+  const dadosPadrao  = !isDiretor ? (dados as CapResponsePadrao | null) : null;
+
+  const colabs     = dadosPadrao?.colaboradores ?? [];
   const headcount  = dados?.headcountAlocado ?? 0;
   const sobrecarga = dados?.emSobrecarga ?? 0;
-  const nTotal     = colabs.length;
+  const nTotal     = isDiretor ? headcount : colabs.length;
+  const semDados   = isDiretor ? headcount === 0 : colabs.length === 0;
 
   const contPorTier = useMemo(() => {
+    if (isDiretor) {
+      return dadosDiretor?.contagensPorTier ?? { sobrecarregado: 0, saudavel: 0, ocioso: 0 };
+    }
     const m: Record<Tier, number> = { sobrecarregado: 0, saudavel: 0, ocioso: 0 };
     for (const c of colabs) m[c.tier]++;
     return m;
-  }, [colabs]);
+  }, [colabs, isDiretor, dadosDiretor]);
 
   const listaFiltrada = useMemo(
     () => tiersAtivos.size === 0 ? colabs : colabs.filter(c => tiersAtivos.has(c.tier)),
@@ -310,7 +330,7 @@ export default function DashboardCapacidade() {
         </div>
       ) : erro ? (
         <div className="text-sm" style={{ color: '#b42318' }}>{erro}</div>
-      ) : colabs.length === 0 ? (
+      ) : semDados ? (
         <p style={{ fontSize: 14, color: 'var(--text-3)' }}>Nenhum colaborador alocado no período.</p>
       ) : (
         <div className="flex flex-col" style={{ gap: 16 }}>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, LayoutGrid, Moon, Sun, ArrowLeftRight, DollarSign, Tag, IdCard, BarChart2 } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, UserCheck, FolderOpen, LayoutGrid, Moon, Sun, ArrowLeftRight, DollarSign, Tag, IdCard, BarChart2, Gauge } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 
@@ -57,6 +57,7 @@ const NAV_ITEMS: NavEntry[] = [
     items: [
       // Visível a todos os 5 papéis (incluindo diretor, que por ora só vê Início e Painéis)
       { to: '/prioridades', label: 'Prioridades', icon: BarChart2 },
+      { to: '/capacidade',  label: 'Capacidade',  icon: Gauge },
     ],
   },
   {

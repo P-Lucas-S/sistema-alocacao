@@ -18,6 +18,7 @@ import Programas from './pages/Programas';
 import Profissoes from './pages/Profissoes';
 import Prioridades from './pages/Prioridades';
 import DashboardGeral from './pages/DashboardGeral';
+import DashboardCapacidade from './pages/DashboardCapacidade';
 import Layout from './components/Layout';
 import { GestorFiltroProvider } from './context/GestorFiltroContext';
 
@@ -107,6 +108,11 @@ export default function App() {
               <Route path="/prioridades" element={
                 <ProtectedRoute>
                   <Layout><Prioridades /></Layout>
+                </ProtectedRoute>
+              } />
+              <Route path="/capacidade" element={
+                <ProtectedRoute>
+                  <Layout><DashboardCapacidade /></Layout>
                 </ProtectedRoute>
               } />
               <Route path="/profile" element={

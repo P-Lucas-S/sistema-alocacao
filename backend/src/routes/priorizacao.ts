@@ -66,9 +66,10 @@ export interface CalcularPriorizacaoResult {
   gestorInfoPorProjeto:            Map<string, { gestorId: string; gestorNome: string }>;
   // ── Agregados de pessoas — union, não soma por projeto (evita double-count).
   // Zero query extra: derivados de todosColabIds + totalPorColab já computados.
-  todosColabIds:    string[];
-  totalPorColab:    Map<string, Prisma.Decimal>;
-  headcountAlocado: number;   // count único de colabs com alocação no mês/escopo
+  todosColabIds:     string[];
+  totalPorColab:     Map<string, Prisma.Decimal>;
+  realizadoPorColab: Map<string, Prisma.Decimal>;
+  headcountAlocado:  number;   // count único de colabs com alocação no mês/escopo
   emSobrecarga:     number;   // count único de colabs com total >= limiarCapacidade
 }
 
@@ -119,7 +120,7 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
     return {
       itens: [], itensPausados: [], categoriaIdPorProjeto, colabsPorProjeto: new Map(),
       alocsDoMes: [], colabsSobrecarregadosPorProjeto: new Map(), gestorInfoPorProjeto,
-      todosColabIds: [], totalPorColab: new Map(), headcountAlocado: 0, emSobrecarga: 0,
+      todosColabIds: [], totalPorColab: new Map(), realizadoPorColab: new Map(), headcountAlocado: 0, emSobrecarga: 0,
     };
   }
 
@@ -149,14 +150,18 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
   // ── Sinal de capacidade — total de CADA colaborador em TODOS os projetos
   // no mês (mesma conta de saldo do grid/candidatos), em lote (1 query) ────
   const todosColabIds = [...new Set(alocsDoMes.map(a => a.colaboradorId))];
-  const totalPorColab = new Map<string, Prisma.Decimal>();
+  const totalPorColab     = new Map<string, Prisma.Decimal>();
+  const realizadoPorColab = new Map<string, Prisma.Decimal>();
   if (todosColabIds.length > 0) {
     const todasAlocsDosColabs = await prisma.alocacao.findMany({
       where: { colaboradorId: { in: todosColabIds }, ano: anoN, mes: mesN },
-      select: { colaboradorId: true, horasPlanejadas: true },
+      select: { colaboradorId: true, horasPlanejadas: true, horasRealizadas: true },
     });
     for (const a of todasAlocsDosColabs) {
       totalPorColab.set(a.colaboradorId, (totalPorColab.get(a.colaboradorId) ?? D0).plus(a.horasPlanejadas));
+      if (a.horasRealizadas != null) {
+        realizadoPorColab.set(a.colaboradorId, (realizadoPorColab.get(a.colaboradorId) ?? D0).plus(a.horasRealizadas));
+      }
     }
   }
 
@@ -253,7 +258,7 @@ export async function calcularPriorizacao(params: CalcularPriorizacaoParams): Pr
 
   return { itens, itensPausados, categoriaIdPorProjeto, colabsPorProjeto, alocsDoMes,
     colabsSobrecarregadosPorProjeto, gestorInfoPorProjeto,
-    todosColabIds, totalPorColab, headcountAlocado, emSobrecarga };
+    todosColabIds, totalPorColab, realizadoPorColab, headcountAlocado, emSobrecarga };
 }
 
 // ── GET / — projetos priorizados por categoria de prazo + horas pendentes ──

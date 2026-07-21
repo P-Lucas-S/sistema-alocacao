@@ -154,4 +154,72 @@ router.get('/projetos', authenticate, requireRole('admin', 'gestor', 'chefe', 'c
   }
 });
 
+// ── GET /capacidade — ocupação por colaborador (fase D3) ─────────────────────
+// Planejado = totalPorColab (global, todos os gestores) — mesma base do saldo do grid.
+// Realizado = realizadoPorColab (global, todos os gestores) — coerente com o planejado.
+// Escopo de quem aparece: collabs com alocação nos projetos do papel/filtro vigente.
+router.get('/capacidade', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao', 'diretor'), async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+    const { ano, mes, gestorId: gestorIdParam } = req.query as { ano?: string; mes?: string; gestorId?: string };
+
+    const anoN = parseInt(ano ?? String(new Date().getFullYear()));
+    const mesN = parseInt(mes ?? String(new Date().getMonth() + 1));
+    if (!anoN || anoN < 2020 || anoN > 2100) return res.status(400).json({ error: 'ano inválido' });
+    if (!mesN || mesN < 1  || mesN > 12)     return res.status(400).json({ error: 'mes inválido' });
+
+    let gestorIdFiltro: string | undefined;
+    let gestorNome: string | null = null;
+
+    if (role !== 'gestor' && gestorIdParam) {
+      const gestorAlvo = await prisma.user.findUnique({
+        where:  { id: gestorIdParam },
+        select: { role: true, name: true },
+      });
+      if (!gestorAlvo || gestorAlvo.role !== 'gestor') {
+        return res.status(400).json({ error: 'gestorId inválido ou não pertence a um usuário com papel gestor' });
+      }
+      gestorIdFiltro = gestorIdParam;
+      gestorNome     = gestorAlvo.name;
+    }
+
+    const { todosColabIds, totalPorColab, realizadoPorColab, headcountAlocado, emSobrecarga } =
+      await calcularPriorizacao({ role, userId, ano: anoN, mes: mesN, gestorIdFiltro });
+
+    if (todosColabIds.length === 0) {
+      return res.json({ colaboradores: [], headcountAlocado: 0, emSobrecarga: 0, gestorNome });
+    }
+
+    const LIMIAR_SOBRE = 209;   // 95% × 220
+    const LIMIAR_SAUD  = 110;   // 50% × 220
+
+    const colaboradoresBd = await prisma.colaborador.findMany({
+      where:  { id: { in: todosColabIds } },
+      select: { id: true, nome: true, profissao: { select: { nome: true } } },
+    });
+
+    const colaboradores = colaboradoresBd.map(c => {
+      const planN = totalPorColab.get(c.id)?.toNumber() ?? 0;
+      const realN = realizadoPorColab.get(c.id)?.toNumber() ?? 0;
+      const tier: 'sobrecarregado' | 'saudavel' | 'ocioso' =
+        planN >= LIMIAR_SOBRE ? 'sobrecarregado' :
+        planN >= LIMIAR_SAUD  ? 'saudavel'       : 'ocioso';
+      return {
+        id:              c.id,
+        nome:            c.nome,
+        profissao:       c.profissao?.nome ?? null,
+        horasPlanejadas: String(planN),
+        horasRealizadas: realN > 0 ? String(realN) : null,
+        tier,
+      };
+    }).sort((a, b) => parseFloat(b.horasPlanejadas) - parseFloat(a.horasPlanejadas));
+
+    res.json({ colaboradores, headcountAlocado, emSobrecarga, gestorNome });
+  } catch (error) {
+    console.error('Dashboard capacidade error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

@@ -323,8 +323,9 @@ router.delete('/:id/meta-apropriacao/pino-medicao/:ano/:mes', authenticate, requ
 // READ-ONLY. Computa sob demanda a meta de HT por mês da vigência + receita
 // já planejada, reusando carregarTarifas/resolverTarifa de lib/tarifa.ts
 // (mesma conta do dashboard D1). Escopo: igual ao GET /:id — gestor só vê o
-// próprio projeto; admin/chefe/coordenacao/diretor veem qualquer um.
-router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) => {
+// próprio projeto; admin/chefe/coordenacao veem qualquer um. Diretor NÃO
+// acessa (nomes de projeto + meta financeira — vê tudo agregado nos dashboards).
+router.get('/:id/meta-apropriacao', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const userId = req.user!.id;
@@ -398,7 +399,7 @@ router.get('/:id/meta-apropriacao', authenticate, async (req: AuthRequest, res) 
 });
 
 // ── GET /:id — detalhe de um projeto ──────────────────────────────────────
-router.get('/:id', authenticate, async (req: AuthRequest, res) => {
+router.get('/:id', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const userId = req.user!.id;
@@ -426,7 +427,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 });
 
 // ── GET / ─────────────────────────────────────────────────────────────────
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const { status, gestorId: gestorIdParam } = req.query as { status?: string; gestorId?: string };
     const userId = req.user!.id;

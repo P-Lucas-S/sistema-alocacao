@@ -7,12 +7,29 @@ import { sendWelcomeEmail } from '../services/emailService.js';
 const router = express.Router();
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
-router.get('/', authenticate, async (_req, res) => {
+router.get('/', authenticate, requireRole('admin'), async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
       select: { id: true, name: true, email: true, role: true, position: true, avatarUrl: true },
     });
     res.json(users);
+  } catch {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── GET /gestores — lista enxuta (id + nome) para o SeletorGestor ────────
+// Acessível aos 4 papéis amplos, incluindo diretor: nomes de GESTORES
+// (hierarquia conhecida, subordinados diretos) não são o dado que a regra
+// do diretor protege — o que ela protege é colaborador individual e tarifa.
+router.get('/gestores', authenticate, requireRole('admin', 'chefe', 'coordenacao', 'diretor'), async (_req, res) => {
+  try {
+    const gestores = await prisma.user.findMany({
+      where:  { role: 'gestor' },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json(gestores);
   } catch {
     res.status(500).json({ error: 'Internal server error' });
   }

@@ -119,19 +119,25 @@ async function main() {
   console.log('\n━━━ ENDPOINT 4: /api/dashboards/projetos (Prioridades) ━━━━━━━━━━━━━━━');
   {
     const { data } = await api('GET', `/dashboards/projetos?ano=${ANO}&mes=${MES}&gestorId=${G2}`, tGestor1);
-    // dashboard retorna itens com campo 'codigo'
-    const retornados = data.map(p => p.codigo).sort();
+    // Desde o fixar/pausar o shape é { itens, pausados, totalPausados, ... },
+    // não mais um array puro. Pausados continuam no MESMO escopo de gestor
+    // que itens — só saíram da fila ativa — então um projeto de G2 vazando
+    // em pausados é vazamento igual a vazar em itens: a verificação junta os
+    // dois.
+    const todos = [...(data.itens ?? []), ...(data.pausados ?? [])];
+    const retornados = todos.map(p => p.codigo).sort();
     const vazamento  = retornados.filter(c => codsG2.includes(c));
 
     console.log(`  Gestor1 chama: GET /dashboards/projetos?ano=${ANO}&mes=${MES}&gestorId=${G2}`);
-    console.log(`  Resultado (${data.length} proj no mês): ${retornados.length ? retornados.join(', ') : '(0 — sem alocações no mês para G1)'}`);
+    console.log(`  Resultado (${todos.length} proj no mês, itens+pausados): ${retornados.length ? retornados.join(', ') : '(0 — sem alocações no mês para G1)'}`);
     console.log(`  Projetos de G2 na resposta: ${vazamento.length === 0 ? '✅ NENHUM' : '❌ VAZAMENTO: ' + vazamento.join(', ')}`);
-    console.log(`  Contagem ≤ cntG1: ${data.length <= codsG1.length ? '✅ SIM (' + data.length + '<=' + codsG1.length + ')' : '❌ NÃO'}`);
+    console.log(`  Contagem ≤ cntG1: ${todos.length <= codsG1.length ? '✅ SIM (' + todos.length + '<=' + codsG1.length + ')' : '❌ NÃO'}`);
 
-    // Baseline sem filtro para comparar
+    // Baseline sem filtro para comparar (também itens+pausados)
     const { data: dashBase } = await api('GET', `/dashboards/projetos?ano=${ANO}&mes=${MES}`, tGestor1);
-    console.log(`  Baseline G1 (sem ?gestorId): ${dashBase.length} proj — ${dashBase.map(p=>p.codigo).sort().join(', ')}`);
-    console.log(`  Resultado COM ?gestorId=G2 idêntico ao baseline: ${JSON.stringify(retornados) === JSON.stringify(dashBase.map(p=>p.codigo).sort()) ? '✅ SIM' : '❌ NÃO'}`);
+    const todosBase = [...(dashBase.itens ?? []), ...(dashBase.pausados ?? [])];
+    console.log(`  Baseline G1 (sem ?gestorId): ${todosBase.length} proj — ${todosBase.map(p=>p.codigo).sort().join(', ')}`);
+    console.log(`  Resultado COM ?gestorId=G2 idêntico ao baseline: ${JSON.stringify(retornados) === JSON.stringify(todosBase.map(p=>p.codigo).sort()) ? '✅ SIM' : '❌ NÃO'}`);
   }
 
   // ══════════════════════════════════════════════════════════════════════════

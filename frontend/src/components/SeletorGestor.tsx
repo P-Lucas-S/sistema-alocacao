@@ -19,11 +19,9 @@ export default function SeletorGestor() {
 
   useEffect(() => {
     if (!podeVer || !token) return;
-    fetch('/api/users', { headers: { Authorization: `Bearer ${token}` } })
+    fetch('/api/users/gestores', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : [])
-      .then((users: { id: string; name: string; role: string }[]) => {
-        setGestores(users.filter(u => u.role === 'gestor').sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')));
-      })
+      .then((gestores: GestorOpcao[]) => setGestores(gestores))
       .catch(() => {});
   }, [podeVer, token]);
 

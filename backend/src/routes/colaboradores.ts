@@ -85,7 +85,7 @@ async function validarTarifas(tarifasRaw: unknown): Promise<ValidarTarifasResult
 }
 
 // ── GET / ─────────────────────────────────────────────────────────────────
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const { search, ativo, profissaoId } = req.query as Record<string, string | undefined>;
 
@@ -118,7 +118,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 });
 
 // ── GET /:id — detalhe (usado pela edição) — inclui os overrides de tarifa ──
-router.get('/:id', authenticate, async (req: AuthRequest, res) => {
+router.get('/:id', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const colaborador = await prisma.colaborador.findUnique({

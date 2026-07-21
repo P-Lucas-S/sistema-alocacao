@@ -189,7 +189,7 @@ async function alocarComLock(params: {
 // Gestor vê apenas seus projetos como colunas.
 // Saldo inclui horas de TODOS os gestores (totalGeral) para o cálculo correto
 // do espaço disponível, mesmo que o gestor só possa editar as suas.
-router.get('/grid', authenticate, async (req: AuthRequest, res) => {
+router.get('/grid', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
     const role   = req.user!.role;
@@ -571,7 +571,7 @@ router.get('/minhas-do-colaborador', authenticate, requireRole('admin', 'gestor'
 });
 
 // ── GET / — lista alocações ───────────────────────────────────────────────
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const { colaboradorId, projetoId, ano, mes } = req.query as Record<string, string | undefined>;
 

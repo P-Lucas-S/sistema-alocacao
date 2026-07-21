@@ -69,7 +69,7 @@ async function main() {
     check('Coordenação loga (200) e role intacto', status === 200 && data?.user?.role === 'coordenacao', data?.user);
   }
 
-  console.log('\n── Chefe/diretor ainda NÃO têm acesso a nada (requireRole) ──');
+  console.log('\n── Chefe/diretor barrados nas rotas que ainda não são deles ──');
   {
     // Rota só-admin
     const { status: sChefe } = await api('POST', '/fechamentos', tokenChefe, { ano: 2026, mes: 1 });
@@ -79,14 +79,18 @@ async function main() {
     check('Diretor → 403 em POST /fechamentos (só-admin)', sDiretor === 403, sDiretor);
   }
   {
-    // Rota admin/gestor — corpo qualquer, requireRole roda ANTES da validação de corpo
+    // Rota admin/gestor/chefe — corpo qualquer, requireRole roda ANTES da
+    // validação de corpo. O chefe-override (commit 3310d02, "posse na escrita
+    // de alocacao (403 para gestor nao-dono) - F0") liberou o chefe nesta
+    // rota de propósito — ele passa pelo requireRole e cai na validação de
+    // corpo (400), não mais barrado por papel. O diretor continua de fora.
     const corpoQualquer = { foo: 'bar' };
 
     const { status: sChefe } = await api('POST', '/alocacoes', tokenChefe, corpoQualquer);
-    check('Chefe → 403 em POST /alocacoes (admin/gestor), antes de validar corpo', sChefe === 403, sChefe);
+    check('Chefe → 400 em POST /alocacoes (chefe-override liberou o papel; falha é de corpo, não de permissão)', sChefe === 400, sChefe);
 
     const { status: sDiretor } = await api('POST', '/alocacoes', tokenDiretor, corpoQualquer);
-    check('Diretor → 403 em POST /alocacoes (admin/gestor), antes de validar corpo', sDiretor === 403, sDiretor);
+    check('Diretor → 403 em POST /alocacoes (admin/gestor/chefe), antes de validar corpo', sDiretor === 403, sDiretor);
   }
 
   console.log('\n──────────────────────────────────────────────────');

@@ -30,7 +30,7 @@ async function requireOwner(
 // ── MACROS ────────────────────────────────────────────────────────────────
 
 // GET / — lista macros com suas micros
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, requireRole('admin', 'gestor', 'chefe', 'coordenacao'), async (req: AuthRequest, res) => {
   try {
     const { projetoId } = req.params as { projetoId: string };
     const projeto = await prisma.projeto.findUnique({ where: { id: projetoId } });

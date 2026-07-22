@@ -289,7 +289,7 @@ export default function DashboardGeral() {
               value={nAlta}
               valueColor={nAlta > 0 ? '#ef4444' : 'var(--text-3)'}
             />
-            <KpiCard label="Headcount" value={headcount} />
+            <KpiCard label="Colaboradores" value={headcount} />
             <KpiCard
               label="Sobrecarga"
               value={sobrecarga}

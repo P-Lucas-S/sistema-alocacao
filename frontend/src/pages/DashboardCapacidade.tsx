@@ -313,7 +313,7 @@ export default function DashboardCapacidade() {
 
           {/* ── KPIs ──────────────────────────────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
-            <KpiCard label="Headcount" value={headcount} />
+            <KpiCard label="Colaboradores" value={headcount} />
             <KpiCard
               label="Sobrecarregados"
               value={sobrecarga}

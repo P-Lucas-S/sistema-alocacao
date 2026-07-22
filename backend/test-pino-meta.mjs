@@ -212,8 +212,16 @@ async function main() {
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
+  // Ordem: dependentes antes dos pais — macro_entregas e alocacoes são ON DELETE
+  // RESTRICT (só meta/medicao/oficial ajustes cascateiam). O projeto criado tem
+  // uma macro (Geral), então ela precisa sair antes do projeto.
   console.log('── Cleanup ───────────────────────────────────────────────');
   await prisma.metaMensalAjuste.deleteMany({ where: { projetoId: { in: projetosCriados } } });
+  await prisma.medicaoMensalAjuste.deleteMany({ where: { projetoId: { in: projetosCriados } } });
+  await prisma.oficialMensalAjuste.deleteMany({ where: { projetoId: { in: projetosCriados } } });
+  await prisma.alocacao.deleteMany({ where: { projetoId: { in: projetosCriados } } });
+  await prisma.microEntrega.deleteMany({ where: { macroEntrega: { projetoId: { in: projetosCriados } } } });
+  await prisma.macroEntrega.deleteMany({ where: { projetoId: { in: projetosCriados } } });
   await prisma.projeto.deleteMany({ where: { id: { in: projetosCriados } } });
   console.log(`  ${projetosCriados.length} projeto(s) removido(s).\n`);
 

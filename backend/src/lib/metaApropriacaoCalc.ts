@@ -28,6 +28,8 @@ export interface MetaMesCalc {
   medicao: Prisma.Decimal;
   pinadaMedicao: boolean;       // true se este mês tem pino de medição
   oficialAlocado: Prisma.Decimal;
+  pinadoOficial: boolean;       // true se este mês tem pino de oficial
+  ajustadoOficial: boolean;     // true se a cascata do oficial moveu este mês
   metaHT: Prisma.Decimal;
   pinado: boolean;
   fechado: boolean;
@@ -48,6 +50,7 @@ export interface ComputarMetaApropriacaoResult {
   totalCortadoPeloPiso: Prisma.Decimal; // R$ cortado pelo piso max(0) em meses sem pino de meta
   temPinos: boolean;
   avisoEstouroMedicao: string | null;   // §4.2: não-null quando pinos somam > valorTotal
+  avisoEstouroOficial: string | null;   // não-null quando os oficiais fixados (pinos + fechados) somam > valorOficial
   saldoNaoPlanejado: Prisma.Decimal | null;
   precisaDecisaoManual: {
     faltam: string;
@@ -95,6 +98,15 @@ export async function computarMetaApropriacao(
   });
   const pinosMedicaoPorMes = new Map<string, Prisma.Decimal>(
     pinosMedicaoRaw.map(p => [`${p.ano}-${p.mes}`, p.medicao])
+  );
+
+  // ── Pinos de oficial (1 query) — oficial editável por mês ───────────────────
+  const pinosOficialRaw = await prisma.oficialMensalAjuste.findMany({
+    where: { projetoId },
+    select: { ano: true, mes: true, valorOficial: true },
+  });
+  const pinosOficialPorMes = new Map<string, Prisma.Decimal>(
+    pinosOficialRaw.map(p => [`${p.ano}-${p.mes}`, p.valorOficial])
   );
 
   // Medição por mês: pinoMedicao ?? redistribuição uniforme entre não-pinados.
@@ -194,8 +206,120 @@ export async function computarMetaApropriacao(
     });
   }
 
-  // metasHT SEM piso (pode ser negativo quando oficial > medição)
-  const metasHT = medicoes.map((med, i) => med.minus(oficialAlocados[i]));
+  // ── Fechamentos dos meses da vigência (1 query batch) — usados pela cascata
+  // do oficial e pela classificação de meses mais abaixo ──────────────────────
+  const fechamentosRaw = await prisma.fechamentoMensal.findMany({
+    where: { OR: meses.map(({ ano, mes }) => ({ ano, mes })) },
+    select: { ano: true, mes: true },
+  });
+  const mesesFechadosSet = new Set<string>(fechamentosRaw.map(f => `${f.ano}-${f.mes}`));
+
+  // ── Cascata do oficial (espelha a cascata da meta) ──────────────────────────
+  // Ativa SÓ quando há pino de oficial. Sem pinos → oficialFinal = oficialAlocados
+  // (a distribuição por estratégia), byte-idêntico ao comportamento anterior.
+  //
+  // Intocável = pinado-de-oficial OU fechado. O oficial CARIMBADO de um intocável
+  // é o valor que ele EFETIVAMENTE tem — o pino se houver, senão o oficial-base
+  // (pin-agnóstico, computado uma vez acima). Esse MESMO valor entra no
+  // somaIntocaveis e no output: é o que fecha o invariante ao centavo. Mês
+  // fechado nunca é recomputado (o oficial dele é fato histórico).
+  let oficialFinal: Prisma.Decimal[] = oficialAlocados;
+  const ajustadosOficial = new Set<number>();
+  let avisoEstouroOficial: string | null = null;
+
+  if (pinosOficialPorMes.size > 0) {
+    const idxOf = meses.map(({ ano, mes }, i) => {
+      const key           = `${ano}-${mes}`;
+      const pinadoOficial = pinosOficialPorMes.has(key);
+      const fechado       = mesesFechadosSet.has(key);
+      return { i, key, pinadoOficial, fechado, editavel: !pinadoOficial && !fechado };
+    });
+
+    // Carimbo de cada mês: pino se houver, senão o oficial-base. Nunca recomputa.
+    const carimbo = (m: { i: number; key: string }): Prisma.Decimal =>
+      pinosOficialPorMes.get(m.key) ?? oficialAlocados[m.i]!;
+
+    const somaIntocaveis = idxOf
+      .filter(m => !m.editavel)
+      .reduce((acc, m) => acc.plus(carimbo(m)), D0);
+    const editaveis     = idxOf.filter(m => m.editavel);
+    const saldoEditavel = valorOficial.minus(somaIntocaveis);
+
+    if (saldoEditavel.lessThan(D0)) {
+      // Estouro: os oficiais fixados (pinos + oficial dos meses fechados) já
+      // excedem o valorOficial — não há saldo para os editáveis. Estes ficam
+      // com 0 (oficial nunca negativo); pinos e fechados mantêm o carimbo. O
+      // aviso sinaliza — o invariante não é forçável neste estado (espelha a
+      // medição). No caso comum (sem fechado) isto é exatamente soma(pinos) > valorOficial.
+      avisoEstouroOficial =
+        `Os valores oficiais fixados somam R$ ${somaIntocaveis.minus(valorOficial).toFixed(2)} acima do valor oficial do projeto`;
+      oficialFinal = idxOf.map(m => (m.editavel ? D0 : carimbo(m)));
+    } else {
+      const provisorio = new Map<number, Prisma.Decimal>();
+      if (editaveis.length > 0) {
+        const baseEditavelTotal = editaveis.reduce((acc, m) => acc.plus(oficialAlocados[m.i]!), D0);
+        const ultimoIdx = editaveis[editaveis.length - 1]!.i;
+
+        if (baseEditavelTotal.greaterThan(D0)) {
+          // Proporcional ao oficial-base de cada editável; último absorve resíduo
+          let alocado = D0;
+          editaveis.forEach((m, k) => {
+            const parcela = k < editaveis.length - 1
+              ? saldoEditavel.times(oficialAlocados[m.i]!).dividedBy(baseEditavelTotal).toDecimalPlaces(2)
+              : saldoEditavel.minus(alocado);
+            provisorio.set(m.i, parcela);
+            alocado = alocado.plus(parcela);
+          });
+        } else {
+          // Fallback: todos os editáveis com oficial-base zero (proporção
+          // impossível) → divisão igual; último absorve resíduo.
+          const n = editaveis.length;
+          const base = saldoEditavel.dividedBy(n).toDecimalPlaces(2);
+          let alocado = D0;
+          editaveis.forEach((m, k) => {
+            const parcela = k < n - 1 ? base : saldoEditavel.minus(alocado);
+            provisorio.set(m.i, parcela);
+            alocado = alocado.plus(parcela);
+          });
+        }
+
+        // Teto por mês + transbordo — o MESMO laço carry da estratégia
+        // proporcional (7d724ad), cronológico entre editáveis: se o oficial
+        // passar da medição do mês, capa na medição e transborda o excedente
+        // pro próximo editável. Carry final acumula no último editável (o
+        // avisoPiso adiante sinaliza oficial > medição). Só redistribui:
+        // soma(editáveis) = saldoEditavel preservada.
+        let carry = D0;
+        for (const m of editaveis) {
+          const raw = provisorio.get(m.i)!.plus(carry);
+          const med = medicoes[m.i]!;
+          if (raw.greaterThan(med)) {
+            carry = raw.minus(med);
+            provisorio.set(m.i, med);
+          } else {
+            provisorio.set(m.i, raw);
+            carry = D0;
+          }
+        }
+        if (carry.greaterThan(D0)) {
+          provisorio.set(ultimoIdx, provisorio.get(ultimoIdx)!.plus(carry));
+        }
+      }
+
+      oficialFinal = idxOf.map(m =>
+        m.editavel ? (provisorio.get(m.i) ?? oficialAlocados[m.i]!) : carimbo(m)
+      );
+
+      // "ajust." nos editáveis que a cascata efetivamente moveu (final ≠ base)
+      for (const m of editaveis) {
+        if (!oficialFinal[m.i]!.equals(oficialAlocados[m.i]!)) ajustadosOficial.add(m.i);
+      }
+    }
+  }
+
+  // metasHT SEM piso (pode ser negativo quando oficial > medição) — usa o
+  // oficial FINAL (pós-cascata quando há pino; = base quando não há).
+  const metasHT = medicoes.map((med, i) => med.minus(oficialFinal[i]!));
 
   // ── Receita planejada por mês — reusa carregarTarifas/resolverTarifa ────────
   // 1 query alocações + 1 colaboradores + 1 tarifas (sem N+1 por mês)
@@ -237,12 +361,7 @@ export async function computarMetaApropriacao(
   );
   const temPinos = pinosPorMes.size > 0;
 
-  // ── Lê fechamentos dos meses da vigência (1 query batch, F2b-ii) ────────────
-  const fechamentosRaw = await prisma.fechamentoMensal.findMany({
-    where: { OR: meses.map(({ ano, mes }) => ({ ano, mes })) },
-    select: { ano: true, mes: true },
-  });
-  const mesesFechadosSet = new Set<string>(fechamentosRaw.map(f => `${f.ano}-${f.mes}`));
+  // (fechamentos já lidos acima — mesesFechadosSet reusado aqui)
 
   // ── Classifica meses (F2b-ii) ────────────────────────────────────────────────
   // Intocáveis: pinados (de meta) OU fechados. Editáveis: os demais.
@@ -253,10 +372,11 @@ export async function computarMetaApropriacao(
     const pinado        = pinoValor !== undefined;    // pino de META
     const fechado       = mesesFechadosSet.has(key);
     const pinadaMedicao = pinosMedicaoPorMes.has(key);
+    const pinadoOficial = pinosOficialPorMes.has(key);
     const metaHTSemPiso = metasHT[i]!;
     const baseMetaHT    = metaHTSemPiso.lessThan(D0) ? D0 : metaHTSemPiso; // piso max(0)
     return {
-      i, key, ano, mes, pinado, fechado, pinadaMedicao,
+      i, key, ano, mes, pinado, fechado, pinadaMedicao, pinadoOficial,
       editavel:   !pinado && !fechado,
       baseMetaHT,
       metaHTSemPiso,
@@ -379,7 +499,7 @@ export async function computarMetaApropriacao(
   // O GET serializa para string (.toFixed(2)); o motor usa os Decimals diretamente.
   let somaMetaHT         = D0;
   let totalCortadoPeloPiso = D0;
-  const mesCalcs: MetaMesCalc[] = classificados.map(({ i, ano, mes, pinado, fechado, pinadaMedicao, baseMetaHT, metaHTSemPiso, pinoValor, key }) => {
+  const mesCalcs: MetaMesCalc[] = classificados.map(({ i, ano, mes, pinado, fechado, pinadaMedicao, pinadoOficial, baseMetaHT, metaHTSemPiso, pinoValor, key }) => {
     let metaHT: Prisma.Decimal;
     if (pinado) {
       metaHT = pinoValor!;
@@ -407,7 +527,9 @@ export async function computarMetaApropriacao(
       ano, mes, key,
       medicao:          medicoes[i]!,
       pinadaMedicao,
-      oficialAlocado:   oficialAlocados[i]!,
+      oficialAlocado:   oficialFinal[i]!,
+      pinadoOficial,
+      ajustadoOficial:  ajustadosOficial.has(i),
       metaHT,
       pinado, fechado,
       receitaPlanejada,
@@ -420,7 +542,7 @@ export async function computarMetaApropriacao(
     valorTotal, valorOficial, valorHT, numMeses,
     estrategiaOficial: estrategia,
     meses, mesCalcs, somaMetaHT, totalCortadoPeloPiso,
-    temPinos, avisoEstouroMedicao,
+    temPinos, avisoEstouroMedicao, avisoEstouroOficial,
     saldoNaoPlanejado, precisaDecisaoManual,
   };
 }

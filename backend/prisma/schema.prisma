@@ -178,6 +178,7 @@ model Projeto {
   alocacoes                        Alocacao[]
   metaMensalAjustes                MetaMensalAjuste[]
   medicaoMensalAjustes             MedicaoMensalAjuste[]
+  oficialMensalAjustes             OficialMensalAjuste[]
   solicitacoesDestinoRemanejamento SolicitacaoRemanejamento[] @relation("SolicitacaoRemanejamentoProjetoDestino")
 
   @@map("projetos")
@@ -296,6 +297,28 @@ model MedicaoMensalAjuste {
   @@unique([projetoId, ano, mes])
   @@index([projetoId])
   @@map("medicao_mensal_ajustes")
+}
+
+// ─── Pino de oficial mensal (oficial editável por mês) ────────────
+// Tabela própria, espelhando meta_mensal_ajustes e medicao_mensal_ajustes.
+// Esparsa — só onde o gestor pinou o oficial. Os três pinos (meta,
+// medição, oficial) coexistem: uma linha em cada tabela, casadas por
+// (projetoId, ano, mes).
+
+model OficialMensalAjuste {
+  id           String   @id @default(cuid())
+  projetoId    String   @map("projeto_id") @db.VarChar(191)
+  ano          Int
+  mes          Int
+  valorOficial Decimal  @map("valor_oficial") @db.Decimal(10, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  projeto Projeto @relation(fields: [projetoId], references: [id], onDelete: Cascade)
+
+  @@unique([projetoId, ano, mes])
+  @@index([projetoId])
+  @@map("oficial_mensal_ajustes")
 }
 
 // ─── Fase 3: Fechamento mensal (read-only lock) + log de auditoria ─

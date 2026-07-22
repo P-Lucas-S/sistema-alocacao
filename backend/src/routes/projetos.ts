@@ -319,6 +319,97 @@ router.delete('/:id/meta-apropriacao/pino-medicao/:ano/:mes', authenticate, requ
   }
 });
 
+// ── PUT /:id/meta-apropriacao/pino-oficial — cria/atualiza pino de oficial ──
+// Análogo aos pinos de meta e medição. Mês deve estar dentro da vigência e
+// aberto. Nome distinto (pino-oficial) para não colidir com /pino nem /pino-medicao.
+// Os três pinos (meta, medição, oficial) coexistem no mesmo mês.
+router.put('/:id/meta-apropriacao/pino-oficial', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({
+      where: { id },
+      select: { gestorId: true, vigenciaInicio: true, vigenciaFim: true },
+    });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const { ano, mes, valorOficial: valorOficialBody } = req.body;
+    const anoN = Number.isInteger(ano) ? ano : parseInt(ano);
+    const mesN = Number.isInteger(mes) ? mes : parseInt(mes);
+    if (!Number.isInteger(anoN) || anoN < 2020 || anoN > 2100) {
+      return res.status(400).json({ error: 'ano inválido' });
+    }
+    if (!Number.isInteger(mesN) || mesN < 1 || mesN > 12) {
+      return res.status(400).json({ error: 'mes inválido' });
+    }
+    const valorOficialN = typeof valorOficialBody === 'number' ? valorOficialBody : parseFloat(valorOficialBody);
+    if (isNaN(valorOficialN) || valorOficialN < 0) {
+      return res.status(400).json({ error: 'valorOficial deve ser um número >= 0' });
+    }
+
+    if (!projeto.vigenciaInicio || !projeto.vigenciaFim) {
+      return res.status(400).json({ error: 'Projeto sem vigência definida — configure a vigência antes de pinar' });
+    }
+    const mesesVigencia = gerarMeses(projeto.vigenciaInicio, projeto.vigenciaFim);
+    if (!mesesVigencia.some(m => m.ano === anoN && m.mes === mesN)) {
+      return res.status(400).json({ error: `Mês ${mesN}/${anoN} fora da vigência do projeto` });
+    }
+
+    if (await mesEstaFechado(anoN, mesN)) {
+      return res.status(409).json({ error: 'Mês fechado — não é possível pinar oficial em mês com fechamento registrado' });
+    }
+
+    const pino = await prisma.oficialMensalAjuste.upsert({
+      where:  { projetoId_ano_mes: { projetoId: id, ano: anoN, mes: mesN } },
+      update: { valorOficial: valorOficialN },
+      create: { projetoId: id, ano: anoN, mes: mesN, valorOficial: valorOficialN },
+    });
+
+    return res.json({ projetoId: pino.projetoId, ano: pino.ano, mes: pino.mes, valorOficial: pino.valorOficial.toFixed(2) });
+  } catch (error) {
+    console.error('Pino oficial upsert error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /:id/meta-apropriacao/pino-oficial/:ano/:mes — remove pino de oficial
+router.delete('/:id/meta-apropriacao/pino-oficial/:ano/:mes', authenticate, requireRole('admin', 'gestor', 'chefe'), async (req: AuthRequest, res) => {
+  try {
+    const { id, ano: anoStr, mes: mesStr } = req.params;
+    const userId = req.user!.id;
+    const role   = req.user!.role;
+
+    const projeto = await prisma.projeto.findUnique({ where: { id }, select: { gestorId: true } });
+    if (!projeto) return res.status(404).json({ error: 'Projeto não encontrado' });
+    if (role === 'gestor' && projeto.gestorId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const anoN = parseInt(anoStr);
+    const mesN = parseInt(mesStr);
+    if (isNaN(anoN) || isNaN(mesN)) {
+      return res.status(400).json({ error: 'ano/mes inválidos na URL' });
+    }
+
+    const deleted = await prisma.oficialMensalAjuste.deleteMany({
+      where: { projetoId: id, ano: anoN, mes: mesN },
+    });
+    if (deleted.count === 0) {
+      return res.status(404).json({ error: 'Pino de oficial não encontrado para esse mês' });
+    }
+
+    return res.json({ removed: true, ano: anoN, mes: mesN });
+  } catch (error) {
+    console.error('Delete pino oficial error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── GET /:id/meta-apropriacao — Meta Mensal de Apropriação (F2a) ──────────
 // READ-ONLY. Computa sob demanda a meta de HT por mês da vigência + receita
 // já planejada, reusando carregarTarifas/resolverTarifa de lib/tarifa.ts
@@ -352,7 +443,7 @@ router.get('/:id/meta-apropriacao', authenticate, requireRole('admin', 'gestor',
       valorTotal, valorOficial, valorHT, numMeses,
       estrategiaOficial: estrategia,
       mesCalcs, somaMetaHT, totalCortadoPeloPiso,
-      temPinos, avisoEstouroMedicao,
+      temPinos, avisoEstouroMedicao, avisoEstouroOficial,
       saldoNaoPlanejado, precisaDecisaoManual,
     } = calc;
 
@@ -376,14 +467,17 @@ router.get('/:id/meta-apropriacao', authenticate, requireRole('admin', 'gestor',
         numeroMeses:          numMeses,
         estrategiaOficial:    estrategia,
         ...(avisoEstouroMedicao !== null ? { avisoEstouroMedicao }                               : {}),
+        ...(avisoEstouroOficial !== null ? { avisoEstouroOficial }                               : {}),
         ...(saldoNaoPlanejado   !== null ? { saldoNaoPlanejado: saldoNaoPlanejado.toFixed(2) }  : {}),
         ...(precisaDecisaoManual !== null ? { precisaDecisaoManual }                             : {}),
       },
-      meses: mesCalcs.map(({ ano, mes, medicao, pinadaMedicao, oficialAlocado, metaHT, pinado, fechado, receitaPlanejada, deficit, avisoPiso }) => ({
+      meses: mesCalcs.map(({ ano, mes, medicao, pinadaMedicao, oficialAlocado, pinadoOficial, ajustadoOficial, metaHT, pinado, fechado, receitaPlanejada, deficit, avisoPiso }) => ({
         ano, mes,
         medicao:          medicao.toFixed(2),
         pinadaMedicao,
         oficialAlocado:   oficialAlocado.toFixed(2),
+        pinadoOficial,
+        ajustadoOficial,
         metaHT:           metaHT.toFixed(2),
         pinado,
         fechado,

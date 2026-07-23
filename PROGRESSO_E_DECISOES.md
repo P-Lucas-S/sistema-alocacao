@@ -2,9 +2,9 @@
 
 > **Propósito deste documento.** Registro vivo do estado de execução do projeto. O `PLANO_FINAL.md` descreve *o que* construir; este documento registra *o que já foi construído*, *as decisões tomadas durante a implementação* e *como continuar*. Serve de contexto para qualquer pessoa — ou qualquer sessão futura do Claude Code — que pegar o projeto daqui em diante.
 >
-> **Última atualização:** **Os três dashboards completos, o transbordo do oficial, e a auditoria pente-fino com as correções de segurança.** Este arco entregou: a **UI dos dashboards inteira** conforme a `Spec_UI_Dashboards.md` — a tabela do Projetos refeita (fusão 13→8, `f387a93`), a faixa de veredito + chips (`3d4159a`), o **Dashboard Geral na tela Início** (`bbf4d42`, com a decisão de navegação: Início = Geral, itens de menu em vez de abas), o **Capacidade** (`9e56ed8`), a **visão do diretor** (`8f8ebcd`) depois **consolidada numa tela única** (`a51a1af`); o **transbordo do oficial** na estratégia proporcional (`7d724ad`, resposta da cliente); um **seed de dados variados** (`e860348`); e a **auditoria pente-fino** (`AUDITORIA_CODIGO.md`, no repo em `25e81a7`) com três fases de correção já aplicadas: os GETs sem `requireRole` fechados (`25e81a7`), o **payload dos dashboards recortado por papel** (`71cf921` — a regra do diretor agora vale de ponta a ponta), e os **403 misteriosos** (`8cc1e04`). Fecha também o **passo 6 dos papéis** (as telas do diretor). Tudo em `feat/alocacao-fase-2`. Próximo: Fases C (pergunta à cliente sobre o fluxo de exclusão órfão) e D (polimento) da auditoria — ver §7.
+> **Última atualização:** **A coluna Oficial editável (Fase 1) e a decisão de bifurcar o produto.** Este arco entregou a **coluna Oficial editável por mês** na Meta de Apropriação (`8b60a60`) — pino + cascata proporcional + teto/transbordo, fechando o pedido da cliente de "controlar em quais meses usar o recurso oficial"; mais a troca de rótulo Headcount→Colaboradores nos dashboards (`dad18fd`) e um conserto de teardown pré-existente no `test-pino-meta` (`b58d2aa`). **E a decisão de produto mais importante do arco:** em reunião, a cliente pediu **redução de escopo** — nasce um **segundo produto**, em repositório próprio, focado em alocação de horas por profissão, sem a camada financeira. Este sistema (o completo) **continua existindo e não é abandonado** — ver §4-sexdecies. Tudo em `feat/alocacao-fase-2`. Próximo: o desenho do produto novo (o modelo de demanda por profissão ainda em aberto).
 >
-> **Estado do código e do banco (importante pra próxima sessão):** código em **`d3f4aba`** (último: sincronização da spec v1.4), tudo pushed. Schema e banco **coerentes** — as migrations da feature (`f1_campos_financeiros_projeto`, `f2b_i_pino_meta_mensal`) aplicadas via `migrate deploy` sem reset. `tsc` limpo nos dois lados. **Entidades novas da feature:** 5 campos financeiros em `projetos` (valor_total, valor_oficial, estrategia_oficial, vigencia_inicio, vigencia_fim) e a tabela `meta_mensal_ajustes` (os pinos). Dependência nova no frontend: `react-number-format` (máscara de moeda). **Gotcha recorrente:** backend zumbi pegou 2× nesta frente (reiniciar do diretório errado → processo velho na :3001 servindo código antigo; o /api/health responde ok mesmo assim) — sempre reiniciar de `backend/` e provar que é o processo novo.
+> **Estado do código e do banco (importante pra próxima sessão):** código em **`8b60a60`** (último: coluna Oficial editável, Fase 1), tudo pushed. Schema e banco **coerentes** — todas as migrations aplicadas via `migrate deploy` sem reset. `tsc` limpo nos dois lados. **Entidades financeiras:** 5 campos em `projetos` (valor_total, valor_oficial, estrategia_oficial, vigencia_inicio, vigencia_fim) e **três tabelas de pino, esparsas e independentes** — `meta_mensal_ajustes`, `medicao_mensal_ajustes` e `oficial_mensal_ajustes` (esta última da Fase 1 da coluna Oficial). Os três pinos coexistem no mesmo (projeto, ano, mês). Dependência no frontend: `react-number-format` (máscara de moeda). **Gotcha recorrente:** backend zumbi (reiniciar do diretório errado → processo velho na :3001 servindo código antigo; o `/api/health` responde ok mesmo assim, mas o `uptimeHuman` denuncia) — sempre reiniciar de `backend/`. **O seed do boot apaga os cenários `CEN-` e `DASH-` a cada restart** — recriar com `node seed-cenarios.mjs` e `node seed-dashboards.mjs`.
 
 > **Os 5 passos da spec de papéis** estão fechados e no GitHub: **(1)** papéis `chefe` e `diretor` + `requireRole` tipado (`cae3015`); **(2)** `criadoPorId` no projeto + delegação na criação (`6861e87`); **(3)** override do chefe nas rotas de operação, teto provado sob concorrência chefe×gestor (`c07d6c7`); **(4)** re-delegação — chefe troca o `gestorId` + auditoria (`c5342d4`); **(5)** exclusão permanente — cascata + lápide + as 4 rotas do fluxo (`2e807d6` schema+cascata, `af2cbb3` rotas+conserto). Tudo provado por teste de API (papéis 11/11, delegação 16/16, override 15/15 + concorrência 8/8, re-delegação 23/23, cascata 36/36, fluxo 53/53).
 
@@ -77,7 +77,8 @@ Estas decisões foram debatidas (inclusive com revisão de IAs externas) e estã
 | **Área de atuação** | Entidade administrável + FK no colaborador + telas — **construída e REVERTIDA** | ⏪ **Revertida** (decisão de produto — ver §4-quater). Código de volta em `0dc3cc7`; 4 commits salvos em `backup/areas-atuacao-58e3f20` |
 | **Profissão** | Entidade **plana** que **substitui** a `funcao` + montar equipe por profissão no grid (filtro, faixa de candidatos, alocação inline) — ver §4-quinquies | ✅ **Completa** (`f2395e0`, `e64e6ce`, `cece63c`, `887ac75`, `892721a`, `a8582be`, `efe1317`, `087d61c`, `e2e56ac`, `3f3e9d7`) |
 | **Planejamento Inteligente** | Feature COMPLETA (F0→F6): meta de apropriação de HT (campos + meta mensal + cascata + tela) e motor de sugestão de equipe (motor read-only + wizard + aplicação) — ver §4-septies | 🟢 **F0→F6 ✅ (feature completa, validada pela cliente)** — financeira `3310d02`,`1b06ead`,`2047c71`,`9728b4e`,`58b49ec`,`f48dc50`,`aa9fd39`,`29a243f`; motor `d95b233`,`e172f5c`,`6769f94`,`1c36c29`,`7fb89e3`,`33e885f` (+ spec `294c299`, cenários `00c1fc9`, fixes `04e5e7c`) |
-| **Medição mensal editável** | A medição de cada mês deixa de ser derivada (uniforme) e passa a ser editável com pino; piso `máx(0)` na meta — ver §4-duodecies | ✅ **Completa** (backend `6105a50`, frontend `78271af`) — bordas resolvidas: **transbordo do oficial ✅** (`7d724ad`, resposta dela); estouro segue avisando (escolha dela: "pode deixar como está"). Aberto só o **arredondamento da HT** (pergunta enviada) |
+| **Medição mensal editável** | A medição de cada mês deixa de ser derivada (uniforme) e passa a ser editável com pino; piso `máx(0)` na meta — ver §4-duodecies | ✅ **Completa** (backend `6105a50`, frontend `78271af`) — bordas resolvidas: **transbordo do oficial ✅** (`7d724ad`, resposta dela); estouro segue avisando (escolha dela: "pode deixar como está"). Aberto só o **arredondamento da HT** (pergunta enviada — **perde sentido no produto novo, segue válida aqui**) |
+| **Coluna Oficial editável** | O oficial de cada mês vira editável com pino e cascata proporcional; teto+transbordo; Meta HT recalculada pelo piso — ver §4-sexdecies | ✅ **Fase 1 completa** (`8b60a60`). **Fase 2 (Valor Total/Oficial inline no Resumo Financeiro) desenhada e NÃO implementada** — parada pela decisão de bifurcação |
 | **Auditoria pente-fino** | `AUDITORIA_CODIGO.md`: 7 categorias, 25+ achados — ver §4-quindecies | 🟡 Fases **A/A½/B ✅** (segurança + 403s: `25e81a7`, `71cf921`, `8cc1e04`); **C** (decisão de produto: fluxo de exclusão órfão) e **D** (polimento) pendentes |
 | **Priorização (completa)** | `calcularPriorizacao()`; tela Prioridades; **limiares configuráveis** (P2-config); **fixar/pausar** com log — ver §4-sexies, §4-octies e §4-undecies | ✅ **Completa** — P1 (`7179587`…`89b9bc6`), config (`00b8e91`, `7a7a83f`), fixar/pausar (`ebcd960`, `d391605`) |
 | Transversal | Identidade visual geral | ✅ Reforma clara aplicada no preparo do demo (`c378876`, `db44f99`) |
@@ -750,6 +751,41 @@ Resposta da cliente: *"o que sobra do oficial passa para o outro mês"*. A inves
 
 ---
 
+## 4-sexdecies. A coluna Oficial editável (Fase 1) e a bifurcação do produto
+
+**O pedido da cliente.** Ela pediu que a coluna Oficial deixasse de ser só calculada: *"o sistema pode sugerir uma distribuição inicial, mas isso deve ser apenas uma sugestão — na prática a execução financeira não segue essa distribuição; posso decidir usar o recurso oficial apenas em determinados meses"*. O exemplo dela: o sistema distribui em Jan/Fev/Mar, mas ela usou Fevereiro para gerar receita por HT e quer concentrar o oficial em Jan e Mar. Escreveu ela mesma a regra do recálculo: `Meta HT = máx(0, Medição − Oficial)`.
+
+**As cinco decisões travadas** (tomadas pelo arquiteto, com o racional registrado):
+1. **Teto+transbordo, não passe-livre.** Nenhum mês fica com oficial > medição: capa na medição e o excedente transborda para o próximo editável, **reusando o laço `carry` do `7d724ad`**. O motivo é consistência: sem isso haveria dois caminhos para a mesma situação (o oficial que *nasce* alto transborda, o que *chega* alto por redistribuição não) — semente de bug.
+2. **Redistribuição PROPORCIONAL ao oficial-base**, não divisão igual. Proporcional **preserva a forma que o gestor escolheu**: pinar um mês na estratégia 'inicial' não achata a concentração nos primeiros meses. A divisão igual destruiria o desenho dela sem que ela pedisse.
+3. **Fallback de divisão igual** quando todos os editáveis têm oficial zero (proporção impossível — divisão por zero). Único caso em que não há forma preexistente a preservar.
+4. **`saldoEditavel = valorOficial − Σ(carimbo dos intocáveis)`**, onde carimbo = o pino se houver, senão o oficial-base. **Mês fechado nunca é recomputado** — seu oficial é fato histórico. A fórmula ingênua (subtrair o oficial-*base* dos fechados) mistura duas bases de cálculo e fura o invariante; foi pega na revisão do plano, antes de virar código.
+5. **Fase 2 separada da Fase 1.** Editar Valor Total/Oficial inline **redefine o total que a cascata distribui** — depende da cascata existir para reagir certo. Faseado por acoplamento, não por tamanho.
+
+**Entidade e cascata.** `OficialMensalAjuste` espelha `MetaMensalAjuste`/`MedicaoMensalAjuste` (esparsa, UNIQUE(projetoId,ano,mes), FK Cascade). **Os três pinos coexistem no mesmo mês.** A cascata vive no `metaApropriacaoCalc.ts` e **só ativa quando há pino de oficial** — sem pino o comportamento é byte-idêntico, **provado por `git stash`** (as 4 suítes existentes dão os mesmos números com e sem o código novo), não apenas afirmado.
+
+**Prova.** `test-cascata-oficial` 59/59 com raciocínio aritmético em cada caso, incluindo o que blinda a decisão 4: **mês fechado no meio com pino 15000 ≠ base 10000, provando `Σ(oficial)=valorOficial` exato — a fórmula bugada daria 45000**. Portão: meta-apropriação 46/46, pino-meta 27/27, cascata-meta 87/87, pino-medição 99/99.
+
+**Validado no navegador** nos dois temas: redistribuição com o badge `ajust.` em **todos** os meses movidos (não só num — é o que prova que a cascata percorre todos os editáveis); o caso Jan/Mar da cliente; oficial cobrindo a medição → Meta HT **R$ 0,00 explícito** (zero é valor calculado, ≠ ausência); despino; os dois níveis de aviso (âmbar de transbordo, vermelho de estouro). **O estouro avisa e não bloqueia** — a filosofia que a cliente já escolhera nas outras bordas.
+
+**Nota de processo:** o CC tocou o `test-pino-meta.mjs` (fora do escopo da fase) para consertar um crash de teardown pré-existente. Correção legítima, mas **commitada à parte** (`b58d2aa`) — feature e conserto incidental não se misturam no histórico. Mesma disciplina aplicada à troca de rótulo Headcount→Colaboradores (`dad18fd`), que estava órfã no working tree desde uma sessão anterior.
+
+### A bifurcação do produto (decisão de reunião)
+
+Em reunião, a cliente pediu **redução de escopo**: o sistema ficou mais completo do que o momento pede, e ela quer uma versão focada **só na alocação de horas**, sem a camada financeira.
+
+**A decisão: repositório separado, não branch.** Branch pressupõe reconvergência — separa-se para depois juntar. O que se espera aqui é o oposto: **dois produtos com um ancestral comum e caminhos próprios**. Em branch, cada commit num lado obrigaria a perguntar "e no outro?", e o histórico viraria duas linhas trançadas sem merge possível. Repositório separado corta esse laço no dia zero. **Banco próprio também** — o schema do produto novo nasce podado, sem tabelas fantasma de financeiro.
+
+**Este sistema (o completo) NÃO é abandonado.** Continua vivo e válido; a coluna Oficial que a cliente pediu segue funcionando aqui.
+
+**O produto novo não é "este menos o financeiro" — é outro modelo de dados.** O sistema atual pergunta *"quanto esse projeto precisa gerar, e quem alocar pra cobrir?"* — a alocação nasce de necessidade financeira. O novo pergunta *"esse projeto precisa de X horas de Desenvolvedor e Y de Designer; quem preenche?"* — a alocação nasce de **necessidade de esforço por profissão**. Isso exige uma **entidade de demanda de horas por profissão** que não existe hoje. A entidade `Profissao` já existe e serve de apoio; falta a demanda em si.
+
+**Escopo definido com a cliente:** o **Planejamento Inteligente e a priorização permanecem** — mas o motor de sugestão, que hoje decide por orçamento em reais, precisa ser **reescrito para decidir por horas e profissão**. Não é adaptação de parâmetro: é regra nova.
+
+**EM ABERTO — o modelo de demanda.** Como a demanda é expressa: (A) por projeto e mês ("Mar/26: 160h de Desenvolvedor"); (B) por macro-entrega ("a macro Backend precisa de 400h"); (C) por projeto inteiro, distribuído nos meses (estruturalmente análogo ao valor oficial de hoje, com horas no lugar de reais). **Essa escolha define schema, telas e motor** — o desenho do produto novo está parado nela.
+
+---
+
 ## 5. Sobre alocar "no nível da macro" (sem descer até micro)
 
 Pergunta recorrente: *é possível atribuir um colaborador a uma macro, sem escolher uma micro?*
@@ -797,7 +833,7 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 
 **No ar e completos:** Planejamento Inteligente (F0→F6), priorização inteira, filtro do chefe, **os três dashboards com a visão do diretor** (a `Spec_UI_Dashboards` inteira), medição editável **com o transbordo**, as cinco respostas da cliente, **a spec de papéis completa** (o passo 6 fechou com os dashboards), e as Fases A/A½/B da auditoria.
 
-**PRÓXIMO — o resto da auditoria** (ver §4-quindecies): **Fase C** — perguntar à cliente se a aprovação de exclusão de projetos deve existir (5 endpoints prontos sem UI) e construir a UI ou remover; **Fase D** — o polimento em lote listado na seção.
+**PRÓXIMO — o produto novo** (ver §4-sexdecies): definir o modelo de demanda por profissão (A/B/C) e gerar o plano do repositório separado. **Neste repositório**, o que fica parado: a **Fase 2 da coluna Oficial** (Valor Total/Oficial inline — desenhada, não implementada), a **Fase D-1 da auditoria** (polimento em lote, prompt pronto), a **Fase D-2** (`noUnusedLocals`) e a **Fase C** (aguardando a cliente sobre o fluxo de exclusão órfão).
 
 **AGUARDANDO A CLIENTE:**
 - **O arredondamento da Meta HT** — a pergunta com as opções (ela ajusta / o sistema arredonda / arredonda e o último mês absorve) está enviada (`Pergunta_Juliana_arredondamento.md`). As duas bordas originais foram resolvidas (transbordo implementado `7d724ad`; estouro segue avisando por escolha dela).
@@ -806,7 +842,6 @@ O projeto vem sendo construído com um método que está funcionando e vale pres
 - **Limite de meses maior no planejador** — combinado "de 12 em 12" (funciona); ela preferiria mais. Exige resolver a matriz larga (navegabilidade).
 
 **ESTACIONADO:**
-- **Passo 6 dos papéis** (telas do diretor) — a spec o define como "junto dos dashboards"; entra naturalmente quando o Geral e o Capacidade forem construídos (o diretor vê agregados, sem drill-down).
 - **Fase 5** (visão da coordenação, relatórios, virtualização + navegabilidade do grid, incluindo o **peek lateral**) — casa com o pedido nº1 da cliente.
 - **Itens menores do Manual** (PDF Declaração de HT, notificação de remanejamento, datas na macro).
 - Duas pendências antigas do passo 6: `'chefe'` no `requireRole` de `GET /categorias`; a decisão de UX do remanejamento do chefe.
@@ -867,4 +902,5 @@ Com muitas colunas: (a) difícil perceber que dá pra rolar na horizontal; (b) d
 - **`bench-dashboards.mjs`** — o script que mediu as agregações e derrubou a premissa de sumarização da `Spec_Dashboards.md`.
 - **`AUDITORIA_CODIGO.md`** — o pente-fino (7 categorias, 25+ achados, Top 5); o mapa das fases de correção. Fases A/A½/B aplicadas; C e D pendentes.
 - **`seed-dashboards.mjs`** — dados variados (prefixo `DASH-`) que tornam os dashboards validáveis; independente do `seed-cenarios`.
+- **`test-cascata-oficial.mjs`** — as 59 asserções da cascata do oficial, com o caso do mês fechado que distingue a fórmula correta da ingênua.
 - **`PROGRESSO_E_DECISOES.md`** — este documento.
